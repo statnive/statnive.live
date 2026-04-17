@@ -121,13 +121,111 @@ The final binary MUST run on a fully isolated server with zero required outbound
 - ClickHouse schema changes go through migrations (embedded SQL, run on startup)
 - Config changes to goals/funnels hot-reload via SIGHUP (no restart)
 
-## Feature Scope
+## Feature Scope (complete enumeration — 55 v1 + 10 v2 + 1 Future)
 
-- **v1: 55 features** — security, identity, events/goals, funnels, revenue, attribution, SEO, content, audience
-- **v2: 10 features** — sequential funnels, cohort/retention, filtering/drill-down, GSC integration, session tracking, entry/exit pages, engagement time, Telegram reports, CSV export, public REST API
-- **Never: 3 features** — 5-min real-time, bounce rate, multi-touch attribution
-- **Future: Microsoft Clarity** — free heatmaps + session recordings (their infra; complementary per doc 21, not a replacement)
-- See `docs/research/18-feature-decisions-summary.md` for complete list
+Full list derived from research doc 18 (feature-decisions-summary) and doc 17 (feature-cost-decision-matrix). Every v1 row must exist in the shipped binary.
+
+### v1 — 55 features
+
+**Security (13):**
+1. TLS 1.3 on all endpoints (three-mode: autocert / manual PEM / internal CA)
+2. ClickHouse localhost-only (bound 127.0.0.1)
+3. Hostname validation on `/api/event` (HMAC skipped per doc 20)
+4. Input validation (`MaxBytesReader` 8KB, field limits, timestamp ±1h)
+5. Rate limiting via `go-chi/httprate` (100 req/s, burst 200, NAT-aware)
+6. Dashboard auth (bcrypt + `crypto/rand` sessions, 14-day TTL, `SameSite=Lax`)
+7. RBAC (admin / viewer / api-only)
+8. Encrypted backups (`clickhouse-backup` + `age` + `zstd`, cron + monthly restore test)
+9. Disk encryption LUKS (optional; 40–50% I/O overhead trade-off)
+10. Audit log (JSONL multi-sink: file / local syslog / opt-in remote)
+11. User ID hashed before storage (SHA-256 + per-site secret)
+12. systemd hardening (NoNewPrivileges, ProtectSystem=strict, PrivateTmp, empty CapabilityBoundingSet)
+13. Tracker served via `go:embed` (first-party, ad-blocker-resistant, no SRI needed)
+
+**Identity (3):**
+14. user_id pass-through (site sends; hashed server-side)
+15. Cookie fallback (httpOnly, SameSite=Lax, 1y max-age)
+16. BLAKE3-128 hash fallback with daily IRST-derived salt (`HMAC(master_key, site_id || YYYY-MM-DD IRST)`)
+
+**Events & Goals (4):**
+17. Custom event API: `statnive.track(name, props, value)`
+18. Goal YAML config (event → goal mapping, hot reload via SIGHUP)
+19. Goal value column (UInt64 rials, `DEFAULT 0`, no Nullable)
+20. Goal rate per channel / per page (aggregated in rollups)
+
+**Funnels (2):**
+21. Funnel YAML definition (ordered event steps)
+22. Funnel report: count + drop-off % per step, 1h cache
+
+**Revenue & CRO (7):**
+23. Revenue sum per channel
+24. Revenue sum per page
+25. Revenue trend (daily / weekly)
+26. Conversion rate per source
+27. Conversion rate trend
+28. Average value per conversion per channel
+29. Revenue Per Visitor (RPV) per channel — **primary CRO metric**
+
+**Attribution (5):**
+30. UTM tracking (5 params: source, medium, campaign, content, term)
+31. Auto source detection (referrer → named source via `sources.yaml`)
+32. Channel grouping (Organic / Social / Direct / Paid / Email / Referral priority)
+33. 50+ Iranian source database (Divar, Torob, Filimo, etc.)
+34. Campaign report (breakdown by `utm_campaign`)
+
+**SEO (5):**
+35. Organic search traffic trend
+36. Top landing pages from organic search
+37. Organic conversion rate + revenue
+38. Organic vs paid split
+39. High-traffic / low-conversion pages
+
+**Content & Trends (4):**
+40. Top pages (by visitors, views, goals, revenue)
+41. Visitors trend (hourly / daily)
+42. New vs returning visitors (18MB bloom filter, 10M visitors, 0.1% FPR)
+43. Comparison periods (this period vs previous, % change)
+
+**Audience (4):**
+44. Iranian provinces / cities (IP2Location DB23, ~84% city accuracy)
+45. Device / browser / OS (`medama-io/go-useragent`, ~287 ns/op)
+46. ISP / carrier (MCI, Irancell, Rightel, etc. via DB23)
+47. User segments (custom properties sent with user_id)
+
+**Infrastructure (6):**
+48. Pageview tracking (`navigator.sendBeacon` + fetch keepalive)
+49. SPA route tracking (pushState/replaceState patching + popstate)
+50. Bot filtering (server: `omrilotan/isbot` + `crawler-user-agents.json`; client: `navigator.webdriver`, `evt.isTrusted`)
+51. GeoIP at ingest (IP2Location `.BIN`, raw IP discarded after lookup)
+52. UA parsing (Medama fast-path)
+53. Hourly active-visitors widget (NOT 5-min real-time — rollup-based)
+
+**Nice-to-have (2):**
+54. Jalali calendar display (`jalaali-js` 3KB, client-side)
+55. Outbound link tracking (click delegation + sendBeacon on external links)
+
+### v2 — 10 features (post-launch, +8–12 weeks)
+
+1. Sequential funnel (`windowFunnel`, 24h window)
+2. Cohort / retention (first_seen cohort, weeks-later window)
+3. Filtering / drill-down (extra `WHERE` on rollups, hash-keyed cache)
+4. Google Search Console integration (OAuth2, keywords, position, CTR — 2–3d delay)
+5. Session tracking (duration, pages/session, window functions)
+6. Entry / exit pages (`first_value` / `last_value` per session)
+7. Engagement time (page-gap between consecutive events per visitor)
+8. Email + Telegram weekly reports (`robfig/cron`, Monday 9 AM IRST, Persian numerals)
+9. CSV data export (`http.Flusher` chunked transfer, 1 export/hour rate limit)
+10. Public REST API (Bearer token auth, rate limited, OpenAPI docs)
+
+### Future (post-v2)
+
+- **Microsoft Clarity integration** — free heatmaps + session recordings on Clarity's infra. Complementary (doc 21), not a replacement. Effort ~1 day.
+
+### Never
+
+- 5-minute real-time (rollup-based hourly is the line; breaks cost model)
+- Bounce rate (vanity metric per research doc 09 / 14)
+- Multi-touch attribution (last-touch channel grouping is the final answer)
 
 ## Key Paths
 
@@ -251,6 +349,7 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   │   └── migrate.go              # Numbered schema migrations, applied versions tracked in CH
 │   ├── dashboard/
 │   │   ├── router.go               # chi routes + auth middleware + httprate
+│   │   ├── tenant.go               # Subdomain <slug>.statnive.live -> site_id middleware (Phase C)
 │   │   ├── overview.go             # GET /api/stats/overview
 │   │   ├── sources.go              # GET /api/stats/sources
 │   │   ├── pages.go                # GET /api/stats/pages
@@ -259,7 +358,13 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   │   ├── funnel.go               # GET /api/stats/funnel
 │   │   ├── campaigns.go            # GET /api/stats/campaigns
 │   │   ├── seo.go                  # GET /api/stats/seo
-│   │   └── admin.go                # POST/PUT/DELETE /api/admin/users, /api/admin/goals (funnels via YAML+SIGHUP)
+│   │   ├── admin.go                # POST/PUT/DELETE /api/admin/users, /api/admin/goals (funnels via YAML+SIGHUP)
+│   │   ├── signup.go               # POST /api/signup (Phase C self-serve)
+│   │   ├── onboarding.go           # GET /api/stats/ping?site_id=X (Phase C onboarding polling)
+│   │   └── billing.go              # POST /api/admin/billing (Stripe webhook, Phase C)
+│   ├── sites/                       # Multi-tenant site registry (shared by ingest + dashboard)
+│   │   ├── sites.go                # Sites table DAO: hostname <-> site_id resolution
+│   │   └── provisioning.go         # Create / disable site, slug generation for subdomain routing
 │   ├── auth/
 │   │   ├── session.go              # bcrypt + session store (in-memory)
 │   │   ├── middleware.go           # Auth + RBAC (admin/viewer/api)
@@ -455,6 +560,49 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 - [ ] **Air-gapped acceptance test**: deploy bundle on a host with `iptables -P OUTPUT DROP` (loopback + tracker IPs only), run full integration suite
 - [ ] v1 launch
 
+### Phase 9: Dogfood on statnive.com (Weeks 20–21, Phase A of Launch Sequence)
+
+- [ ] Provision Hetzner AX42 as **Deployment D1** (€46/mo, Germany)
+- [ ] DNS: A + AAAA records for `statnive.live` and `demo.statnive.live`
+- [ ] ACME DNS-01 wildcard cert for `*.statnive.live` + apex `statnive.live`
+- [ ] Seed `sites` table: `site_id=1, hostname='statnive.com'`
+- [ ] Create shared viewer account `demo / demo-statnive` and internal admin account
+- [ ] Login page exposes demo credentials inline + "Sign up for your own analytics" CTA
+- [ ] Paste tracker snippet into `statnive-website/` Astro base layout: `<script src="https://statnive.live/tracker.js" defer></script>`
+- [ ] Acceptance: 24h after tracker install, `demo.statnive.live` dashboard shows non-zero visitors; viewer cannot call `/api/admin/*`; all 8 `/api/stats/*` endpoints return data
+
+### Phase 10: Filimo dedicated Iranian VPS (Weeks 22–25, Phase B of Launch Sequence)
+
+- [ ] Negotiate Iranian DC quote: Asiatech / Shatel / Afranet — 8c/32GB/1TB NVMe, 1 Gbps uplink, co-hosted ClickHouse, ~€180/mo target
+- [ ] Provision **Deployment D2** on Iranian DC bare metal
+- [ ] DNS: CNAME `filimo.statnive.live` → Iranian DC IP (Cloudflare proxy **OFF** for this record — traffic must reach Iranian DC directly)
+- [ ] Build offline install bundle via `make airgap-bundle`
+- [ ] SCP bundle → Iranian DC, verify SHA256 + Ed25519 signature
+- [ ] Run `deploy/airgap-install.sh`
+- [ ] TLS: manual PEM files (plan A) or DNS-01 via Cloudflare API (plan B) or customer-provided internal CA (plan C)
+- [ ] Generate Ed25519 license JWT: `site_id=1, Customer="Filimo", MaxEventsDay=0, Features=["*"], ExpiresAt=+1y`; drop at `config/license.key`
+- [ ] Config overrides: `tls.mode = "manual"`, `alerts.sinks = ["file","syslog"]`, `license.phone_home = false`, `audit.remote = ""`
+- [ ] Seed `sites` table with Filimo hostnames: `filimo.com`, `www.filimo.com`, + any CDN / video-delivery subdomains
+- [ ] Create Filimo admin user; deliver password via secure channel (Signal / in-person / PGP)
+- [ ] Filimo pastes `<script src="https://filimo.statnive.live/tracker.js" defer></script>` in their site template
+- [ ] Root-domain cookie walking (Clarity pattern, doc 21) to cover CDN subdomains
+- [ ] Acceptance: k6 7K EPS ramp (Persian URLs, Iranian UAs) passes p99 <500ms; full `iptables OUTPUT DROP` air-gapped acceptance from Phase 8 passes; Filimo smoke test confirms live traffic in dashboard within 1h; backup + restore drill succeeds
+
+### Phase 11: International SaaS self-serve (Weeks 26–30, Phase C of Launch Sequence)
+
+- [ ] Implement `POST /api/signup` (email + password + hostname → creates site + admin user)
+- [ ] Implement `GET /api/stats/ping?site_id=X` (onboarding polling for first-event detection)
+- [ ] Implement `POST /api/admin/billing` (Stripe webhook for upgrades)
+- [ ] Subdomain routing middleware `dashboard/tenant.go` — extract `<slug>` from host, resolve to `site_id`, scope all `/api/stats/*` calls
+- [ ] `internal/sites/provisioning.go` — slug generation (`example.com` → `example-com`), uniqueness check, hostname blocklist (spam/phishing lists)
+- [ ] Signup guardrails: hostname DNS-resolvable, not on blocklist, unique in `sites` table, rate limit 5 signups/hour per IP
+- [ ] Free tier quota: 10K PV/mo tracked via `daily_users` rollup; soft throttle on ingest above limit (still accept, tag events `quota_exceeded=1`), upsell banner in dashboard
+- [ ] Stripe integration (tiers per existing pricing table: Starter $9, Growth $19, Business $69, Scale $199)
+- [ ] Paid tiers unlock higher quota + goals/funnels CRUD
+- [ ] Onboarding page at `<slug>.statnive.live/onboarding` with copy-paste snippet + live polling
+- [ ] Email transactional flow (signup confirm, payment receipt, quota warnings) — opt-in per deployment, can disable for air-gapped
+- [ ] Acceptance: fresh signup → tracker embed → first event visible in tenant dashboard in <5 min; cross-site isolation test (site A admin cannot query site B data via URL manipulation); Stripe webhook correctly updates `sites.plan`; signup rate limiter rejects 6th signup/hour from same IP
+
 ---
 
 ## License Management (Self-Hosted)
@@ -611,6 +759,8 @@ The final platform runs as a **single, self-contained binary on one server with 
 | Remote syslog | Audit log shipping | `audit.remote = ""` |
 | Google Search Console (v2) | Organic SEO data | Feature flag off |
 | Microsoft Clarity (future) | Heatmaps | Feature flag off |
+| Stripe (SaaS Phase C only) | Billing webhooks + payment | `billing.stripe.enabled = false` (D2 always off) |
+| Transactional email (SaaS Phase C only) | Signup confirm, receipts, quota alerts | `email.enabled = false` (D2 always off) |
 
 ### Install procedure (air-gapped host)
 
@@ -634,6 +784,110 @@ The final platform runs as a **single, self-contained binary on one server with 
 - **Internal NTP source** — IRST salt correctness depends on accurate clock
 - Sufficient disk (plan ≥100 GB for WAL + CH data at 7K EPS for 90 days)
 - Optional: internal CA + root cert distributed to tracker-embedding clients (for mode (c))
+
+---
+
+## Launch Sequence
+
+statnive-live ships in **three public-facing phases across two deployments**. Same binary, same schema; differences are config + DNS + hosting.
+
+| Deployment | Host | Tenancy | Purpose | Phases |
+|---|---|---|---|---|
+| **D1 — `statnive.live` (SaaS)** | Hetzner AX42, Germany | Multi-tenant, pooled ClickHouse | Dogfood + public SaaS | A, C |
+| **D2 — `filimo.statnive.live` (Dedicated)** | Iranian DC (Asiatech / Shatel / Afranet) | Single-tenant (`site_id=1` only), air-gapped | Filimo production | B |
+
+### Routing strategy (both deployments)
+
+- **Single tracker URL:** `https://<host>/tracker.js` — site-agnostic, `site_id` resolved server-side from `Origin` / `Referer` hostname against the `sites` table
+- **Dashboard subdomain per site** (D1): `<slug>.statnive.live` where `<slug>` is the sanitized hostname (`example.com` → `example-com`); wildcard TLS cert covers all
+- **Fixed dashboard hostnames:** `demo.statnive.live` (Phase A), `filimo.statnive.live` (Phase B)
+- **Central signup + login:** `statnive.live/signup`, `statnive.live/app`
+
+### Auth model per phase
+
+| Phase | Who logs in | Role | Credentials source |
+|---|---|---|---|
+| A (demo) | Anyone | **viewer** (read stats only; no `/api/admin/*`, no CSV export, no audit log) | Shared `demo / demo-statnive`, displayed on login page |
+| B (Filimo) | Filimo team | admin + viewer | Set at first-run, handed to Filimo via secure channel; rotatable via `/api/admin/users` |
+| C (SaaS) | Registered site owner | admin of their own `site_id` only | Email + password, bcrypt + 14-day session (v1 security #6) |
+
+### License strategy per phase
+
+- **D1 (Phases A + C):** no JWT required — it's our own instance. Access gated by admin-user records, not license keys. Demo mode unused.
+- **D2 (Phase B):** signed Ed25519 JWT at `config/license.key`: `{site_id:1, Customer:"Filimo", MaxEventsDay:0, Features:["*"], ExpiresAt:+1y}`. Offline — never phones home.
+
+---
+
+### Phase A — Dogfood on statnive.com (Weeks 20–21)
+
+**Goal:** `statnive.com` → `statnive.live/tracker.js`; live dashboard at `demo.statnive.live` with shared viewer credentials so anyone can watch the live numbers.
+
+- **Deployment:** D1 (Hetzner AX42)
+- **DNS:** A + AAAA → D1 IP for both `statnive.live` and `demo.statnive.live`
+- **TLS:** `autocert` via ACME DNS-01 (Cloudflare API token) — wildcard `*.statnive.live` + apex
+- **Config diff from default:** `tls.mode = "autocert"`, license NOT required
+- **Seed SQL:** `INSERT INTO sites (site_id, hostname) VALUES (1, 'statnive.com');`
+- **Seed users:** shared viewer `demo / demo-statnive`; internal admin for us
+- **Login page:** displays demo credentials inline + "Sign up for your own analytics" CTA → Phase C signup
+- **Tracker install:** `<script src="https://statnive.live/tracker.js" defer></script>` in `statnive-website/` Astro base layout
+- **Rate limiting:** login attempts capped at 10/min per IP to prevent brute force on the shared demo password
+- **Banner in dashboard:** "Public demo — statnive.com traffic — viewer role, no writes"
+- **Acceptance:** within 24h of tracker install, dashboard shows non-zero visitors; viewer login gets 403 on any `/api/admin/*`; all 8 `/api/stats/*` endpoints return data scoped to `site_id=1`
+
+### Phase B — Filimo dedicated Iranian VPS (Weeks 22–25)
+
+**Goal:** `filimo.statnive.live` runs on an Iranian DC, Filimo team logs in with admin credentials, tracker is `filimo.statnive.live/tracker.js`. Fully secure, max performance, air-gapped-capable.
+
+- **Deployment:** D2 (Iranian DC bare metal, 8c/32GB/1TB NVMe, 1 Gbps uplink, ~€180/mo negotiated)
+- **Hardware:** negotiate quotes with Asiatech / Shatel / Afranet — colocation + bandwidth; we provide the hardware spec per doc 16 §12.2
+- **Install:** offline bundle from Phase 8 (`make airgap-bundle`) — SCP tarball via bastion, verify `SHA256SUMS` + Ed25519 signature, run `deploy/airgap-install.sh`
+- **DNS:** `CNAME filimo.statnive.live → <Iranian-DC-IP>`; Cloudflare proxy **OFF** (traffic must terminate inside Iran)
+- **TLS (three fallbacks):**
+  - **Plan A — manual PEM:** customer-provided or self-signed via internal CA, rotated quarterly
+  - **Plan B — ACME DNS-01 via Cloudflare API:** only if outbound HTTPS to Let's Encrypt is allowed
+  - **Plan C — internal CA:** customer's corporate root CA, distributed to tracker-embedding clients
+- **License:** generate JWT with our offline Ed25519 HSM key — `site_id=1, Customer="Filimo", MaxEventsDay=0, Features=["*"], ExpiresAt=+1y` — drop at `config/license.key`
+- **Config overrides:**
+  - `tls.mode = "manual"` (or `"autocert-dns01"` if Plan B)
+  - `alerts.sinks = ["file", "syslog"]` (no Telegram)
+  - `license.phone_home = false`
+  - `audit.remote = ""` (local JSONL only)
+  - Single-tenant: only `site_id=1` provisioned in `sites` table
+- **Seed:** `INSERT INTO sites VALUES (1, 'filimo.com'), (1, 'www.filimo.com'), (1, 'cdn.filimo.com'), …` — all Filimo-owned hostnames that might embed the tracker
+- **Admin user:** password generated at first-run, delivered to Filimo via secure channel (Signal / in-person / PGP)
+- **Tracker install (on Filimo side):** `<script src="https://filimo.statnive.live/tracker.js" defer></script>` in their site template; root-domain cookie walking (Clarity pattern, doc 21) automatically covers all Filimo subdomains + CDN hosts
+- **Firewall:** `iptables -P OUTPUT DROP` with explicit allows for: loopback, ClickHouse port (localhost only), tracker client IP ranges (if geofenced), DNS resolver, NTP
+- **Acceptance:** k6 7K EPS ramp (Persian URLs, Iranian UA strings) sustains p99 <500ms; full air-gapped acceptance test from Phase 8 verification passes end-to-end; Filimo smoke test confirms live traffic in dashboard within 1h; monthly backup + restore drill succeeds
+
+### Phase C — International SaaS self-serve (Weeks 26–30)
+
+**Goal:** anyone registers at `statnive.live`, gets their dashboard at `<slug>.statnive.live`, pastes a one-liner tracker snippet.
+
+- **Deployment:** D1 (same instance as Phase A, multi-tenant continues)
+- **New endpoints (on top of v1):**
+  - `POST /api/signup` — `{email, password, hostname}` → creates `site_id`, admin user, returns redirect to `<slug>.statnive.live/onboarding`
+  - `GET /api/stats/ping?site_id=X` — onboarding page polls until first event arrives (returns `{seen: bool}`)
+  - `POST /api/admin/billing` — Stripe webhook (plan upgrades / cancellations)
+- **Subdomain routing middleware** (`internal/dashboard/tenant.go`):
+  - Parse host → extract `<slug>` → resolve to `site_id` via `internal/sites/sites.go`
+  - Inject `site_id` into request context; all `/api/stats/*` handlers read from context
+  - Missing slug → redirect to `statnive.live/app` (root login)
+- **Signup guardrails:**
+  - Hostname must DNS-resolve (simple A/AAAA lookup)
+  - Hostname not on blocklist (spam/phishing lists, known typosquats)
+  - Unique in `sites` table (first-come-first-served for hostname)
+  - Rate limit 5 signups/hour per IP
+  - Email verification link before tracker is activated (24h grace)
+- **Free tier quota:** 10K PV/mo tracked via `daily_users` rollup; over-quota = soft throttle (still accept events, tag with `quota_exceeded=1`, show upsell banner)
+- **Stripe tiers** (per existing pricing at PLAN.md line 546):
+  - Free (self-hosted only, no SaaS)
+  - Starter $9/mo → 100K PV + 5 goals
+  - Growth $19/mo → 1M PV + unlimited goals + funnels CRUD
+  - Business $69/mo → 10M PV + API access
+  - Scale $199/mo → 100M PV + priority support
+- **Onboarding UX:** post-signup page shows tracker snippet + live polling indicator; flips to real dashboard as soon as first event lands
+- **Email transactional:** signup confirm, payment receipt, quota warnings — opt-in per deployment (can disable for future self-hosted SaaS)
+- **Acceptance:** fresh signup → tracker embed → first event visible in <5 min; cross-tenant isolation (site A admin sees only site A data even when URL-manipulating); Stripe webhook correctly updates `sites.plan` and quota flips accordingly; signup rate limiter rejects 6th signup/hour per IP
 
 ---
 
@@ -761,3 +1015,6 @@ All existing architectural decisions in the plan (schema, identity, transport, p
 18. **Offline build**: `go build -mod=vendor ./...` succeeds with `GOFLAGS=-mod=vendor` and no network access
 19. Manual TLS: binary serves traffic with `tls.mode = "manual"` and `tls.cert_file` / `tls.key_file` pointing at internal-CA-issued PEMs (no autocert call)
 20. Air-gapped GeoIP update: replace DB23 BIN + `SIGHUP` → new IPs resolve correctly without restart
+21. **Phase A (dogfood):** statnive.com fires a pageview → visible in `demo.statnive.live` dashboard within 5 minutes; shared viewer login (`demo / demo-statnive`) gets 403 on every `/api/admin/*` route; login brute-force capped at 10 attempts/min per IP
+22. **Phase B (Filimo):** Filimo tracker at `filimo.statnive.live/tracker.js` fires → visible in `filimo.statnive.live` dashboard within 5 minutes; `iptables -P OUTPUT DROP` test passes end-to-end on Iranian DC box; backup + restore drill succeeds on the dedicated instance
+23. **Phase C (SaaS):** fresh signup (`POST /api/signup`) → tracker embed → first event appears in `<slug>.statnive.live` within 5 minutes; cross-tenant isolation — site A admin cannot query site B data even by URL manipulation; Stripe webhook updates `sites.plan` and quota enforcement flips correctly; 6th signup/hour from same IP is rejected
