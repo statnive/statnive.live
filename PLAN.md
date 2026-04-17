@@ -808,14 +808,15 @@ The final platform runs as a **single, self-contained binary on one server with 
 
 ### What ships next to the binary (offline install bundle, `make airgap-bundle`)
 
-- `statnive-live` binary (`CGO_ENABLED=0` where possible)
-- `vendor/` tarball (for buildable-from-source audits)
-- `statnive-live.docker.tar` (pre-built image via `docker save`, for Docker-based installs)
-- `IP2LOCATION-LITE-DB23.BIN` (or licensed DB23 BIN)
+- `statnive-live` binary (`CGO_ENABLED=0` where possible — one file, no runtime deps)
+- `vendor/` tarball (for buildable-from-source audits only; not required to run)
+- `IP2LOCATION-LITE-DB23.BIN` (or licensed DB23 BIN for Filimo)
 - `clickhouse-backup` + `age` binaries
 - `schema.sql` + `migrations/`
 - `deploy/` scripts (systemd, iptables, backup, airgap-install, airgap-update-geoip)
 - `SHA256SUMS` + detached Ed25519 signature
+
+**Docker tarball (`docker save`) deferred to v1.1** — static binary is one file, runs anywhere; Docker-based installs are a convenience layer that adds bundle size + CI time without unblocking any of the 5 goals. Revisit when an operator actually asks for it.
 
 ### Mandatory external services: **NONE**
 
@@ -823,11 +824,11 @@ The final platform runs as a **single, self-contained binary on one server with 
 
 | Service | Purpose | Disable via config |
 |---|---|---|
-| Let's Encrypt (ACME) | TLS cert issuance | `tls.mode = "manual"` |
-| Telegram Bot API | Operator alerts | `alerts.telegram.enabled = false` |
-| `license.statnive.live` | SaaS license phone-home | `license.phone_home = false` |
+| Let's Encrypt (ACME) | TLS cert issuance | v1 uses manual PEM only — LE never called from the binary. Operator obtains certs separately via `certbot certonly --manual` and drops PEMs. |
+| Telegram Bot API | Operator alerts | v1.1 only — v1 uses file sink (`/var/log/statnive/alerts.jsonl`) |
+| `license.statnive.live` | SaaS license phone-home | `license.phone_home = false` (v1 default) |
 | ip2location.com | Monthly GeoIP DB refresh | Never auto-fetched — always manual file drop |
-| Remote syslog | Audit log shipping | `audit.remote = ""` |
+| Remote syslog | Audit log shipping | v1.1 only — v1 uses file sink |
 | Google Search Console (v2) | Organic SEO data | Feature flag off |
 | Microsoft Clarity (future) | Heatmaps | Feature flag off |
 | Polar.sh (SaaS Phase C only) | Billing (Merchant of Record), checkout sessions, webhooks at `api.polar.sh` | `billing.polar.enabled = false` (D2 always off) |
@@ -844,8 +845,8 @@ The final platform runs as a **single, self-contained binary on one server with 
 
 ### What stops working in air-gapped mode (acceptable)
 
-- Automatic TLS renewal — operator rotates manual certs quarterly (alert at `<14d`)
-- Telegram alerts — file + local syslog replace them
+- Automatic TLS renewal — operator rotates manual certs quarterly (file-sink alert when `<30d` remaining)
+- Remote alerting (Telegram / syslog forwarding) — file sink only in v1; v1.1 adds optional remote sinks
 - v2 license phone-home — pure offline JWT, grace treated as forever
 - GSC / Clarity / auto-dep-updates — never required
 
@@ -854,7 +855,7 @@ The final platform runs as a **single, self-contained binary on one server with 
 - Linux kernel 5.x+, systemd, ClickHouse 24+ (also shipped in the bundle)
 - **Internal NTP source** — IRST salt correctness depends on accurate clock
 - Sufficient disk (plan ≥100 GB for WAL + CH data at 7K EPS for 90 days)
-- Optional: internal CA + root cert distributed to tracker-embedding clients (for mode (c))
+- Optional: internal CA + root cert distributed to tracker-embedding clients (for Filimo's corporate trust store)
 
 ---
 
@@ -1079,13 +1080,13 @@ All existing architectural decisions in the plan (schema, identity, transport, p
 10. ClickHouse outage: stop CH 10 min → events buffer to WAL → resume → zero loss
 11. Disk-full policy: fill WAL to 10GB cap → 503 with clear error, existing events preserved
 12. Backup: restore encrypted backup to fresh CH → row counts match exactly
-13. TLS renewal: ACME cert rotation 14+ days before expiry on both HTTP-01 and DNS-01 paths
+13. TLS rotation: replace PEM files + SIGHUP → new certificate served without binary restart; cert-expiry alert fires at <30 days
 14. Tracker: install on test page → events appear in dashboard within 1 hour
-15. GDPR (SaaS only): consent decline drops cookies + user_id; `/api/privacy/erase` removes visitor across raw + all 6 rollups
+15. GDPR (SaaS only): consent decline drops cookies + user_id; `/api/privacy/erase` removes visitor across raw + all v1 rollups (3 now, 6 after v1.1)
 16. License: demo-mode binary caps at 10K events/day; valid JWT unlocks; expired JWT falls back to demo-mode with warning
 17. **Air-gapped acceptance**: deploy offline bundle on host with `iptables -P OUTPUT DROP` (loopback + tracker IPs only). Binary starts, migrations apply, events ingest end-to-end, rollups materialize, dashboard renders, backup + restore succeed — all with zero outbound traffic
 18. **Offline build**: `go build -mod=vendor ./...` succeeds with `GOFLAGS=-mod=vendor` and no network access
-19. Manual TLS: binary serves traffic with `tls.mode = "manual"` and `tls.cert_file` / `tls.key_file` pointing at internal-CA-issued PEMs (no autocert call)
+19. Manual TLS: binary serves traffic with `tls.cert_file` / `tls.key_file` pointing at internal-CA-issued PEMs; no autocert code path exercised (v1)
 20. Air-gapped GeoIP update: replace DB23 BIN + `SIGHUP` → new IPs resolve correctly without restart
 21. **Pre-pipeline fast-reject** (doc 24 §Sec 1.6): handler returns `204` on `X-Purpose: prefetch`, UA length < 16 or > 500, UA-as-IP, UA-as-UUID, non-ASCII UA — asserted with zero pipeline work (no bloom, no GeoIP, no batch write)
 22. **Cross-day fingerprint grace** (doc 24 §Sec 1.1): visitor hashed at 23:58 IRST with salt S₁ returns at 00:02 IRST — identified as *returning* via yesterday-salt lookup, not as a new visitor
@@ -1097,6 +1098,6 @@ All existing architectural decisions in the plan (schema, identity, transport, p
 28. **Hostname-list lookup shape** (doc 24 §Sec 3.5): channel mapper benchmark confirms `map[string]struct{}` lookup, not `slices.Contains` — hot-path p99 stays below 50 ns/call
 29. **AI channel present on day 1** (doc 24 §Sec 3.3): referrer from `chat.openai.com` / `claude.ai` / `gemini.google.com` / `copilot.microsoft.com` / `perplexity.ai` → `channel = "AI"`
 30. **Day-of-week growth comparison** (v1.1, doc 24 §Sec 5 T2 #19): this-Tuesday-vs-last-Tuesday returns correct percentages — not this-Tuesday-vs-last-Monday
-21. **Phase A (dogfood):** statnive.com fires a pageview → visible in `demo.statnive.live` dashboard within 5 minutes; shared viewer login (`demo / demo-statnive`) gets 403 on every `/api/admin/*` route; login brute-force capped at 10 attempts/min per IP
-22. **Phase B (Filimo):** Filimo tracker at `filimo.statnive.live/tracker.js` fires → visible in `filimo.statnive.live` dashboard within 5 minutes; `iptables -P OUTPUT DROP` test passes end-to-end on Iranian DC box; backup + restore drill succeeds on the dedicated instance
-23. **Phase C (SaaS):** fresh signup (`POST /api/signup`) → tracker embed → first event appears in `<slug>.statnive.live` within 5 minutes; cross-tenant isolation — site A admin cannot query site B data even by URL manipulation; Polar.sh sandbox webhook (`subscription.created` signed with `X-Polar-Signature`) updates `sites.plan` and quota enforcement flips correctly; webhook handler is idempotent (replaying the same event.id does not double-apply); 6th signup/hour from same IP is rejected
+31. **Phase A (dogfood):** statnive.com fires a pageview → visible in `demo.statnive.live` dashboard within 5 minutes; shared viewer login (`demo / demo-statnive`) gets 403 on every `/api/admin/*` route; login brute-force capped at 10 attempts/min per IP
+32. **Phase B (Filimo):** Filimo tracker at `filimo.statnive.live/tracker.js` fires → visible in `filimo.statnive.live` dashboard within 5 minutes; `iptables -P OUTPUT DROP` test passes end-to-end on Iranian DC box; backup + restore drill succeeds on the dedicated instance
+33. **Phase C (SaaS):** fresh signup (`POST /api/signup`) → tracker embed → first event appears in `app.statnive.live/s/<slug>` within 5 minutes; cross-tenant isolation — site A admin cannot query site B data even by URL manipulation of `/s/<other-slug>/…`; Polar.sh sandbox webhook (`subscription.created` signed with `X-Polar-Signature`) updates `sites.plan` and quota enforcement flips correctly; webhook handler is idempotent (replaying the same event.id does not double-apply); 6th signup/hour from same IP is rejected
