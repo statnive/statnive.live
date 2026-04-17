@@ -53,20 +53,21 @@ Both models use the **exact same Go binary**. Multi-tenant via `site_id` column 
 ## Stack
 
 - **Backend:** Go 1.22+, single binary, go-chi router, go-chi/httprate for rate limiting
-- **Database:** ClickHouse (single node, MergeTree + 6 AggregatingMergeTree rollups: `hourly_visitors`, `daily_pages`, `daily_sources`, `daily_geo`, `daily_devices`, `daily_users`) using `AggregateFunction(uniqCombined64, FixedString(16))` (HyperLogLog, 0.5% error, lower memory than `uniqExact`)
+- **Database:** ClickHouse (single node, MergeTree + **3 AggregatingMergeTree rollups in v1**: `hourly_visitors`, `daily_pages`, `daily_sources`) using `AggregateFunction(uniqCombined64, FixedString(16))` (HyperLogLog, 0.5% error). Add `daily_geo`, `daily_devices`, `daily_users` in v1.1 when the corresponding dashboard panels ship. Rollup `ORDER BY` leads with `site_id`.
 - **Frontend:** Preact + @preact/signals + uPlot + Frappe Charts (~50KB minified / ~15KB gzipped), embedded via go:embed
 - **Tracker:** Vanilla JS ~1.2KB minified / ~600B gzipped (doc 20), sendBeacon + fetch keepalive, text/plain
-- **Identity:** Three layers — user_id (site sends) → cookie → BLAKE3-128 hash; daily salt derived deterministically from master key + IRST date (`HMAC(master_key, site_id || YYYY-MM-DD IRST)`)
+- **Identity:** Three layers — user_id (site sends) → cookie → BLAKE3-128 hash; daily salt derived deterministically from a **single master secret + site_id + IRST date** (`HMAC(master_secret, site_id || YYYY-MM-DD IRST)`). One secret across all tenants — site_id in the HMAC input provides per-site cryptographic separation without per-site key management.
 - **Privacy:** Iran = no GDPR; cookies + user_id allowed. **SaaS (hosted outside Iran) = GDPR applies to EU visitors** — customer DPA, consent banner, and user access/erasure rights required on SaaS tier. IRST = UTC+3:30, no DST since Sept 2022; store UTC in ClickHouse, convert at API layer only.
 
 ## Architecture Rules (Non-Negotiable)
 
 1. **Raw table is WRITE-ONLY** — dashboard never queries `events_raw` (except funnels via `windowFunnel()`, cached 1h)
-2. **All dashboard reads from rollups** — 6 materialized views, <200 KB/day total per site
+2. **All dashboard reads from rollups** — 3 materialized views in v1 (<100 KB/day total per site), up to 6 by v1.1
 3. **1-hour delay, NOT real-time** — saves 98% query cost. Never build 5-min real-time.
 4. **Client-side batching in Go** — WAL for durability, batch 500ms / 1000 rows, async inserts as safety valve only
 5. **No Nullable columns** — use `DEFAULT ''` or `DEFAULT 0`. Nullable costs 10–200% on aggregations depending on type (doc 20 measured 2× on `Nullable(Int8)`).
 6. **Enrichment order is locked** — per event: identity (visitor_hash) → bloom filter → GeoIP → UA → bot detection → channel (doc 22 §GAP 1). Order is asserted in integration tests.
+7. **Defer before building.** If a feature isn't required to hit the 5 Project Goals or to support Filimo's first 90 days, it goes to v1.1 or v2. Applies to multi-sink alerts, DLQ tooling, subdomain-per-tenant routing, Polar customer portal, and anything else not load-bearing for launch.
 
 ## License Rules (Critical)
 
@@ -76,21 +77,32 @@ Both models use the **exact same Go binary**. Multi-tenant via `site_id` column 
 - **DO NOT use knadh/koanf** (AGPL) — use viper (MIT) or env-only config
 - Before adding any dependency, verify its license with `go-licenses`
 
-## Security (13 Features, All v1)
+## Privacy Rules (Non-Negotiable)
 
-1. TLS 1.3 on all endpoints. **Three modes, configurable:** (a) `autocert` + Let's Encrypt (default, internet-facing); (b) manual PEM files (`tls.cert_file`/`tls.key_file` — works air-gapped with internal CA); (c) internal-CA mode with custom root CA bundle for enterprise. Binary must start and serve traffic in modes (b) and (c) with zero outbound traffic.
+Iran allows cookies + `user_id` pass-through; the EU/SaaS tier does not. Both code paths live in the same binary — these rules are what keep them consistent.
+
+1. **Raw IP never persisted** — IP enters the pipeline only for GeoIP lookup, then is discarded before the batch writer sees the row (`internal/enrich/geoip.go` contract, asserted by integration test).
+2. **Daily rotating salts** — `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`. Same visitor produces a different hash each day; salt is derived, never stored.
+3. **SHA-256+ and BLAKE3 only** in any privacy/identity path. No MD5, no SHA-1 anywhere in the binary.
+4. **User ID hashed before ClickHouse write** — `SHA-256(master_secret || site_id || user_id)`. Raw `user_id` is never logged, never written to disk, never shipped to audit sinks.
+5. **Iran = cookies + user_id allowed; SaaS (hosted outside Iran) = GDPR applies to EU visitors** — customer DPA, consent banner, and subject access / erasure rights are required on the SaaS tier.
+6. **DNT + GPC respected by default** on the SaaS tier; self-hosted operator decides per deployment.
+7. **First-party tracker via `go:embed`** — no external CDN, no fingerprinting (no canvas / WebGL / font probing, no `navigator.plugins` enumeration).
+
+## Security (12 Features, All v1)
+
+1. TLS 1.3 via **manual PEM files** (`tls.cert_file` / `tls.key_file`). Works on Hetzner (LE cert renewed by a cron calling `certbot` separately), Iranian DC (internal CA or self-signed), and enterprise (customer root CA). One code path, zero outbound. `autocert` + Let's Encrypt integration slips to v1.1 once operator volume justifies auto-renewal.
 2. ClickHouse localhost only (bound to 127.0.0.1, never exposed)
-3. Hostname validation on `/api/event` (HMAC **skipped entirely** per doc 20 — hostname check is its own defense, not an HMAC replacement. Plausible/Umami do the same.)
+3. Hostname validation on `/api/event` (HMAC **skipped entirely** per doc 20 — hostname check is its own defense. Plausible/Umami do the same.)
 4. Input validation (`http.MaxBytesReader` 8KB, field length limits, timestamp ±1h drift)
 5. Rate limiting per IP via `go-chi/httprate` (100 req/s, burst 200, NAT-aware via X-Forwarded-For / X-Real-IP)
 6. Dashboard auth (bcrypt + `crypto/rand` sessions, 14-day TTL, `SameSite=Lax` cookies for CSRF)
-7. RBAC (admin / viewer / API-only). 2FA intentionally deferred to v2 (single-admin v1 with SSH-key-only server access).
+7. RBAC (admin / viewer / API-only). 2FA deferred to v2 (single-admin v1 with SSH-key-only server access).
 8. Encrypted backups (`clickhouse-backup` + `age` + `zstd`, cron-scheduled, restore test on every release)
-9. Disk encryption (LUKS **optional** — 40–50% I/O overhead is significant; physical DC security + encrypted backups may suffice per doc 20. Re-evaluate per deployment.)
-10. Audit log (JSONL via `slog`, append-only). Sinks are pluggable: **file** (default, works air-gapped), **local syslog** (RFC 5424), or **remote syslog/webhook** (opt-in, SaaS only). No external shipping required in self-hosted mode.
-11. User ID hashed before storage (SHA-256 + per-site secret, never log raw user_id)
-12. systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, `CapabilityBoundingSet=`)
-13. Tracker served via `go:embed` from the analytics host — no external CDN, no SRI needed, first-party only (also bypasses ad-blockers)
+9. Disk encryption (LUKS **optional** — 40–50% I/O overhead; physical DC security + encrypted backups usually suffice. Re-evaluate per deployment.)
+10. Audit log (JSONL via `slog`, append-only, **file sink only** in v1). Local syslog / remote sinks = v1.1.
+11. User ID hashed before storage (SHA-256 of `master_secret || site_id || user_id`; never log raw user_id)
+12. systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, `CapabilityBoundingSet=`) + tracker served via `go:embed` from the analytics host (first-party, no external CDN, no SRI needed, ad-blocker-resistant)
 
 ## Isolation / Air-Gapped Capability (Non-Negotiable)
 
@@ -98,37 +110,72 @@ The final binary MUST run on a fully isolated server with zero required outbound
 
 | Capability | Default | Air-gapped mode | Fallback |
 |---|---|---|---|
-| TLS certificates | `autocert` (LE) | Manual PEM files / internal CA | Config: `tls.mode = "manual"` |
+| TLS certificates | Manual PEM files | Manual PEM files (same) | One code path; operator rotates certs |
 | License validation (v1) | Offline JWT verify | Offline JWT verify (same) | Always works offline |
 | License phone-home (v2) | Opt-in per deployment | **Disabled** | Config: `license.phone_home = false` |
 | GeoIP updates | Manual file drop | Manual file drop (same) | SCP/rsync the DB23 BIN file, SIGHUP to reload |
 | Bot pattern updates | Embedded in binary | Embedded in binary (same) | Update via new release only |
-| Monitoring alerts | Multi-sink | File + local syslog only | Telegram/webhook disabled |
+| Monitoring alerts | File sink (JSONL) | File sink (same) | Syslog / Telegram are v1.1 opt-ins |
 | Tracker JS | `go:embed` (first-party) | `go:embed` (same) | No external CDN ever |
 | Frontend SPA | `go:embed` | `go:embed` (same) | No external CDN ever |
 | Dependencies | Vendored (`go mod vendor`) | Vendored (same) | No `go mod download` at runtime |
-| Docker image | Pre-built multi-stage | `docker save` tarball | Transfer tarball via SCP |
 | NTP | System NTP | Internal NTP server | Config required; IRST salt depends on correct date |
 
 **Verification rule:** integration test runs the binary under `iptables -A OUTPUT -j DROP` (allowing only localhost + the configured tracker clients) and asserts all endpoints work, events ingest, rollups materialize, and dashboard renders.
 
-## Development Rules
+## Workflow Rule — Always `/simplify` Before Committing
 
-- Run `make test` before every commit
-- Run `make lint` (golangci-lint) before every PR
-- Every new dependency requires license verification
-- Every API endpoint must have an integration test
-- ClickHouse schema changes go through migrations (embedded SQL, run on startup)
-- Config changes to goals/funnels hot-reload via SIGHUP (no restart)
+**Every code change must pass through `/simplify` before you propose a commit. This is non-negotiable.**
 
-## Feature Scope (complete enumeration — 55 v1 + 10 v2 + 1 Future)
+The rule applies to any edit under `cmd/**`, `internal/**`, `web/**`, `tracker/**`, `clickhouse/**`, `config/**`, `deploy/**`, or `.claude/**` — Go, TypeScript, Preact, tracker JS, SQL migrations, YAML config, tests, and fixtures all count.
 
-Full list derived from research doc 18 (feature-decisions-summary) and doc 17 (feature-cost-decision-matrix). Every v1 row must exist in the shipped binary.
+### Procedure
 
-### v1 — 55 features
+1. Make the code change.
+2. Invoke the `/simplify` skill via the Skill tool (skill name: `simplify`). It reviews the diff for reuse, quality, and efficiency via three parallel review agents and applies fixes directly.
+3. Re-run the Test Gate (below) after `/simplify` has modified files.
+4. Only after the gate is green, stage and commit. The pre-commit hook at `.githooks/pre-commit` will re-run the gate and reject the commit if anything regressed. If the hook rejects the commit, fix the issue and create a **new** commit — never `--amend`.
 
-**Security (13):**
-1. TLS 1.3 on all endpoints (three-mode: autocert / manual PEM / internal CA)
+### Exceptions
+
+- Pure-documentation changes (`*.md` outside `.claude/skills/`) may skip `/simplify` but still run `make lint` if any Go docstring was touched.
+- Pure-asset changes (images, fonts, GeoIP `.BIN` drops) skip the entire gate.
+- Emergency security hot-fixes explicitly flagged by the user with "skip simplify" are exempted — only when the user says so.
+
+### Why
+
+`/simplify` catches duplication, dead code, hot-path bloat, unsafe SQL, and Nullable-column regressions before they enter the tree. The pre-commit hook enforces the test/lint half but cannot invoke Claude Code skills from a shell — this `CLAUDE.md` rule is the only way to guarantee the `/simplify` step runs. Do not skip it.
+
+### Other rules
+
+- Every new dependency requires license verification (`go-licenses` must report MIT/Apache/BSD/ISC).
+- Every API endpoint must have an integration test.
+- ClickHouse schema changes go through migrations (embedded SQL, run on startup).
+- Config changes to goals / funnels hot-reload via SIGHUP (no restart).
+
+## Test Gate
+
+From the repo root:
+
+```bash
+make test                   # Go unit tests (fast, <5s)
+make test-integration       # Go + ClickHouse integration (needs `docker compose up clickhouse`)
+make lint                   # golangci-lint + go vet + govulncheck
+make bench                  # benchmarks (enrichment pipeline, rollup queries)
+npm --prefix web run test   # Vitest (Preact dashboard)
+npm --prefix web run lint   # eslint
+```
+
+The pre-commit hook runs `make test && make lint` plus `npm --prefix web run test` on staged frontend files only. The release gate (`make release`) additionally runs `make test-integration` and the air-gap test from the Enforcement section.
+
+## Feature Scope (48 v1 + 7 v1.1 fast-follow + 10 v2 + 1 Future)
+
+Derived from research doc 18 + doc 17. v1 is scoped to what's load-bearing for Filimo's first 90 days and the 5 Project Goals. Polish features (organic SEO depth, comparison widget, Jalali, outbound links) slip to **v1.1** — a 4–6 week fast-follow after v1 cut. v2 is the post-launch 8–12 week product push.
+
+### v1 — 48 features (MVP)
+
+**Security (12):**
+1. TLS 1.3 via manual PEM files (one code path; works everywhere)
 2. ClickHouse localhost-only (bound 127.0.0.1)
 3. Hostname validation on `/api/event` (HMAC skipped per doc 20)
 4. Input validation (`MaxBytesReader` 8KB, field limits, timestamp ±1h)
@@ -137,72 +184,79 @@ Full list derived from research doc 18 (feature-decisions-summary) and doc 17 (f
 7. RBAC (admin / viewer / api-only)
 8. Encrypted backups (`clickhouse-backup` + `age` + `zstd`, cron + monthly restore test)
 9. Disk encryption LUKS (optional; 40–50% I/O overhead trade-off)
-10. Audit log (JSONL multi-sink: file / local syslog / opt-in remote)
-11. User ID hashed before storage (SHA-256 + per-site secret)
-12. systemd hardening (NoNewPrivileges, ProtectSystem=strict, PrivateTmp, empty CapabilityBoundingSet)
-13. Tracker served via `go:embed` (first-party, ad-blocker-resistant, no SRI needed)
+10. Audit log (JSONL, file sink only)
+11. User ID hashed before storage (SHA-256 of `master_secret || site_id || user_id`)
+12. systemd hardening + tracker via `go:embed` (first-party, ad-blocker-resistant)
 
 **Identity (3):**
-14. user_id pass-through (site sends; hashed server-side)
-15. Cookie fallback (httpOnly, SameSite=Lax, 1y max-age)
-16. BLAKE3-128 hash fallback with daily IRST-derived salt (`HMAC(master_key, site_id || YYYY-MM-DD IRST)`)
+13. user_id pass-through (site sends; hashed server-side)
+14. Cookie fallback (httpOnly, SameSite=Lax, 1y max-age)
+15. BLAKE3-128 hash fallback with daily salt `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`
 
 **Events & Goals (4):**
-17. Custom event API: `statnive.track(name, props, value)`
-18. Goal YAML config (event → goal mapping, hot reload via SIGHUP)
-19. Goal value column (UInt64 rials, `DEFAULT 0`, no Nullable)
-20. Goal rate per channel / per page (aggregated in rollups)
+16. Custom event API: `statnive.track(name, props, value)`
+17. Goal YAML config (event → goal mapping, SIGHUP hot reload)
+18. Goal value column (UInt64 rials, `DEFAULT 0`, no Nullable)
+19. Goal rate per channel / per page (aggregated in rollups)
 
 **Funnels (2):**
-21. Funnel YAML definition (ordered event steps)
-22. Funnel report: count + drop-off % per step, 1h cache
+20. Funnel YAML definition (ordered event steps)
+21. Funnel report: count + drop-off % per step, 1h cache
 
 **Revenue & CRO (7):**
-23. Revenue sum per channel
-24. Revenue sum per page
-25. Revenue trend (daily / weekly)
-26. Conversion rate per source
-27. Conversion rate trend
-28. Average value per conversion per channel
-29. Revenue Per Visitor (RPV) per channel — **primary CRO metric**
+22. Revenue sum per channel
+23. Revenue sum per page
+24. Revenue trend (daily / weekly)
+25. Conversion rate per source
+26. Conversion rate trend
+27. Average value per conversion per channel
+28. **Revenue Per Visitor (RPV) per channel** — primary CRO metric (Project Goal philosophy)
 
 **Attribution (5):**
-30. UTM tracking (5 params: source, medium, campaign, content, term)
-31. Auto source detection (referrer → named source via `sources.yaml`)
-32. Channel grouping (Organic / Social / Direct / Paid / Email / Referral priority)
-33. 50+ Iranian source database (Divar, Torob, Filimo, etc.)
-34. Campaign report (breakdown by `utm_campaign`)
+29. UTM tracking (5 params: source, medium, campaign, content, term)
+30. Auto source detection (referrer → named source via `sources.yaml`)
+31. Channel grouping (Organic / Social / Direct / Paid / Email / Referral priority)
+32. 50+ Iranian source database (Divar, Torob, Filimo, etc.)
+33. Campaign report (breakdown by `utm_campaign`)
 
-**SEO (5):**
-35. Organic search traffic trend
-36. Top landing pages from organic search
-37. Organic conversion rate + revenue
-38. Organic vs paid split
-39. High-traffic / low-conversion pages
+**SEO (1):**
+34. Organic search traffic trend
 
-**Content & Trends (4):**
-40. Top pages (by visitors, views, goals, revenue)
-41. Visitors trend (hourly / daily)
-42. New vs returning visitors (18MB bloom filter, 10M visitors, 0.1% FPR)
-43. Comparison periods (this period vs previous, % change)
+**Content & Trends (3):**
+35. Top pages (by visitors, views, goals, revenue)
+36. Visitors trend (hourly / daily)
+37. New vs returning visitors (18MB bloom filter, 10M visitors, 0.1% FPR)
 
 **Audience (4):**
-44. Iranian provinces / cities (IP2Location DB23, ~84% city accuracy)
-45. Device / browser / OS (`medama-io/go-useragent`, ~287 ns/op)
-46. ISP / carrier (MCI, Irancell, Rightel, etc. via DB23)
-47. User segments (custom properties sent with user_id)
+38. Iranian provinces / cities (IP2Location LITE DB23 in v1; paid DB23 for Filimo specifically)
+39. Device / browser / OS (`medama-io/go-useragent`, ~287 ns/op)
+40. ISP / carrier (MCI, Irancell, Rightel via DB23)
+41. User segments (custom properties sent with user_id)
 
 **Infrastructure (6):**
-48. Pageview tracking (`navigator.sendBeacon` + fetch keepalive)
-49. SPA route tracking (pushState/replaceState patching + popstate)
-50. Bot filtering (server: `omrilotan/isbot` + `crawler-user-agents.json`; client: `navigator.webdriver`, `evt.isTrusted`)
-51. GeoIP at ingest (IP2Location `.BIN`, raw IP discarded after lookup)
-52. UA parsing (Medama fast-path)
-53. Hourly active-visitors widget (NOT 5-min real-time — rollup-based)
+42. Pageview tracking (`navigator.sendBeacon` + fetch keepalive)
+43. SPA route tracking (pushState/replaceState patching + popstate)
+44. Bot filtering (server: `omrilotan/isbot` + `crawler-user-agents.json`; client: `navigator.webdriver`, `evt.isTrusted`)
+45. GeoIP at ingest (IP2Location `.BIN`, raw IP discarded after lookup)
+46. UA parsing (Medama fast-path)
+47. Hourly active-visitors widget (NOT 5-min real-time — rollup-based)
 
-**Nice-to-have (2):**
-54. Jalali calendar display (`jalaali-js` 3KB, client-side)
-55. Outbound link tracking (click delegation + sendBeacon on external links)
+**Multi-tenant (1):**
+48. `site_id` on every raw + rollup row; hostname → site_id resolution at ingest; `WHERE site_id = ?` on every query
+
+### v1.1 — 7 fast-follow features (ship 4–6 weeks after v1 cut)
+
+These are polish / depth items, not load-bearing for the 5 goals:
+
+1. Top landing pages from organic search
+2. Organic conversion rate + revenue
+3. Organic vs paid split
+4. High-traffic / low-conversion pages
+5. Comparison periods (this period vs previous, % change UI)
+6. Jalali calendar display (`jalaali-js` 3KB, client-side)
+7. Outbound link tracking (click delegation + sendBeacon on external links)
+
+Plus the **3 additional rollups** (`daily_geo`, `daily_devices`, `daily_users`) that power the v1.1 depth panels.
 
 ### v2 — 10 features (post-launch, +8–12 weeks)
 
@@ -247,74 +301,73 @@ Full list derived from research doc 18 (feature-decisions-summary) and doc 17 (f
 | Level | Tool | Location |
 |-------|------|----------|
 | Unit | Go testing | `*_test.go` alongside source |
-| Integration | Go testing | `test/integration_test.go` |
-| Load | k6 | `test/k6/load-test.js` |
-| Security | Go testing | `test/security_test.go` |
+| Integration (includes security assertions) | Go testing | `test/integration_test.go` |
+| Load (smoke) | k6 | `test/k6/load-test.js` |
 | Frontend | Vitest | `web/src/**/*.test.tsx` |
 
-## Claude Code Tooling (Skills + MCP)
+### ClickHouse-Oracle Assertion Hierarchy
 
-Tooling strategy follows research doc 23. **Curate 5–8 skills max** — Claude Code's 30-skill discovery limit causes activation failures when overloaded. All listed skills verified MIT/Apache-2.0 (no AGPL in toolchain).
+Always use the highest applicable tier. Lower tiers are signal amplifiers for failure diagnosis — they are not acceptance evidence on their own.
 
-### Required skills (install at repo bootstrap)
+| Tier | Method | Use When |
+|------|--------|----------|
+| 1 | **ClickHouse-oracle** — correlation query against rollup tables | Ingest, rollup correctness, attribution, multi-tenant isolation |
+| 2 | **Network** — `httptest.Server` / route interception | Tracker transport, sendBeacon payload shape |
+| 3 | **DOM / locator** — Playwright or Vitest RTL | Dashboard UI state, routing |
+| 4 | **Screenshot** — `only-on-failure` | Debug artifact only |
 
-| Skill | Purpose | Phases |
-|-------|---------|--------|
-| [`samber/cc-skills-golang`](https://github.com/samber/cc-skills-golang) (MIT, 1.3k★) | 25+ atomic Go skills: concurrency, database, context, error-handling, testing, benchmark, slog, testify | 0, 1, 3, 6, 7 |
-| [`ClickHouse/agent-skills`](https://github.com/ClickHouse/agent-skills) (Apache-2.0) | 28 optimization rules + Architecture Advisor: primary keys, AggregatingMergeTree, MV patterns, batch inserts | 0, 1, 3, 6 |
-| [`trailofbits/skills`](https://github.com/trailofbits/skills) | static-analysis, semgrep-rule-creator, differential-review, variant-analysis — security gate for Phase 2 | 2, 7 |
-| [`darrenoakey/claude-skill-golang`](https://github.com/darrenoakey/claude-skill-golang) | Zero-fabrication testing, golangci-lint CI/CD gate enforcement | 0, 7 |
-| [`The-Focus-AI/marina-skill`](https://github.com/The-Focus-AI/marina-skill) | Hetzner + Docker + Caddy + Cloudflare DNS deploy automation — `/marina-deploy` | 8 |
+### Analytics Invariant Thresholds
 
-### MCP servers (runtime, not install-time)
+These are the release-blocking numbers. CI must assert them on every v1/v1.1 RC build.
 
-| Server | Role | Install |
-|--------|------|---------|
-| [Altinity ClickHouse MCP](https://github.com/Altinity/altinity-mcp) | Production ClickHouse with OAuth/TLS + dynamic tools from views | Docker: `ghcr.io/altinity/altinity-mcp:latest` |
-| [gopls MCP](https://go.dev/gopls/features/mcp) | Go linting, testing, coverage, **govulncheck** | Built into gopls |
-| [Hetzner MCP](https://github.com/dkruyt/mcp-hetzner) | 60+ tools: provisioning, volumes, firewalls, DNS, snapshots | Source build |
-| [Grafana MCP](https://github.com/grafana/mcp-grafana) | Dashboards, alerts, Prometheus/Loki for Phase 8 monitoring | Source build |
+- Event loss (server) ≤ 0.05%
+- Event loss (client) ≤ 0.5%
+- Duplicates ≤ 0.1%
+- Attribution correctness ≥ 99.5%
+- Consent / PII leaks = 0
+- TTFB overhead ≤ +10% or +25 ms
 
-**Write-safety:** ClickHouse MCP is read-only by default. Writes require explicit `CLICKHOUSE_ALLOW_WRITE_ACCESS=true` — never set in production; route migrations through `storage/migrate.go` instead.
+## Dev Tooling
 
-### Phase → skill/MCP mapping
+Claude Code skills + MCP server setup for this project live in [`docs/tooling.md`](docs/tooling.md) (not in CLAUDE.md — it's developer ergonomics, not product rules). That file covers the five skills (cc-skills-golang, ClickHouse Agent Skills, trailofbits, claude-skill-golang, marina-skill), four MCP servers (Altinity ClickHouse, gopls, Hetzner, Grafana), and the phase → tooling mapping.
 
-| Phase | Primary Skills | MCP |
-|-------|---------------|-----|
-| 0. Setup | `cc-skills-golang`, `claude-skill-golang` | — |
-| 1. Ingestion | `cc-skills-golang` (concurrency/context/database) + ClickHouse Agent Skills (batch insert, async) | Altinity MCP (schema validation) |
-| 2. Security | `trailofbits/skills` (static-analysis, differential-review) | gopls MCP (govulncheck) |
-| 3. Dashboard API | `cc-skills-golang` + ClickHouse Agent Skills (query optimization) | Altinity MCP (`run_query`) |
-| 4. Tracker JS | **No skill coverage — build from scratch** (IIFE + sendBeacon + fetch keepalive + text/plain) | — |
-| 5. Frontend | Preact + Vite + uPlot + Frappe + Jalali — **no dedicated skills; generate from Context7 cache at `docs/tech-docs/`** | — |
-| 6. Config | `cc-skills-golang` (cli) + ClickHouse Agent Skills (schema) | Altinity MCP (schema discovery) |
-| 7. Testing | `cc-skills-golang` (testing, benchmark, testify) + `claude-skill-golang` (CI gates) | gopls MCP |
-| 8. Deploy | Marina Skill + Hetzner MCP | Grafana MCP |
+### Skills Decision Tree
 
-### Gaps requiring custom work (no community skill exists)
+Quick route before diving into `docs/tooling.md`:
 
-Use libraries directly per the license table. Author a custom skill in `.claude/skills/` only if the gap recurs across phases.
+```
+Task arrives
+  ├─ Go concurrency / context / error handling?   → cc-skills-golang
+  ├─ ClickHouse schema / rollup / query tuning?   → ClickHouse Agent Skills + Altinity MCP
+  ├─ Security review or static analysis?          → trailofbits/skills + gopls MCP (govulncheck)
+  ├─ Test / CI gate authoring?                    → darrenoakey/claude-skill-golang
+  ├─ Deploy (Hetzner / Iranian DC)?               → marina-skill + Hetzner MCP
+  ├─ Frontend (Preact / uPlot / Frappe / Jalali)? → no skill — generate from docs/tech-docs/ cache
+  ├─ Tracker (<2 KB IIFE)?                        → build by hand, no skill coverage
+  └─ Unknown?                                      → open docs/tooling.md, don't guess
+```
 
-| Gap | Approach |
-|-----|----------|
-| Vanilla JS <2KB tracker | Build by hand — no skill can replace domain-specific architecture |
-| uPlot / Frappe Charts | Generate on demand from Context7 cache at `docs/tech-docs/` |
-| Jalali calendar | Use `jalaali-js` (3KB, MIT) directly |
-| WAL durability | Use `tidwall/wal` (MIT) directly; `cc-skills-golang` covers the concurrency patterns |
-| BLAKE3 identity | Use `lukechampine.com/blake3` (MIT) directly |
-| Iranian DC deploy | Manual runbook (IP geolocation, ISP BGP, payment restrictions) |
+## Single Source of Truth
 
-### Skill authoring rules (when filling a gap)
+`../statnive-workflow/jaan-to/docs/research/` (docs 14–23) is the canonical source for every architecture, feature, and threat-model decision in this project. Do **not** restate research conclusions in this `CLAUDE.md` or in skill prompts — reference by doc number and section only. When a decision changes, update the research doc; this file references it and never duplicates. Same rule applies to the feature matrix (doc 17, 18), the cost model (doc 19), and the skill / MCP list (doc 23).
 
-- SKILL.md ≤ 500 lines, split references into separate files
-- Required frontmatter: `name`, `description`, `allowed-tools`, `effort`, `paths`
-- Place at `.claude/skills/<name>/SKILL.md` in this repo
-- Verify license before adding any new skill — **zero AGPL in the binary or toolchain**
+## Enforcement
+
+These integration tests pin the invariants in this file. They are Phase 0 / Phase 7 deliverables — listing them here makes the contract explicit so `/simplify` and PR review can reject regressions on day one.
+
+- `test/integration/enrichment_order_test.go` — asserts pipeline order is `identity → bloom → geo → ua → bot → channel` (Architecture Rule 6).
+- `test/integration/airgap_test.go` — runs the binary under `iptables -A OUTPUT -j DROP` and asserts ingest, rollup materialization, and dashboard rendering all work (Isolation rule).
+- `test/integration/multitenant_test.go` — asserts every dashboard query includes `WHERE site_id = ?` and no cross-tenant row leaks (Project Goal 4).
+- `test/integration/pii_leak_test.go` — asserts raw IP and raw `user_id` never appear in ClickHouse tables or in the JSONL audit log (Privacy Rules 1, 4).
+- `test/security/no_agpl_test.go` — `go-licenses` asserts every direct + transitive dep is MIT / Apache / BSD / ISC (License Rules).
+- `web/src/__tests__/tenant-isolation.test.tsx` — Vitest guard that Preact signal stores don't leak `site_id` state across dashboard views.
+
+`/simplify` and PR review must reject any new unguarded query (no `WHERE site_id = ?`), any new dependency without a license check, any new outbound network call not behind a config flag, and any new `Nullable(...)` column.
 
 ## Research Documents
 
 All architecture decisions are backed by research at:
-`../statnive-workflow/jaan-to/docs/research/` (docs 14–23, 500+ sources). Doc 23 maps Claude Code skills + MCP servers to this 8-phase build.
+`../statnive-workflow/jaan-to/docs/research/` (docs 14–23, 500+ sources). Doc 23 covers the Claude Code tooling recommendations.
 ```
 
 ## Repository Structure
@@ -331,7 +384,7 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   │   ├── event.go                # RawEvent + EnrichedEvent structs (34 fields incl. site_id)
 │   │   ├── handler.go              # POST /api/event (JSON array parser)
 │   │   ├── pipeline.go             # 6-worker enrichment pipeline (order: identity→bloom→geo→ua→bot→channel)
-│   │   ├── consumer.go             # Batch writer (500ms / 1000 rows) + DLQ on retry exhaustion
+│   │   ├── consumer.go             # Batch writer (500ms / 1000 rows) + exponential retry (no DLQ in v1)
 │   │   └── wal.go                  # WAL (tidwall/wal, 100ms fsync, 10GB size cap)
 │   ├── enrich/
 │   │   ├── channel.go              # Referrer → source/channel mapper
@@ -344,27 +397,17 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   │   ├── hash.go                 # BLAKE3-128 visitor hash
 │   │   └── salt.go                 # IRST midnight salt rotation
 │   ├── storage/
-│   │   ├── clickhouse.go           # Batch insert (34 cols incl. site_id) + retry + DLQ
-│   │   ├── queries.go              # Dashboard SQL (8 endpoints, all WHERE site_id=?)
+│   │   ├── clickhouse.go           # Batch insert (34 cols incl. site_id) + retry
+│   │   ├── queries.go              # Dashboard SQL (all 8 endpoints, all WHERE site_id=?)
 │   │   └── migrate.go              # Numbered schema migrations, applied versions tracked in CH
 │   ├── dashboard/
-│   │   ├── router.go               # chi routes + auth middleware + httprate
-│   │   ├── tenant.go               # Subdomain <slug>.statnive.live -> site_id middleware (Phase C)
-│   │   ├── overview.go             # GET /api/stats/overview
-│   │   ├── sources.go              # GET /api/stats/sources
-│   │   ├── pages.go                # GET /api/stats/pages
-│   │   ├── geo.go                  # GET /api/stats/geo
-│   │   ├── devices.go              # GET /api/stats/devices
-│   │   ├── funnel.go               # GET /api/stats/funnel
-│   │   ├── campaigns.go            # GET /api/stats/campaigns
-│   │   ├── seo.go                  # GET /api/stats/seo
+│   │   ├── router.go               # chi routes + auth middleware + httprate + path-based tenant scope (/s/<slug>/…)
+│   │   ├── stats.go                # All 8 GET /api/stats/* handlers in one file (overview, sources, pages, geo, devices, funnel, campaigns, seo)
 │   │   ├── admin.go                # POST/PUT/DELETE /api/admin/users, /api/admin/goals (funnels via YAML+SIGHUP)
 │   │   ├── signup.go               # POST /api/signup (Phase C self-serve)
-│   │   ├── onboarding.go           # GET /api/stats/ping?site_id=X (Phase C onboarding polling)
 │   │   └── billing.go              # POST /api/admin/billing (Polar.sh webhook, X-Polar-Signature verify, Phase C)
 │   ├── sites/                       # Multi-tenant site registry (shared by ingest + dashboard)
-│   │   ├── sites.go                # Sites table DAO: hostname <-> site_id resolution
-│   │   └── provisioning.go         # Create / disable site, slug generation for subdomain routing
+│   │   └── sites.go                # Sites table DAO: hostname <-> site_id, slug gen + uniqueness, create/disable
 │   ├── auth/
 │   │   ├── session.go              # bcrypt + session store (in-memory)
 │   │   ├── middleware.go           # Auth + RBAC (admin/viewer/api)
@@ -398,7 +441,7 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   ├── rollup.config.js
 │   └── package.json
 ├── clickhouse/
-│   ├── schema.sql                  # events_raw + 6 rollups + MVs
+│   ├── schema.sql                  # events_raw + 3 rollups + MVs (v1)
 │   └── migrations/
 │       ├── 001_initial.sql
 │       └── 002_add_revenue.sql
@@ -411,17 +454,16 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   ├── backup.sh                   # age + zstd + rotation
 │   ├── iptables.sh                 # Firewall rules (default: OUTPUT DROP except tracker clients)
 │   ├── airgap-install.sh           # One-shot offline installer from bundle
-│   ├── airgap-update-geoip.sh      # Offline GeoIP DB rotation
-│   └── docker-compose.yml          # Alternative deployment
+│   └── airgap-update-geoip.sh      # Offline GeoIP DB rotation
 ├── vendor/                         # Vendored Go deps (go mod vendor) — checked in for offline builds
-├── offline-bundle/                 # Release artifact: binary + vendor + docker tarballs + migrations + default configs + tracker + IP2Location DB23 + SHA256SUMS
+├── offline-bundle/                 # Release artifact: static binary + migrations + default configs + tracker + IP2Location DB23 + SHA256SUMS. Docker tarball deferred to v1.1.
+├── docs/
+│   └── tooling.md                  # Claude Code skills + MCP setup (dev ergonomics, not product)
 ├── test/
 │   ├── k6/
-│   │   └── load-test.js            # 7K EPS ramp test
-│   ├── integration_test.go         # 100K events → verify rollups
-│   └── security_test.go            # HMAC, rate limit, auth checks
-├── Makefile                        # build, test, lint, release
-├── Dockerfile                      # Multi-stage build
+│   │   └── load-test.js            # 7K EPS smoke test
+│   └── integration_test.go         # 100K events → rollups + security assertions (auth, rate limit, hostname validation, CH isolation)
+├── Makefile                        # build, test, lint, release, airgap-bundle
 ├── go.mod
 ├── go.sum
 └── README.md
@@ -436,7 +478,7 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 - [ ] Create `github.com/statnive/statnive-live` repository
 - [ ] Initialize Go module, copy go.mod from doc 22
 - [ ] Set up Makefile (build, test, lint, release, **airgap-bundle** targets)
-- [ ] Create ClickHouse schema SQL (events_raw + 6 rollups from doc 20)
+- [ ] Create ClickHouse schema SQL (events_raw + **3 v1 rollups**: `hourly_visitors`, `daily_pages`, `daily_sources`; additional 3 deferred to v1.1)
 - [ ] Copy all Go files from doc 22 into project structure
 - [ ] Set up CI (GitHub Actions: build + lint + test + **`go mod vendor` check**)
 - [ ] **Vendor all Go deps** (`go mod vendor`, commit to repo) — enables fully offline builds
@@ -449,80 +491,74 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 - [ ] Add `SiteID` field to EnrichedEvent + populate in pipeline.processEvent() — required for multi-tenant from v1
 - [ ] Implement ingest/handler.go (JSON array parsing; site_id resolved from hostname)
 - [ ] Implement ingest/pipeline.go (6-worker enrichment; order **locked**: identity → bloom → geo → ua → bot → channel)
-- [ ] Implement ingest/consumer.go (batch writer 500ms/1000 rows + retry + DLQ sink to disk)
+- [ ] Implement ingest/consumer.go (batch writer 500ms/1000 rows + exponential retry with backoff; no DLQ in v1 — add after first prod failure pattern emerges)
 - [ ] Implement ingest/wal.go (WAL + 100ms fsync + 10GB size cap; reject with 503 when >80% full)
 - [ ] Implement storage/clickhouse.go (**34-column** batch insert incl. site_id)
 - [ ] Implement storage/migrate.go (numbered migrations, applied versions tracked in CH system table)
-- [ ] Implement enrich/ (GeoIP with IP2Location DB23, medama-io UA, channel mapper, isbot + crawler-user-agents.json, bloom 18MB/10M visitors/0.1% FPR)
-- [ ] Implement identity/ (BLAKE3-128 hash, deterministic daily salt from master_key + IRST date)
+- [ ] Implement enrich/ (GeoIP with IP2Location **LITE DB23** in v1, medama-io UA, channel mapper, isbot + crawler-user-agents.json, bloom 18MB/10M visitors/0.1% FPR)
+- [ ] Implement identity/ (BLAKE3-128 hash, deterministic daily salt `HMAC(master_secret, site_id || YYYY-MM-DD IRST)` — single master secret, site_id baked into HMAC input)
 - [ ] k6 load test: prove 7K EPS (Filimo baseline at 10–20M DAU per doc 16) with zero event loss
 - [ ] Crash recovery test: kill -9 → WAL replay → verify zero loss
 - [ ] Integration test: emit bot event → verify visitor_hash populated AND is_bot=1 (enrichment order assertion)
 
 ### Phase 2: Security Layer (Weeks 5–6)
 
-- [ ] TLS: three-mode loader — (a) autocert + LE (default), (b) manual PEM files, (c) internal CA. Air-gapped deployments use (b) or (c) with zero outbound.
-- [ ] DNS-01 fallback playbook for internet-connected Iranian DC deployments
+- [ ] TLS: **manual PEM loader only** — read `tls.cert_file` + `tls.key_file` from config, reload on SIGHUP for quarterly rotations. Autocert/LE slips to v1.1.
 - [ ] Dashboard auth (bcrypt + `crypto/rand` sessions + SameSite=Lax cookies + RBAC)
 - [ ] Rate limiting via `go-chi/httprate.LimitByRealIP` (100 req/s, burst 200, NAT-aware)
 - [ ] Input validation (`http.MaxBytesReader` 8KB, field limits, timestamp ±1h)
 - [ ] Hostname validation on `/api/event` (HMAC skipped entirely per doc 20)
-- [ ] Audit log (JSONL via slog, append-only)
+- [ ] Audit log (JSONL via slog, append-only, **file sink only**)
 - [ ] systemd hardening (NoNewPrivileges, ProtectSystem=strict, PrivateTmp, empty CapabilityBoundingSet)
 - [ ] iptables rules (80/443/22 only; CH port 9000 never exposed)
 - [ ] LUKS setup procedure (documented, **optional** — evaluate 40–50% I/O overhead vs physical security)
 - [ ] Backup script (clickhouse-backup + age + zstd + cron + monthly restore test)
-- [ ] Security test: verify all 13 features work end-to-end
+- [ ] Security assertions folded into `test/integration_test.go` (not a separate harness): auth required, httprate returns 429, hostname validation rejects foreign Origin, CH not reachable externally
 
 ### Phase 3: Dashboard API (Weeks 7–9)
 
-- [ ] GET /api/stats/overview (visitors, goals, revenue, conv%, RPV + comparison)
-- [ ] GET /api/stats/sources (table: source, channel, visitors, goals, revenue, conv%)
-- [ ] GET /api/stats/pages (table: pathname, visitors, views, goals, revenue)
-- [ ] GET /api/stats/geo (provinces, cities, ISP)
-- [ ] GET /api/stats/devices (device_type, browser, OS)
-- [ ] GET /api/stats/funnel?id=X (windowFunnel step counts + by channel, cached 1h)
-- [ ] GET /api/stats/campaigns (utm_campaign breakdown)
-- [ ] GET /api/stats/seo (organic trend, pages, conv rate, organic vs paid)
+All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they share date-parse, site_id scoping, cache key, and JSON shaping. Admin + billing are separate files since they mutate state.
+
+- [ ] `stats.go` with 8 handlers (`GET /api/stats/...`): overview, sources, pages, geo, devices, funnel, campaigns, seo (organic trend only in v1 — richer SEO panels = v1.1)
 - [ ] POST/PUT/DELETE /api/admin/users (user + RBAC CRUD, admin-only)
 - [ ] POST/PUT/DELETE /api/admin/goals (goal CRUD, writes YAML + triggers SIGHUP hot reload)
 - [ ] GET /api/realtime/visitors (10s cache, last-5-min active visitors — NOT full real-time)
 - [ ] Date range handling (Asia/Tehran UTC+3:30, no DST; store UTC, convert at API layer)
-- [ ] LRU cache (realtime=10s, today=60s, yesterday=1h, historical=forever; invalidate on goal/config change)
+- [ ] LRU cache (realtime=10s, today=60s, yesterday=1h, historical=forever)
 - [ ] Dashboard query benchmark under 7K EPS load, all endpoints scoped by `WHERE site_id = ?`
 
 ### Phase 4: Tracker JS (Week 10)
 
 - [ ] Build tracker from doc 20 source (~1.2KB minified / ~600B gzipped)
 - [ ] Rollup + Terser build config
-- [ ] Pageview + SPA (history API) + outbound links + custom events + user_id + batching
-- [ ] Client-side bot hints: `navigator.webdriver`, `_phantom`, `evt.isTrusted` flag (Clarity pattern, doc 21)
+- [ ] Pageview + SPA (history API) + custom events + user_id + batching (outbound link tracking deferred to v1.1)
+- [ ] Client-side bot hints: `navigator.webdriver`, `_phantom`, `evt.isTrusted` (Clarity pattern, doc 21)
 - [ ] Server-side bot filtering: isbot + crawler-user-agents.json (primary; client is supplementary)
-- [ ] Clarity-inspired patterns (doc 21): root-domain cookie walking, throttle-with-last-event, base36 date encoding, envelope + payload separation
-- [ ] Engagement ping (10s heartbeat, visibility-aware) — feeds v2 session/engagement metrics
+- [ ] Root-domain cookie walking (Clarity pattern, doc 21) — required for Filimo CDN subdomains
 - [ ] Served via `go:embed` from the analytics host — first-party, no external CDN, no SRI needed
 - [ ] Integration test: tracker → Go server → ClickHouse → verify rollups
 
-### Phase 5: Dashboard Frontend (Weeks 11–14, assumes 1 dedicated FE; add 1 week buffer if shared with BE per doc 15)
+**Deferred to v1.1:** engagement ping (10s heartbeat), throttle-with-last-event, base36 date encoding, envelope+payload separation. These power v2 session/engagement features — safe to defer until we build them.
+
+### Phase 5: Dashboard Frontend (Weeks 11–13, reduced scope for v1 cut)
 
 - [ ] Preact SPA scaffold (Vite + TypeScript + @preact/signals for reactive state)
-- [ ] Overview panel (summary cards + comparison %)
+- [ ] Overview panel (summary cards)
 - [ ] Visitors trend chart (uPlot, hourly/daily)
 - [ ] Sources table (sortable, with revenue + conv%)
 - [ ] Pages table (with goals + revenue)
 - [ ] Funnel visualization (Frappe Charts bar)
-- [ ] Geo panel (provinces table or SVG map)
+- [ ] Geo panel (provinces table)
 - [ ] Devices panel (device/browser/OS breakdown)
-- [ ] SEO panel (organic trend, pages, organic vs paid)
+- [ ] SEO panel (organic trend line only — richer panels deferred to v1.1)
 - [ ] Campaigns panel (utm_campaign table)
-- [ ] Date picker (Jalali via `jalaali-js` 3KB, period shortcuts)
-- [ ] Comparison toggle (this period vs previous)
+- [ ] Gregorian date picker with period shortcuts (Jalali = v1.1)
 - [ ] Real-time active-visitors widget (10s refresh)
 - [ ] Admin pages: users + goals + funnels (calls /api/admin/*)
-- [ ] CSV export on all tables
-- [ ] Keyboard shortcuts (j/k navigation, ? help, / search) + command palette
 - [ ] WCAG 2.2 AA compliance (contrast, focus rings, aria labels, keyboard reachability)
 - [ ] Embed via go:embed, verify binary size <20MB
+
+**Deferred to v1.1:** Jalali calendar, comparison period toggle (% change UI), CSV export on tables, keyboard shortcuts / command palette. Polish, not load-bearing for Filimo launch.
 
 ### Phase 6: Configuration & First-Run (Week 15)
 
@@ -533,27 +569,25 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 - [ ] Schema migration runner (embedded SQL, run on startup)
 - [ ] Health check endpoint (/healthz)
 
-### Phase 7: Testing & Hardening (Weeks 16–17)
+### Phase 7: Testing & Hardening (Week 16 — tightened from 2 weeks)
 
-- [ ] k6 full load test (7K EPS ramp, Persian URLs, Iranian UAs) — 7K EPS = ~600M events/day, Filimo baseline at 10–20M DAU per doc 16
+- [ ] k6 smoke load test (7K EPS ramp, Persian URLs, Iranian UAs) — 7K EPS = ~600M events/day, Filimo baseline at 10–20M DAU per doc 16
 - [ ] Go benchmark suite (every pipeline stage)
-- [ ] Integration test (100K events, multi-tenant → all rollups → all API endpoints, each scoped by site_id)
-- [ ] Security validation (auth, rate limit, TLS, ClickHouse isolation, hostname validation, input limits)
+- [ ] Integration test (100K events, multi-tenant → all v1 rollups → all API endpoints, each scoped by site_id; **security assertions folded in** — auth, rate limit, hostname validation, CH isolation, input limits)
 - [ ] Crash recovery test (kill -9 Go → WAL replay zero-loss; kill ClickHouse for 10 min → events buffer then drain)
 - [ ] Disk-full policy test (fill WAL to 10GB cap → verify 503 with clear error, existing events preserved)
 - [ ] Backup restore test (restore encrypted backup to fresh CH → row counts match)
-- [ ] TLS renewal test (ACME cert rotation 14+ days before expiry; HTTP-01 and DNS-01 paths)
+- [ ] Manual TLS rotation test (replace PEMs + SIGHUP → new cert served without restart)
 - [ ] Documentation: README, deployment guide, API docs, runbook
 
-### Phase 8: Deployment & Launch (Weeks 18–19)
+### Phase 8: Deployment & Launch (Weeks 17–18)
 
-- [ ] Deploy to Hetzner AX42 (€46/mo) for staging
+- [ ] Deploy to Hetzner CX32 (~€13/mo) for Phase A dogfood staging
 - [ ] OR deploy to Iranian DC for Filimo (production)
-- [ ] Build **offline install bundle** (`make airgap-bundle`): statically-linked binary + `vendor/` + docker image tarball (`docker save`) + migration SQL + default YAML + tracker bundle + IP2Location DB23 BIN + SHA256SUMS + signed manifest
-- [ ] Complete deployment runbook (bare metal, Docker, **air-gapped bundle install**)
+- [ ] Build **offline install bundle** (`make airgap-bundle`): statically-linked binary + `vendor/` + migration SQL + default YAML + tracker bundle + IP2Location LITE DB23 BIN + SHA256SUMS + signed manifest. **Docker tarball deferred to v1.1.**
+- [ ] Complete deployment runbook (bare metal, air-gapped bundle install)
 - [ ] Backup cron verified + monthly restore drill scheduled
-- [ ] Monitoring: health endpoint + **multi-sink alerts** — file + local syslog (always-on, air-gapped-safe) + Telegram/webhook (opt-in, internet-facing only). Alerts: WAL >80%, CH down, DLQ non-empty, CH mutation queue backlog, disk >85%, cert expiry <14d
-- [ ] DLQ inspection tooling (CLI to re-queue or discard)
+- [ ] Monitoring: health endpoint + **file-sink alerts** (JSONL in `/var/log/statnive/alerts.jsonl`). Alerts: WAL >80%, CH down, disk >85%, cert expiry <30d. Syslog/Telegram sinks = v1.1.
 - [ ] Document offline GeoIP DB update procedure (SCP new BIN + SIGHUP)
 - [ ] Document internal NTP requirement (IRST salt correctness depends on correct clock)
 - [ ] Filimo tracker integration
