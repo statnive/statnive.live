@@ -361,7 +361,7 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   │   ├── admin.go                # POST/PUT/DELETE /api/admin/users, /api/admin/goals (funnels via YAML+SIGHUP)
 │   │   ├── signup.go               # POST /api/signup (Phase C self-serve)
 │   │   ├── onboarding.go           # GET /api/stats/ping?site_id=X (Phase C onboarding polling)
-│   │   └── billing.go              # POST /api/admin/billing (Stripe webhook, Phase C)
+│   │   └── billing.go              # POST /api/admin/billing (Polar.sh webhook, X-Polar-Signature verify, Phase C)
 │   ├── sites/                       # Multi-tenant site registry (shared by ingest + dashboard)
 │   │   ├── sites.go                # Sites table DAO: hostname <-> site_id resolution
 │   │   └── provisioning.go         # Create / disable site, slug generation for subdomain routing
@@ -592,16 +592,17 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 
 - [ ] Implement `POST /api/signup` (email + password + hostname → creates site + admin user)
 - [ ] Implement `GET /api/stats/ping?site_id=X` (onboarding polling for first-event detection)
-- [ ] Implement `POST /api/admin/billing` (Stripe webhook for upgrades)
+- [ ] Implement `POST /api/admin/billing` (Polar.sh webhook — verify `X-Polar-Signature` HMAC-SHA256, handle `subscription.created` / `subscription.updated` / `subscription.canceled` / `benefit.granted` / `benefit.revoked`, idempotent by event.id)
 - [ ] Subdomain routing middleware `dashboard/tenant.go` — extract `<slug>` from host, resolve to `site_id`, scope all `/api/stats/*` calls
 - [ ] `internal/sites/provisioning.go` — slug generation (`example.com` → `example-com`), uniqueness check, hostname blocklist (spam/phishing lists)
 - [ ] Signup guardrails: hostname DNS-resolvable, not on blocklist, unique in `sites` table, rate limit 5 signups/hour per IP
 - [ ] Free tier quota: 10K PV/mo tracked via `daily_users` rollup; soft throttle on ingest above limit (still accept, tag events `quota_exceeded=1`), upsell banner in dashboard
-- [ ] Stripe integration (tiers per existing pricing table: Starter $9, Growth $19, Business $69, Scale $199)
+- [ ] Polar.sh integration (Merchant of Record — Polar handles VAT / global tax). Create 4 Products (Starter, Growth, Business, Scale) × monthly+yearly Prices in Polar dashboard; `POST /api/billing/checkout` server endpoint creates a Polar checkout session via `POST https://api.polar.sh/v1/checkouts/` with `external_customer_id = site_id`, redirects user to `{url}` from response
+- [ ] Polar customer portal link: `POST https://api.polar.sh/v1/customer-sessions/` returns a 15-min magic-link URL for self-serve upgrade/cancel; "Manage billing" button in dashboard redirects there
 - [ ] Paid tiers unlock higher quota + goals/funnels CRUD
 - [ ] Onboarding page at `<slug>.statnive.live/onboarding` with copy-paste snippet + live polling
 - [ ] Email transactional flow (signup confirm, payment receipt, quota warnings) — opt-in per deployment, can disable for air-gapped
-- [ ] Acceptance: fresh signup → tracker embed → first event visible in tenant dashboard in <5 min; cross-site isolation test (site A admin cannot query site B data via URL manipulation); Stripe webhook correctly updates `sites.plan`; signup rate limiter rejects 6th signup/hour from same IP
+- [ ] Acceptance: fresh signup → tracker embed → first event visible in tenant dashboard in <5 min; cross-site isolation test (site A admin cannot query site B data via URL manipulation); Polar sandbox `subscription.created` webhook correctly updates `sites.plan`; signup rate limiter rejects 6th signup/hour from same IP
 
 ---
 
@@ -621,7 +622,7 @@ statnive-live is **not open-source**. Self-hosted customers need a license.
 - License server at `license.statnive.live`
 - Periodic license validation — daily phone-home, **grace period 30 days offline** (Iran connectivity is fragile per doc 19; 7 days too aggressive)
 - Phone-home payload is strictly `{site_id, events_day_count, version}` — no user, URL, event, IP, or referrer data transmitted (privacy + GDPR)
-- Stripe integration for self-serve purchase
+- Polar.sh integration for self-serve purchase (Merchant of Record — Polar absorbs global tax compliance, no per-country registration)
 - Usage reporting (anonymous: events/day count only)
 
 ### License Key Structure
@@ -759,7 +760,7 @@ The final platform runs as a **single, self-contained binary on one server with 
 | Remote syslog | Audit log shipping | `audit.remote = ""` |
 | Google Search Console (v2) | Organic SEO data | Feature flag off |
 | Microsoft Clarity (future) | Heatmaps | Feature flag off |
-| Stripe (SaaS Phase C only) | Billing webhooks + payment | `billing.stripe.enabled = false` (D2 always off) |
+| Polar.sh (SaaS Phase C only) | Billing (Merchant of Record), checkout sessions, webhooks at `api.polar.sh` | `billing.polar.enabled = false` (D2 always off) |
 | Transactional email (SaaS Phase C only) | Signup confirm, receipts, quota alerts | `email.enabled = false` (D2 always off) |
 
 ### Install procedure (air-gapped host)
@@ -867,7 +868,7 @@ statnive-live ships in **three public-facing phases across two deployments**. Sa
 - **New endpoints (on top of v1):**
   - `POST /api/signup` — `{email, password, hostname}` → creates `site_id`, admin user, returns redirect to `<slug>.statnive.live/onboarding`
   - `GET /api/stats/ping?site_id=X` — onboarding page polls until first event arrives (returns `{seen: bool}`)
-  - `POST /api/admin/billing` — Stripe webhook (plan upgrades / cancellations)
+  - `POST /api/admin/billing` — Polar.sh webhook (`order.created`, `subscription.created/updated/canceled`, `benefit.granted/revoked`); verify `X-Polar-Signature` HMAC-SHA256 with stored secret; idempotent by `event.id`; reconcile via `customer.external_id = site_id`
 - **Subdomain routing middleware** (`internal/dashboard/tenant.go`):
   - Parse host → extract `<slug>` → resolve to `site_id` via `internal/sites/sites.go`
   - Inject `site_id` into request context; all `/api/stats/*` handlers read from context
@@ -879,15 +880,18 @@ statnive-live ships in **three public-facing phases across two deployments**. Sa
   - Rate limit 5 signups/hour per IP
   - Email verification link before tracker is activated (24h grace)
 - **Free tier quota:** 10K PV/mo tracked via `daily_users` rollup; over-quota = soft throttle (still accept events, tag with `quota_exceeded=1`, show upsell banner)
-- **Stripe tiers** (per existing pricing at PLAN.md line 546):
-  - Free (self-hosted only, no SaaS)
+- **Polar.sh products** (one Polar Product per tier; two Prices each — monthly + yearly):
+  - Free (self-hosted only, no SaaS — no Polar Product)
   - Starter $9/mo → 100K PV + 5 goals
   - Growth $19/mo → 1M PV + unlimited goals + funnels CRUD
   - Business $69/mo → 10M PV + API access
   - Scale $199/mo → 100M PV + priority support
+- **Why Polar (not Stripe):** Polar is a **Merchant of Record** — it handles VAT/GST/sales tax globally so we don't register in every jurisdiction. Open-source, developer-first, ~4% fee including tax. Cached docs at [`jaan-to/outputs/dev/docs/context7/polar-sh.md`](../jaan-to/outputs/dev/docs/context7/polar-sh.md).
+- **No Go SDK** — call the Polar REST API directly via `net/http` (or `go-resty` if we want a thin wrapper). Sandbox: `sandbox-api.polar.sh` for CI integration tests.
+- **Benefits model:** map Polar's `benefit.granted` / `benefit.revoked` events to our feature flags (e.g., "unlimited_goals", "api_access"), rather than hardcoding plan-feature mapping on our side. Lets us change plan contents without redeploy.
 - **Onboarding UX:** post-signup page shows tracker snippet + live polling indicator; flips to real dashboard as soon as first event lands
 - **Email transactional:** signup confirm, payment receipt, quota warnings — opt-in per deployment (can disable for future self-hosted SaaS)
-- **Acceptance:** fresh signup → tracker embed → first event visible in <5 min; cross-tenant isolation (site A admin sees only site A data even when URL-manipulating); Stripe webhook correctly updates `sites.plan` and quota flips accordingly; signup rate limiter rejects 6th signup/hour per IP
+- **Acceptance:** fresh signup → tracker embed → first event visible in <5 min; cross-tenant isolation (site A admin sees only site A data even when URL-manipulating); Polar sandbox `subscription.created` webhook correctly updates `sites.plan`, `benefit.granted` flips feature flags, `subscription.canceled` reverts at period end; signup rate limiter rejects 6th signup/hour per IP
 
 ---
 
@@ -1017,4 +1021,4 @@ All existing architectural decisions in the plan (schema, identity, transport, p
 20. Air-gapped GeoIP update: replace DB23 BIN + `SIGHUP` → new IPs resolve correctly without restart
 21. **Phase A (dogfood):** statnive.com fires a pageview → visible in `demo.statnive.live` dashboard within 5 minutes; shared viewer login (`demo / demo-statnive`) gets 403 on every `/api/admin/*` route; login brute-force capped at 10 attempts/min per IP
 22. **Phase B (Filimo):** Filimo tracker at `filimo.statnive.live/tracker.js` fires → visible in `filimo.statnive.live` dashboard within 5 minutes; `iptables -P OUTPUT DROP` test passes end-to-end on Iranian DC box; backup + restore drill succeeds on the dedicated instance
-23. **Phase C (SaaS):** fresh signup (`POST /api/signup`) → tracker embed → first event appears in `<slug>.statnive.live` within 5 minutes; cross-tenant isolation — site A admin cannot query site B data even by URL manipulation; Stripe webhook updates `sites.plan` and quota enforcement flips correctly; 6th signup/hour from same IP is rejected
+23. **Phase C (SaaS):** fresh signup (`POST /api/signup`) → tracker embed → first event appears in `<slug>.statnive.live` within 5 minutes; cross-tenant isolation — site A admin cannot query site B data even by URL manipulation; Polar.sh sandbox webhook (`subscription.created` signed with `X-Polar-Signature`) updates `sites.plan` and quota enforcement flips correctly; webhook handler is idempotent (replaying the same event.id does not double-apply); 6th signup/hour from same IP is rejected
