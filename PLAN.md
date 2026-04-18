@@ -155,6 +155,7 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 | **11 — Phase C SaaS** | ⏳ Pending | Polar.sh checkout + webhooks, signup, path-based tenancy. |
 | **CLI** (operator surface) | 🔮 v1.1 | `statnive` subcommands: serve, migrate, license, sites, users, backup, doctor, secret, stats. ~1 week. |
 | **MCP server** (agent surface) | 🔮 v2 | Read-only analytics tools over stdio (air-gap-safe) or HTTP. Maps 1:1 to dashboard endpoints. ~2 weeks. |
+| **Brand & design tokens** | 📐 Reference ready | Wordmark + summit logo, cream/ink/Persian-Teal palette, Fraunces + IBM Plex type ramp. Applies to statnive.live website + demo + tenant dashboards. See [§ Brand & Design](#brand--design--statnivelive-visual-identity). |
 
 ### Phase 0: Project Setup (Week 1)
 
@@ -232,6 +233,12 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 **Deferred to v1.1:** engagement ping (10s heartbeat), throttle-with-last-event, base36 date encoding, envelope+payload separation. These power v2 session/engagement features — safe to defer until we build them.
 
 ### Phase 5: Dashboard Frontend (Weeks 11–13, reduced scope for v1 cut)
+
+> **Brand reference:** all components use the tokens + type ramp from
+> [§ Brand & Design](#brand--design--statnivelive-visual-identity). The Preact
+> SPA imports `web/src/tokens.css` at the entry point so every panel /
+> chart / table reads from `var(--green)`, `var(--ink)`, `var(--paper)`
+> etc. Hand-rolled hex values in components are a PR-review reject.
 
 - [ ] Preact SPA scaffold (Vite + TypeScript + @preact/signals for reactive state)
 - [ ] Overview panel (summary cards)
@@ -522,6 +529,99 @@ return `mcp.invalid_params`, not silent empty results.
 MCP listens on `127.0.0.1` by default; operator must explicitly bind to
 a routable address + open the firewall to expose it externally — the
 binary won't dial out to register itself anywhere.
+
+---
+
+## Brand & Design — statnive.live Visual Identity
+
+The canonical brand reference is the standalone HTML preview at
+[`../jaan-to/outputs/detect/design/statnive-brand-guideline/statnive-live-brand-guidelines.html`](../jaan-to/outputs/detect/design/statnive-brand-guideline/statnive-live-brand-guidelines.html)
+(open it in a browser to see the wordmark, summit logo, color swatches,
+type ramp, component samples, and pattern library). Companion files in
+the same directory: `Statnive Logo.html` (mark variants), `icons.jsx`
+(SVG icon set), `design-canvas.jsx` (source for the preview).
+
+**Where the brand applies.** Every public surface that carries the
+statnive.live name:
+
+- **statnive.live root** — marketing landing page (Phase 9 + Phase 11). Hero
+  uses the summit mark + Persian Teal accent on cream; CTAs in serif.
+- **demo.statnive.live** — public demo dashboard (Phase 9). Same surface as
+  tenant dashboards but with the "Public demo" banner from Phase A.
+- **app.statnive.live/s/&lt;slug&gt;** — tenant dashboards (Phase 11). The Preact
+  SPA from Phase 5 owns the implementation; brand tokens shipped as CSS
+  custom properties so per-tenant white-label (a v2 upsell) is a token
+  swap, not a refactor.
+- **filimo.statnive.live** — Filimo dedicated dashboard (Phase 10). Same
+  brand by default; Filimo can request white-label co-branding under v2.
+- **README + docs site** — when we eventually publish operator docs, they
+  use the same palette + Fraunces wordmark.
+
+**Tokens to ship as CSS custom properties** (copy verbatim into
+`web/src/tokens.css` when Phase 5 starts):
+
+```css
+:root {
+  /* Surface */
+  --paper:     #F4EFE6;   /* primary background — cream */
+  --ink:       #1A1916;   /* primary text + rules */
+  --rule-soft: #C9C0AB;   /* dividers, table borders */
+
+  /* Accent — Persian Teal (the .live mark color) */
+  --green:     #00756A;
+  --green-dk:  #004F48;   /* hover / pressed */
+  --green-lt:  #9FCDC5;   /* tinted backgrounds, info pills */
+
+  /* Secondary palette — chart series, status badges */
+  --navy:      #1E3551;
+  --ochre:     #B87B1A;
+  --plum:      #5F3B6E;
+  --rust:      #A84628;
+
+  /* Type */
+  --serif: 'Fraunces', 'Charter', Georgia, serif;
+  --sans:  'IBM Plex Sans', system-ui, sans-serif;
+  --mono:  'IBM Plex Mono', ui-monospace, monospace;
+}
+```
+
+**Typography rules** (from the guideline's "Type Ramp" panel):
+
+- **Fraunces (serif)** — wordmark, marketing headlines, dashboard panel
+  titles. Italic for the `.live` suffix in the wordmark.
+- **IBM Plex Sans** — UI body, table cells, form controls.
+- **IBM Plex Mono** — numeric telemetry (visitor counts, RPV figures,
+  latency p99), code samples, IDs, hashes. Mono is load-bearing for the
+  "fast, smart" product positioning — numbers must align in tables.
+
+**Logo + voice rules** (from the guideline's "Three tones do ninety percent
+of the work" thesis):
+
+- The summit mark (the angular peak with the Persian Teal apex dot) is
+  **secondary** to the wordmark. Wordmark first; summit mark only as a
+  favicon, app-tile icon, or condensed-space mark.
+- Cream + ink + rule do most of the work. Persian Teal is the **only**
+  accent; secondary palette colors (navy / ochre / plum / rust) are reserved
+  for chart series, status badges, and category differentiation — never for
+  primary UI chrome.
+- Voice from the guideline blurb: terse, technical, confident. "Cream, ink,
+  rule." not "Our brand uses three primary colors."
+
+**Compliance hooks** (where this plan enforces brand consistency):
+
+- **Phase 5 (Dashboard Frontend)** — `web/src/tokens.css` MUST originate from
+  the swatch table above. PR review rejects hand-rolled hex values in
+  Preact components; they must reference `var(--green)` etc.
+- **Phase 9 (Phase A dogfood)** — when the tracker snippet is pasted into
+  `statnive-website/`, the surrounding marketing copy + hero use the
+  brand palette + Fraunces wordmark.
+- **Phase 11 (Phase C SaaS)** — the per-tenant slug page reuses the same
+  token file; per-tenant white-label is a v2 feature that swaps token
+  values, never the structure.
+
+**Source of truth rule:** if the brand guideline HTML and this section
+disagree, the HTML wins. Update the HTML first, then port the relevant
+token deltas back into PLAN.md.
 
 ---
 
