@@ -17,12 +17,15 @@ import (
 	"github.com/statnive/statnive.live/internal/sites"
 )
 
-// Pipeline is the contract handler.serve uses to enrich a RawEvent. The real
-// implementation (currently enrich.Stub, eventually the 6-worker pipeline)
-// lives outside this package — defined here so we don't pull enrich into
-// the import graph and create a cycle.
+// Pipeline is the contract handler.serve uses. The real implementation
+// (enrich.Pipeline) owns the worker pool that runs the 6-stage enrichment
+// in order. Defined here so the enrich package can depend on ingest
+// without creating an import cycle.
+//
+// Enqueue returns false on backpressure — the in-channel is full. The
+// handler maps that to 503 so trackers retry rather than silently dropping.
 type Pipeline interface {
-	ProcessEvent(raw *RawEvent) EnrichedEvent
+	Enqueue(ctx context.Context, raw *RawEvent) bool
 }
 
 const (
@@ -43,7 +46,6 @@ type SiteResolver interface {
 type HandlerConfig struct {
 	Pipeline Pipeline
 	Sites    SiteResolver
-	Out      chan<- EnrichedEvent
 	Now      func() time.Time // injectable for tests; defaults to time.Now
 	Logger   *slog.Logger
 }
@@ -122,12 +124,12 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig) {
 
 		raw.SiteID = siteID
 
-		// Stub pipeline: copy → emit. Real 6-worker pipeline lands next slice.
-		enriched := cfg.Pipeline.ProcessEvent(raw)
+		if !cfg.Pipeline.Enqueue(r.Context(), raw) {
+			// Pipeline saturated — return 503 so trackers retry rather
+			// than silently dropping. Better to fail loudly than to lose
+			// events to backpressure.
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 
-		select {
-		case cfg.Out <- enriched:
-		case <-r.Context().Done():
 			return
 		}
 	}
