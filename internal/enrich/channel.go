@@ -3,11 +3,9 @@ package enrich
 import (
 	"fmt"
 	"os"
-	"os/signal"
 	"regexp"
 	"strings"
 	"sync/atomic"
-	"syscall"
 
 	"gopkg.in/yaml.v3"
 )
@@ -95,20 +93,21 @@ var pushSources = map[string]struct{}{
 	"firebase": {},
 }
 
-// NewChannelMapper loads sources.yaml and installs a SIGHUP reload handler.
-// SIGHUP only — viper hot-reload is wired separately at the config layer.
+// NewChannelMapper loads sources.yaml. Reload is driven by main.go's
+// central SIGHUP listener (cmd/statnive-live/main.go:runSIGHUP) — having
+// each subsystem install its own signal.Notify caused duplicate reloads
+// and racy tests, so the mapper exposes Reload() for the caller to wire.
 func NewChannelMapper(path string) (*ChannelMapper, error) {
 	m := &ChannelMapper{path: path, stopCh: make(chan struct{})}
 	if err := m.Reload(); err != nil {
 		return nil, err
 	}
 
-	go m.watchSIGHUP()
-
 	return m, nil
 }
 
-// Close stops the SIGHUP watcher. Idempotent.
+// Close is a no-op kept for API compatibility — the per-mapper SIGHUP
+// listener was removed in Phase 2a. Safe to call multiple times.
 func (m *ChannelMapper) Close() {
 	select {
 	case <-m.stopCh:
@@ -183,23 +182,6 @@ func bucketSetFor(cd *compiledDB, channel string) map[string]struct{} {
 	}
 
 	return nil
-}
-
-func (m *ChannelMapper) watchSIGHUP() {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGHUP)
-	defer signal.Stop(ch)
-
-	for {
-		select {
-		case <-m.stopCh:
-			return
-		case <-ch:
-			if err := m.Reload(); err != nil {
-				fmt.Fprintf(os.Stderr, "channel mapper reload: %v\n", err)
-			}
-		}
-	}
 }
 
 // classCtx carries normalized inputs through the 17-step ladder. Lower-cased

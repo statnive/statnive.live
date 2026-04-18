@@ -127,12 +127,16 @@ func TestHandlerFastRejectGate(t *testing.T) {
 
 			fake := &fakePipeline{}
 
-			handler := ingest.NewHandler(ingest.HandlerConfig{
+			// Production wires fast-reject as a chi middleware in front of
+			// NewHandler. The handler test composes them by hand so the
+			// 10-case fast-reject table still gates the right behavior.
+			inner := ingest.NewHandler(ingest.HandlerConfig{
 				Pipeline: fake,
 				Sites:    ingest.StaticSiteResolver{SiteID: 1},
 				Now:      func() time.Time { return time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC) },
 				Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 			})
+			handler := ingest.FastRejectMiddleware(nil)(inner)
 
 			req := httptest.NewRequestWithContext(context.Background(), tc.method, "/api/event", strings.NewReader(tc.body))
 			req.Header.Set("User-Agent", tc.ua)
