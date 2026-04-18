@@ -1,0 +1,81 @@
+# Iranian-friendly referrer sources for channel classification.
+# Referrer hostname → (source name, channel). Hot-reload via SIGHUP.
+# The channel mapper that consumes this file lands in the next slice —
+# the file is staged here so deployments don't need a config change later.
+
+sources:
+  # ---------- Organic Search ----------
+  - {name: Google,     channel: Organic Search, domains: [google.com, google.ir, google.co.uk, google.de, google.fr, google.com.tr]}
+  - {name: Bing,       channel: Organic Search, domains: [bing.com, cn.bing.com]}
+  - {name: Yahoo,      channel: Organic Search, domains: [yahoo.com, search.yahoo.com]}
+  - {name: DuckDuckGo, channel: Organic Search, domains: [duckduckgo.com]}
+  - {name: Yandex,     channel: Organic Search, domains: [yandex.com, yandex.ru]}
+  - {name: Baidu,      channel: Organic Search, domains: [baidu.com]}
+  - {name: Ask,        channel: Organic Search, domains: [ask.com]}
+  - {name: Ecosia,     channel: Organic Search, domains: [ecosia.org]}
+  - {name: Brave,      channel: Organic Search, domains: [search.brave.com]}
+  - {name: Parsijoo,   channel: Organic Search, domains: [parsijoo.ir]}
+  - {name: Neshan,     channel: Organic Search, domains: [neshan.org]}
+  - {name: Balatarin,  channel: Organic Search, domains: [balatarin.com]}
+  - {name: Yooz,       channel: Organic Search, domains: [yooz.ir]}
+
+  # ---------- Social ----------
+  - {name: Instagram,  channel: Social, domains: [instagram.com, l.instagram.com]}
+  - {name: Telegram,   channel: Social, domains: [telegram.org, t.me, telegram.me]}
+  - {name: WhatsApp,   channel: Social, domains: [whatsapp.com, api.whatsapp.com, web.whatsapp.com]}
+  - {name: Twitter,    channel: Social, domains: [twitter.com, t.co, x.com]}
+  - {name: Facebook,   channel: Social, domains: [facebook.com, l.facebook.com, m.facebook.com, lm.facebook.com]}
+  - {name: LinkedIn,   channel: Social, domains: [linkedin.com, lnkd.in]}
+  - {name: Pinterest,  channel: Social, domains: [pinterest.com, pin.it]}
+  - {name: Reddit,     channel: Social, domains: [reddit.com, old.reddit.com, out.reddit.com]}
+  - {name: TikTok,     channel: Social, domains: [tiktok.com, vm.tiktok.com]}
+  - {name: Cloob,      channel: Social, domains: [cloob.com]}
+  - {name: Discord,    channel: Social, domains: [discord.com, discord.gg]}
+  - {name: Threads,    channel: Social, domains: [threads.net]}
+  - {name: Mastodon,   channel: Social, domains: [mastodon.social]}
+
+  # ---------- Video ----------
+  - {name: YouTube,    channel: Video, domains: [youtube.com, m.youtube.com, youtu.be]}
+  - {name: Aparat,     channel: Video, domains: [aparat.com, www.aparat.com]}
+  - {name: Namasha,    channel: Video, domains: [namasha.com]}
+  - {name: Vimeo,      channel: Video, domains: [vimeo.com]}
+  - {name: Twitch,     channel: Video, domains: [twitch.tv]}
+  - {name: Filimo,     channel: Video, domains: [filimo.com]}
+  - {name: Namava,     channel: Video, domains: [namava.ir]}
+
+  # ---------- Email ----------
+  - {name: Gmail,      channel: Email, domains: [mail.google.com, gmail.com]}
+  - {name: Yahoo Mail, channel: Email, domains: [mail.yahoo.com]}
+  - {name: ProtonMail, channel: Email, domains: [mail.proton.me, protonmail.com]}
+  - {name: Outlook,    channel: Email, domains: [outlook.live.com, outlook.office.com]}
+  - {name: Chmail,     channel: Email, domains: [chmail.ir]}
+
+  # ---------- AI Assistants (doc 24 §Sec 3.3 — v1 bucket) ----------
+  - {name: ChatGPT,    channel: AI, domains: [chat.openai.com, chatgpt.com]}
+  - {name: Claude,     channel: AI, domains: [claude.ai]}
+  - {name: Gemini,     channel: AI, domains: [gemini.google.com, bard.google.com]}
+  - {name: Copilot,    channel: AI, domains: [copilot.microsoft.com]}
+  - {name: Perplexity, channel: AI, domains: [perplexity.ai, www.perplexity.ai]}
+
+  # ---------- Iranian news / content (referral) ----------
+  - {name: Digikala,   channel: Referral, domains: [digikala.com]}
+  - {name: Varzesh3,   channel: Referral, domains: [varzesh3.com]}
+  - {name: Zoomit,     channel: Referral, domains: [zoomit.ir]}
+  - {name: Tasnim,     channel: Referral, domains: [tasnimnews.com]}
+  - {name: MehrNews,   channel: Referral, domains: [mehrnews.com]}
+  - {name: ISNA,       channel: Referral, domains: [isna.ir]}
+  - {name: IRNA,       channel: Referral, domains: [irna.ir]}
+  - {name: FarsNews,   channel: Referral, domains: [farsnews.ir]}
+  - {name: YJC,        channel: Referral, domains: [yjc.ir]}
+  - {name: Khabaronline, channel: Referral, domains: [khabaronline.ir]}
+  - {name: Asriran,    channel: Referral, domains: [asriran.com]}
+  - {name: Tabnak,     channel: Referral, domains: [tabnak.ir]}
+  - {name: Alef,       channel: Referral, domains: [alef.ir]}
+  - {name: Entekhab,   channel: Referral, domains: [entekhab.ir]}
+  - {name: Bartarinha, channel: Referral, domains: [bartarinha.ir]}
+  - {name: Shaparak,   channel: Referral, domains: [shaparak.ir]}
+  - {name: Divar,      channel: Referral, domains: [divar.ir]}
+  - {name: Sheypoor,   channel: Referral, domains: [sheypoor.com]}
+  - {name: Torob,      channel: Referral, domains: [torob.com]}
+  - {name: Snapp,      channel: Referral, domains: [snapp.ir]}
+  - {name: Tapsi,      channel: Referral, domains: [tapsi.ir]}
