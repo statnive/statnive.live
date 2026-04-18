@@ -27,8 +27,17 @@ license:
 
 audit:
   sink: "file"                # file-only in v1 (PLAN.md:474); syslog/Telegram = v1.1
-  path: "./audit.jsonl"
+  path: "./audit.jsonl"       # JSONL append-only; SIGHUP triggers reopen for logrotate
 
 tls:
-  cert_file: ""               # populated in Phase 2; manual PEM rotation
+  # When both empty the binary serves HTTP (dev convenience). Production
+  # MUST set both — partial config (one set, one empty) is rejected at
+  # boot. Reload on SIGHUP per CLAUDE.md / PLAN.md:172. No autocert.
+  cert_file: ""
   key_file: ""
+
+ratelimit:
+  # /api/event hot path. Keyed per client IP via the same NAT-aware
+  # ladder the handler uses (True-Client-IP → CF-Connecting-IP →
+  # X-Real-IP → rightmost X-Forwarded-For). /healthz is exempt.
+  requests_per_minute: 6000   # 100 req/s steady state

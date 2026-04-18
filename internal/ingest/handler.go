@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/sites"
 )
 
@@ -46,6 +47,7 @@ type SiteResolver interface {
 type HandlerConfig struct {
 	Pipeline Pipeline
 	Sites    SiteResolver
+	Audit    *audit.Logger    // optional — nil silences audit emissions (test mode)
 	Now      func() time.Time // injectable for tests; defaults to time.Now
 	Logger   *slog.Logger
 }
@@ -62,21 +64,10 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 }
 
 func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-
-		return
-	}
-
-	// Pre-pipeline fast-reject gate — PLAN.md:156, doc 24 §Sec 1.6.
-	// Returns 204 with zero pipeline work for prefetches and obvious bots
-	// so the enrichment workers never see them.
+	// FastRejectMiddleware enforces POST-only + the prefetch/UA-shape
+	// fast-reject before any downstream middleware. By the time we get
+	// here the request has passed both checks and the rate limiter.
 	ua := r.Header.Get("User-Agent")
-	if rejectedReason := fastReject(r.Header, ua); rejectedReason != "" {
-		w.WriteHeader(http.StatusNoContent)
-
-		return
-	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
@@ -97,7 +88,7 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig) {
 	}
 
 	now := cfg.Now().UTC()
-	ip := clientIP(r)
+	ip := ClientIP(r)
 	cookieID := readOrSetCookieID(w, r)
 
 	for i := range events {
@@ -115,6 +106,9 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig) {
 		siteID, sErr := cfg.Sites.LookupSiteIDByHostname(r.Context(), strings.ToLower(raw.Hostname))
 		if sErr != nil {
 			cfg.Logger.Debug("unknown hostname", "hostname", raw.Hostname)
+			emitAudit(r.Context(), cfg.Audit, audit.EventHostnameUnknown,
+				slog.String("hostname", raw.Hostname),
+			)
 			// Drop unknown-hostname events silently with 204 — doc 24 calls out
 			// this is what trackers expect. Bot scrapers will see no signal.
 			w.WriteHeader(http.StatusNoContent)
@@ -245,13 +239,17 @@ func validTimestamp(now, claimed time.Time) bool {
 	return diff <= maxClockDrift
 }
 
-// clientIP honors proxy headers in priority order. The result is used only
-// for the (stubbed) GeoIP step and never persisted — Privacy Rule 1 is
-// enforced by the EnrichedEvent struct having no IP field.
+// ClientIP honors proxy headers in priority order. The result is used for
+// GeoIP enrichment and rate-limit keying; it is never persisted (Privacy
+// Rule 1 is enforced by the EnrichedEvent struct having no IP field).
 //
 // Header priority: True-Client-IP → CF-Connecting-IP → X-Real-IP → rightmost
 // X-Forwarded-For. Rightmost XFF is the last trusted proxy hop.
-func clientIP(r *http.Request) string {
+//
+// Exported so internal/ratelimit can key by the same value the handler
+// uses for audit-log emissions — without sharing this helper, "who sent
+// the request" would diverge between the two layers.
+func ClientIP(r *http.Request) string {
 	for _, key := range []string{"True-Client-IP", "CF-Connecting-IP", "X-Real-IP"} {
 		if v := strings.TrimSpace(r.Header.Get(key)); v != "" {
 			return v
@@ -310,4 +308,25 @@ func (s StaticSiteResolver) LookupSiteIDByHostname(_ context.Context, hostname s
 	}
 
 	return s.SiteID, nil
+}
+
+// emitAudit is a nil-safe wrapper so the handler test can pass Audit:nil
+// and skip every audit call site without an explicit guard at each.
+func emitAudit(ctx context.Context, a *audit.Logger, name audit.EventName, attrs ...slog.Attr) {
+	if a == nil {
+		return
+	}
+
+	a.Event(ctx, name, attrs...)
+}
+
+// truncate clips s to at most max bytes. Used to bound the size of UA
+// strings written to the audit log — abuse vectors include 10-MB UAs
+// designed to balloon the log file.
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+
+	return s[:max]
 }

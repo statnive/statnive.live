@@ -144,11 +144,14 @@ func TestIngestPipelineSmoke(t *testing.T) {
 	}()
 
 	router := chi.NewRouter()
-	router.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
-		Pipeline: pipeline,
-		Sites:    sites.New(store.Conn()),
-		Logger:   logger,
-	}))
+	router.Group(func(r chi.Router) {
+		r.Use(ingest.FastRejectMiddleware(nil))
+		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
+			Pipeline: pipeline,
+			Sites:    sites.New(store.Conn()),
+			Logger:   logger,
+		}))
+	})
 
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)

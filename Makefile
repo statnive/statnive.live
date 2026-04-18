@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := ./...
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys
 
 all: lint test build
 
@@ -63,6 +63,15 @@ dev-secret:
 	@openssl rand -hex 32 > config/master.key
 	@chmod 0600 config/master.key
 	@echo "Generated config/master.key (chmod 0600)"
+
+## tls-test-keys: Generate self-signed cert+key for security integration tests (100y expiry)
+tls-test-keys:
+	mkdir -p test/tls_keys
+	openssl req -x509 -newkey rsa:2048 -keyout test/tls_keys/test.key \
+		-out test/tls_keys/test.crt -sha256 -days 36500 -nodes \
+		-subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+	chmod 0600 test/tls_keys/test.key
+	@echo "Generated test/tls_keys/test.{crt,key} (100y self-signed, localhost SAN)"
 
 ## refresh-bot-patterns: Pull latest internal/enrich/crawler-user-agents.json from monperrus/crawler-user-agents (MIT)
 refresh-bot-patterns:
