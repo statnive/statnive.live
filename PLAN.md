@@ -36,101 +36,101 @@ Both models use the **exact same Go binary**. Multi-tenant via `site_id` column 
 
 ## Repository Structure
 
+Items marked **[shipped]** exist in the working tree as of the most recent
+merged PR. Items marked **[planned]** are scheduled for a later phase.
+
 ```
 statnive-live/                          # https://github.com/statnive/statnive.live.git
-├── CLAUDE.md                           # Project rules
+├── CLAUDE.md                           # Project rules                                                  [shipped]
 ├── cmd/
 │   └── statnive-live/
-│       └── main.go                 # Entry point (wiring, shutdown — doc 22)
+│       └── main.go                     # Entry point: wiring, SIGHUP fan-out, graceful shutdown         [shipped]
 ├── internal/
-│   ├── config/                     # YAML config + hot reload
+│   ├── config/
+│   │   ├── secret.go                   # Master-secret loader (env → file → fail-closed)                [shipped]
+│   │   └── secret_test.go                                                                                [shipped]
+│   ├── audit/                          # JSONL append-only file sink (Phase 2a)                          [shipped]
+│   │   ├── events.go                   # Typed EventName constants (TLS / ratelimit / ingest events)
+│   │   ├── log.go                      # Logger with O_APPEND + SIGHUP-aware Reopen()
+│   │   ├── log_test.go
+│   │   └── audittest/
+│   │       └── audittest.go            # Test-only ReadEventNames helper (substring scan)
+│   ├── cert/                           # TLS lifecycle (Phase 2a)                                        [shipped]
+│   │   ├── loader.go                   # atomic.Pointer hot-reload, fail-closed, keep-old-on-fail
+│   │   ├── expiry.go                   # 6h ticker, <30d warn / <7d critical, crossing-dedup
+│   │   ├── loader_test.go
+│   │   └── expiry_test.go
+│   ├── ratelimit/                      # NAT-aware go-chi/httprate wrapper (Phase 2a)                    [shipped]
+│   │   ├── ratelimit.go                # Keys via ingest.ClientIP; 429 emits audit event
+│   │   └── ratelimit_test.go
 │   ├── ingest/
-│   │   ├── event.go                # RawEvent + EnrichedEvent structs (34 fields incl. site_id)
-│   │   ├── handler.go              # POST /api/event (JSON array parser)
-│   │   ├── pipeline.go             # 6-worker enrichment pipeline (order: identity→bloom→geo→ua→bot→channel)
-│   │   ├── consumer.go             # Batch writer (500ms / 1000 rows) + exponential retry (no DLQ in v1)
-│   │   └── wal.go                  # WAL (tidwall/wal, 100ms fsync, 10GB size cap)
+│   │   ├── event.go                    # RawEvent + EnrichedEvent (34 fields incl. site_id)             [shipped]
+│   │   ├── fastreject.go               # POST-only + prefetch/UA-shape gate as chi middleware           [shipped]
+│   │   ├── handler.go                  # POST /api/event; ClientIP exported; Audit nil-safe field       [shipped]
+│   │   ├── handler_test.go             # 10-case fast-reject table                                       [shipped]
+│   │   ├── wal.go                      # tidwall/wal, 100ms fsync, 10GB cap                              [shipped]
+│   │   └── consumer.go                 # Dual-trigger batch writer (1000 rows / 500ms / 10MB)            [shipped]
 │   ├── enrich/
-│   │   ├── channel.go              # Referrer → source/channel mapper
-│   │   ├── geoip.go                # IP2Location DB23 wrapper
-│   │   ├── ua.go                   # medama-io/go-useragent wrapper
-│   │   ├── bot.go                  # Bot detection (isbot + crawler DB)
-│   │   ├── newvisitor.go           # Bloom filter (18MB, 10M visitors)
-│   │   └── crawler-user-agents.json # Embedded bot patterns
+│   │   ├── pipeline.go                 # 6-worker pipeline (identity→bloom→geo→ua→bot→channel)          [shipped]
+│   │   ├── channel.go                  # 17-step decision tree; reload via main.go's runSIGHUP          [shipped]
+│   │   ├── geoip.go                    # IP2Location wrapper (no-op fallback when no BIN configured)    [shipped]
+│   │   ├── ua.go                       # medama-io/go-useragent singleton                                [shipped]
+│   │   ├── bot.go                      # Cheap-first matcher + embedded crawler-user-agents.json        [shipped]
+│   │   ├── newvisitor.go               # Bloom filter (18MB / 10M / 0.1% FPR) + cross-day grace         [shipped]
+│   │   ├── crawler-user-agents.json    # Embedded bot patterns (refresh via make refresh-bot-patterns)  [shipped]
+│   │   └── *_test.go                   # Per-component unit tests                                        [shipped]
 │   ├── identity/
-│   │   ├── hash.go                 # BLAKE3-128 visitor hash
-│   │   └── salt.go                 # IRST midnight salt rotation
+│   │   ├── hash.go                     # BLAKE3-128 visitor hash + SHA-256 user_id hash                 [shipped]
+│   │   ├── salt.go                     # IRST daily salt (HMAC-SHA256), 5-min overlap, in-mem cache    [shipped]
+│   │   └── identity_test.go                                                                              [shipped]
 │   ├── storage/
-│   │   ├── clickhouse.go           # Batch insert (34 cols incl. site_id) + retry
-│   │   ├── queries.go              # Dashboard SQL (all 8 endpoints, all WHERE site_id=?)
-│   │   └── migrate.go              # Numbered schema migrations, applied versions tracked in CH
-│   ├── dashboard/
-│   │   ├── router.go               # chi routes + auth middleware + httprate + path-based tenant scope (/s/<slug>/…)
-│   │   ├── stats.go                # All 8 GET /api/stats/* handlers in one file (overview, sources, pages, geo, devices, funnel, campaigns, seo)
-│   │   ├── admin.go                # POST/PUT/DELETE /api/admin/users, /api/admin/goals (funnels via YAML+SIGHUP)
-│   │   ├── signup.go               # POST /api/signup (Phase C self-serve)
-│   │   └── billing.go              # POST /api/admin/billing (Polar.sh webhook, X-Polar-Signature verify, Phase C)
-│   ├── sites/                       # Multi-tenant site registry (shared by ingest + dashboard)
-│   │   └── sites.go                # Sites table DAO: hostname <-> site_id, slug gen + uniqueness, create/disable
-│   ├── auth/
-│   │   ├── session.go              # bcrypt + session store (in-memory)
-│   │   ├── middleware.go           # Auth + RBAC (admin/viewer/api)
-│   │   └── audit.go                # JSONL audit logger
-│   ├── cache/
-│   │   └── lru.go                  # LRU — realtime=10s, today=60s, yesterday=1h, historical=forever (doc 20)
-│   └── health/
-│       └── check.go                # /healthz (CH + WAL + disk + EPS)
-├── web/
-│   ├── src/                        # Preact SPA
-│   │   ├── app.tsx
-│   │   ├── pages/
-│   │   │   ├── Overview.tsx
-│   │   │   ├── Sources.tsx
-│   │   │   ├── Pages.tsx
-│   │   │   ├── Funnel.tsx
-│   │   │   ├── Geo.tsx
-│   │   │   ├── Devices.tsx
-│   │   │   ├── SEO.tsx
-│   │   │   └── Campaigns.tsx
-│   │   └── components/
-│   │       ├── Chart.tsx            # uPlot wrapper
-│   │       ├── Table.tsx
-│   │       ├── FunnelBar.tsx        # Frappe Charts
-│   │       ├── DatePicker.tsx       # Jalali support
-│   │       └── CompareToggle.tsx
-│   ├── package.json
-│   └── vite.config.ts
-├── tracker/
-│   ├── src/tracker.js              # <2KB tracker source
-│   ├── rollup.config.js
-│   └── package.json
+│   │   ├── clickhouse.go               # 34-col batch insert (incl. site_id) + 1 retry                  [shipped]
+│   │   ├── migrate.go                  # Templated migrations, schema_migrations bookkeeping            [shipped]
+│   │   ├── migrations/                 # SQL embedded via go:embed (lives here, not under clickhouse/)
+│   │   │   ├── 001_initial.sql         # events_raw + sites + schema_migrations                          [shipped]
+│   │   │   └── 002_rollups.sql         # hourly_visitors + daily_pages + daily_sources + MVs            [shipped]
+│   │   ├── store.go                    # Typed Store interface for dashboard endpoints                  [planned: Phase 3]
+│   │   ├── queries.go                  # whereTimeAndTenant() helper + 8 endpoint queries               [planned: Phase 3]
+│   │   └── filter.go                   # Filter struct (site_id, time range, dimensions)                [planned: Phase 3]
+│   ├── sites/
+│   │   └── sites.go                    # Hostname → site_id lookup; slug/create/disable in Phase 11    [shipped]
+│   ├── health/
+│   │   └── check.go                    # /healthz (CH ping + WAL fill + uptime)                         [shipped]
+│   ├── dashboard/                      # 8 GET /api/stats/*, admin, signup, billing                    [planned: Phase 3 + 11]
+│   ├── auth/                           # bcrypt sessions + RBAC (admin/viewer/api)                     [planned: Phase 2b]
+│   └── cache/                          # LRU (realtime=10s / today=60s / historical=∞)                  [planned: Phase 3]
+├── web/                                # Preact SPA (Vite + TypeScript + @preact/signals)              [planned: Phase 5]
+├── tracker/                            # <2KB IIFE tracker (sendBeacon + history API)                  [planned: Phase 4]
 ├── clickhouse/
-│   ├── schema.sql                  # events_raw + 3 rollups + MVs (v1)
-│   └── migrations/
-│       ├── 001_initial.sql
-│       └── 002_add_revenue.sql
+│   └── schema.sql                      # Reference DDL pointer to internal/storage/migrations/         [shipped]
 ├── config/
-│   ├── statnive-live.yaml          # Default config
-│   └── sources.yaml                # 50+ Iranian referrer sources
+│   ├── statnive-live.yaml              # Defaults: server, clickhouse, ingest, enrich, tls, audit,     [shipped]
+│   │                                   # ratelimit, license. master.key path.
+│   └── sources.yaml                    # 60+ Iranian + AI referrer entries                              [shipped]
 ├── deploy/
-│   ├── statnive-live.service       # systemd unit (hardened)
-│   ├── clickhouse-override.conf    # ClickHouse systemd override
-│   ├── backup.sh                   # age + zstd + rotation
-│   ├── iptables.sh                 # Firewall rules (default: OUTPUT DROP except tracker clients)
-│   ├── airgap-install.sh           # One-shot offline installer from bundle
-│   └── airgap-update-geoip.sh      # Offline GeoIP DB rotation
-├── vendor/                         # Vendored Go deps (go mod vendor) — checked in for offline builds
-├── offline-bundle/                 # Release artifact: static binary + migrations + default configs + tracker + IP2Location DB23 + SHA256SUMS. Docker tarball deferred to v1.1.
+│   ├── docker-compose.dev.yml          # Local dev ClickHouse (named volumes, 127.0.0.1 only)          [shipped]
+│   ├── statnive-live.service           # systemd unit (NoNewPrivileges, ProtectSystem)                 [planned: Phase 2c]
+│   ├── iptables.sh                     # Firewall rules (80/443/22; CH never exposed)                  [planned: Phase 2c]
+│   ├── backup.sh                       # clickhouse-backup + age + zstd                                 [planned: Phase 2c]
+│   ├── airgap-install.sh               # One-shot offline installer                                    [planned: Phase 8]
+│   └── airgap-update-geoip.sh          # Offline GeoIP DB rotation                                     [planned: Phase 8]
+├── vendor/                             # Vendored Go deps — checked in for offline builds              [shipped]
+├── offline-bundle/                     # Release artifact (binary + DB23 + SHA256SUMS + signature)     [planned: Phase 8]
 ├── docs/
-│   └── tooling.md                  # Claude Code skills + MCP setup (dev ergonomics, not product)
+│   ├── tech-docs/                      # Context7-cached library refs (16 libs)                         [shipped]
+│   └── tooling.md                      # Claude Code skills + MCP setup                                 [shipped]
 ├── test/
-│   ├── k6/
-│   │   └── load-test.js            # 7K EPS smoke test
-│   └── integration_test.go         # 100K events → rollups + security assertions (auth, rate limit, hostname validation, CH isolation)
-├── Makefile                        # build, test, lint, release, airgap-bundle
+│   ├── integration_test.go             # 100-event smoke (handler → WAL → CH)                          [shipped]
+│   ├── enrichment_e2e_test.go          # All 6 stages produce expected events_raw columns              [shipped]
+│   ├── multitenant_isolation_test.go   # Privacy Rule 2: per-tenant visitor_hash separation            [shipped]
+│   ├── security_test.go                # Rate limit short-circuits before events reach ClickHouse      [shipped]
+│   ├── tls_keys/                       # Self-signed cert+key (make tls-test-keys)                     [shipped]
+│   └── k6/load-test.js                 # 7K EPS smoke                                                  [planned: Phase 7]
+├── Makefile                            # build, test, lint, vendor-check, licenses, dev-secret,        [shipped]
+│                                       # tls-test-keys, refresh-bot-patterns. airgap-bundle stub.
 ├── go.mod
 ├── go.sum
-└── README.md
+└── README.md                           # Operator quick-start                                          [planned]
 ```
 
 ---
