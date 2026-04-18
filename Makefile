@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := ./...
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep
 
 all: lint test build
 
@@ -24,9 +24,24 @@ test:
 test-integration:
 	$(GO) test -mod=vendor -race -tags=integration -timeout 120s ./test/...
 
-## lint: Run golangci-lint across the module
-lint:
+## lint: Run golangci-lint + tenancy-grep gate
+lint: tenancy-grep
 	$(GOLANGCI_LINT) run $(PKG)
+
+## tenancy-grep: CI gate — Architecture Rules 1 + 8 (no events_raw queries; whereTimeAndTenant first)
+tenancy-grep:
+	@if grep -rEn 'FROM[[:space:]]+(statnive\.)?events_raw' internal/storage/queries.go; then \
+		echo "FAIL: dashboard queries must NOT touch events_raw (Architecture Rule 1)"; exit 1; \
+	fi
+	@MISSED=$$(awk '/^func \(.*clickhouseStore\) [A-Z][a-zA-Z]*\(/,/^}/' internal/storage/queries.go | \
+		awk '/conn\.Query|conn\.QueryRow/,/`,/' | \
+		grep -c 'FROM statnive' || true); \
+	REFD=$$(grep -c 'whereTimeAndTenant' internal/storage/queries.go); \
+	if [ "$$MISSED" -gt 0 ] && [ "$$REFD" -lt "$$MISSED" ]; then \
+		echo "FAIL: every SELECT in queries.go must call whereTimeAndTenant (Architecture Rule 8)"; \
+		echo "  found $$MISSED queries against statnive.* but only $$REFD whereTimeAndTenant calls"; \
+		exit 1; \
+	fi
 
 ## fmt: Auto-format with gofumpt via golangci-lint
 fmt:

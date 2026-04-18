@@ -8,6 +8,7 @@ require (
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/httprate v0.15.0
 	github.com/google/uuid v1.6.0
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/ip2location/ip2location-go/v9 v9.8.0
 	github.com/medama-io/go-useragent v1.2.3
 	github.com/spf13/viper v1.21.0

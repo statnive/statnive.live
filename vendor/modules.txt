@@ -55,6 +55,10 @@ github.com/go-viper/mapstructure/v2/internal/errors
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
+# github.com/hashicorp/golang-lru/v2 v2.0.7
+## explicit; go 1.18
+github.com/hashicorp/golang-lru/v2/expirable
+github.com/hashicorp/golang-lru/v2/internal
 # github.com/ip2location/ip2location-go/v9 v9.8.0
 ## explicit; go 1.14
 github.com/ip2location/ip2location-go/v9
