@@ -312,7 +312,7 @@ These are the release-blocking numbers. CI must assert them on every v1/v1.1 RC 
 
 ## Dev Tooling
 
-Claude Code skills + MCP server setup for this project live in [`docs/tooling.md`](docs/tooling.md) (not in CLAUDE.md — it's developer ergonomics, not product rules). That file covers the five skills (cc-skills-golang, ClickHouse Agent Skills, trailofbits, claude-skill-golang, marina-skill), four MCP servers (Altinity ClickHouse, gopls, Hetzner, Grafana), and the phase → tooling mapping.
+Claude Code skills + MCP server setup for this project live in [`docs/tooling.md`](docs/tooling.md) (not in CLAUDE.md — it's developer ergonomics, not product rules). That file covers the **4 skill collections** (cc-skills-golang, ClickHouse Agent Skills, trailofbits, marina-skill — 32 atomic skills total), **4 MCP servers** (Altinity ClickHouse, gopls, Hetzner, Grafana), and the phase → tooling mapping. The `/jaan-to:*` skills ship with the parent plugin and handle *what* (specs, scaffolds, tests, reviews); the 4 collections handle *how* (Go/ClickHouse/security/deploy patterns).
 
 ### Skills Decision Tree
 
@@ -320,13 +320,32 @@ Quick route before diving into `docs/tooling.md`:
 
 ```
 Task arrives
-  ├─ Go concurrency / context / error handling?   → cc-skills-golang
-  ├─ ClickHouse schema / rollup / query tuning?   → ClickHouse Agent Skills + Altinity MCP
-  ├─ Security review or static analysis?          → trailofbits/skills + gopls MCP (govulncheck)
-  ├─ Test / CI gate authoring?                    → darrenoakey/claude-skill-golang
-  ├─ Deploy (Hetzner / Iranian DC)?               → marina-skill + Hetzner MCP
-  ├─ Frontend (Preact / uPlot / Frappe / Jalali)? → no skill — generate from docs/tech-docs/ cache
-  ├─ Tracker (<2 KB IIFE)?                        → build by hand, no skill coverage
+  ├─ PRD / story / roadmap?                       → /jaan-to:pm-prd-write, pm-story-write, pm-roadmap-add
+  ├─ ClickHouse schema design?                    → /jaan-to:backend-data-model
+                                                    then clickhouse-architecture-advisor + clickhouse MCP
+  ├─ API contract / OpenAPI?                      → /jaan-to:backend-api-contract
+  ├─ Scaffold Go service from spec?               → /jaan-to:backend-scaffold then golang-project-layout
+  ├─ Go concurrency / context / errors?           → golang-concurrency / golang-context / golang-error-handling
+  ├─ DB query tuning / rollups?                   → clickhouse-best-practices + clickhouse MCP
+  ├─ Security review / static analysis?           → static-analysis + golang-security +
+                                                    gopls MCP (govulncheck)
+  ├─ Remediate security findings?                 → /jaan-to:sec-audit-remediate
+  ├─ Engineering audit / scoring?                 → /jaan-to:detect-dev
+  ├─ Backend PR review?                           → /jaan-to:backend-pr-review +
+                                                    differential-review + second-opinion
+  ├─ BDD / Gherkin test cases?                    → /jaan-to:qa-test-cases
+  ├─ Runnable tests from cases?                   → /jaan-to:qa-test-generate
+  ├─ Run / diagnose / auto-fix tests?             → /jaan-to:qa-test-run + golang-linter
+  ├─ CI/CD / Docker scaffolds?                    → /jaan-to:devops-infra-scaffold
+  ├─ Deploy (Hetzner)?                            → server-management + server-bootstrap +
+                                                    hetzner MCP + /jaan-to:devops-deploy-activate
+  ├─ Verify running build?                        → /jaan-to:dev-verify
+  ├─ Fetch library docs?                          → /jaan-to:dev-docs-fetch (Context7 MCP)
+                                                    fallback: docs/tech-docs/ (16 cached refs)
+  ├─ Preact SPA from handoff?                     → /jaan-to:frontend-scaffold / frontend-design
+  ├─ User flow diagrams?                          → /jaan-to:ux-flowchart-generate
+  ├─ Microcopy / i18n (Persian/English)?          → /jaan-to:ux-microcopy-write
+  ├─ Tracker (<2 KB IIFE)?                        → build by hand, no skill coverage (doc 23 gap)
   └─ Unknown?                                      → open docs/tooling.md, don't guess
 ```
 

@@ -1,0 +1,38 @@
+{
+  "mcpServers": {
+    "clickhouse": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm", "--network=host",
+        "-e", "CLICKHOUSE_HOST",
+        "-e", "CLICKHOUSE_PORT",
+        "-e", "CLICKHOUSE_USER",
+        "-e", "CLICKHOUSE_PASSWORD",
+        "ghcr.io/altinity/altinity-mcp:latest"
+      ],
+      "env": {
+        "CLICKHOUSE_HOST": "localhost",
+        "CLICKHOUSE_PORT": "9000",
+        "CLICKHOUSE_USER": "default",
+        "CLICKHOUSE_PASSWORD": "${CLICKHOUSE_PASSWORD}"
+      }
+    },
+    "gopls": {
+      "command": "gopls",
+      "args": ["mcp"]
+    },
+    "hetzner": {
+      "command": "mcp-hetzner",
+      "env": {
+        "HCLOUD_TOKEN": "${HCLOUD_TOKEN}"
+      }
+    },
+    "grafana": {
+      "command": "mcp-grafana",
+      "env": {
+        "GRAFANA_URL": "${GRAFANA_URL}",
+        "GRAFANA_API_KEY": "${GRAFANA_API_KEY}"
+      }
+    }
+  }
+}
