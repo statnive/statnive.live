@@ -7,13 +7,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/statnive/statnive.live/internal/enrich"
-	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/ingest"
 )
+
+// fakePipeline records every Enqueue call so the test can assert the gate
+// short-circuits before reaching the real worker pool.
+type fakePipeline struct {
+	calls atomic.Int32
+}
+
+func (f *fakePipeline) Enqueue(_ context.Context, _ *ingest.RawEvent) bool {
+	f.calls.Add(1)
+
+	return true
+}
 
 // Fast-reject gate must return 204 with zero pipeline work for prefetch
 // requests and obvious bot user agents. The receiver channel must stay
@@ -114,12 +125,11 @@ func TestHandlerFastRejectGate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			out := make(chan ingest.EnrichedEvent, 4)
+			fake := &fakePipeline{}
 
 			handler := ingest.NewHandler(ingest.HandlerConfig{
-				Pipeline: enrich.NewStub(identity.NewHasherStub()),
+				Pipeline: fake,
 				Sites:    ingest.StaticSiteResolver{SiteID: 1},
-				Out:      out,
 				Now:      func() time.Time { return time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC) },
 				Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 			})
@@ -141,17 +151,12 @@ func TestHandlerFastRejectGate(t *testing.T) {
 			}
 
 			if tc.wantPiped {
-				select {
-				case ev := <-out:
-					if ev.SiteID != 1 {
-						t.Errorf("piped event site_id = %d, want 1", ev.SiteID)
-					}
-				case <-time.After(50 * time.Millisecond):
-					t.Fatal("expected event on pipeline channel, got nothing")
+				if calls := fake.calls.Load(); calls != 1 {
+					t.Fatalf("expected 1 Enqueue call, got %d", calls)
 				}
 			} else {
-				if l := len(out); l != 0 {
-					t.Errorf("rejected request leaked into pipeline channel (len=%d)", l)
+				if calls := fake.calls.Load(); calls != 0 {
+					t.Errorf("rejected request leaked into pipeline (Enqueue called %d times)", calls)
 				}
 			}
 		})

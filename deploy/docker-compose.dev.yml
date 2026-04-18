@@ -14,8 +14,11 @@ services:
       - "127.0.0.1:19000:9000"  # native protocol (clickhouse-go)
       - "127.0.0.1:18123:8123"  # HTTP (clickhouse-client / Altinity MCP)
     volumes:
-      - ./tmp/clickhouse-data:/var/lib/clickhouse
-      - ./tmp/clickhouse-logs:/var/log/clickhouse-server
+      # Named volumes (not bind mounts) — keeps CH's data files outside the
+      # project tree so `go mod vendor` and `go test ./...` don't try to
+      # walk into them.
+      - statnive_ch_data:/var/lib/clickhouse
+      - statnive_ch_logs:/var/log/clickhouse-server
     ulimits:
       nofile:
         soft: 262144
@@ -30,3 +33,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+
+volumes:
+  statnive_ch_data:
+  statnive_ch_logs:

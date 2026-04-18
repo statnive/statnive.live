@@ -4,22 +4,30 @@ go 1.25.6
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.45.0
+	github.com/bits-and-blooms/bloom/v3 v3.7.1
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/uuid v1.6.0
+	github.com/ip2location/ip2location-go/v9 v9.8.0
+	github.com/medama-io/go-useragent v1.2.3
 	github.com/spf13/viper v1.21.0
 	github.com/tidwall/wal v1.2.1
 	golang.org/x/sync v0.20.0
+	gopkg.in/yaml.v3 v3.0.1
+	lukechampine.com/blake3 v1.4.1
 )
 
 require (
 	github.com/ClickHouse/ch-go v0.71.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/bits-and-blooms/bitset v1.24.2 // indirect
+	github.com/boyter/go-string v1.0.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/klauspost/compress v1.18.3 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pierrec/lz4/v4 v4.1.25 // indirect
@@ -40,4 +48,5 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
+	lukechampine.com/uint128 v1.2.0 // indirect
 )

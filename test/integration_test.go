@@ -76,8 +76,10 @@ func TestIngestPipelineSmoke(t *testing.T) {
 	}
 
 	// Clean slate for the integration site to keep re-runs deterministic.
+	// mutations_sync=2 blocks until the DELETE merge completes.
 	if cleanErr := store.Conn().Exec(ctx,
-		`ALTER TABLE statnive.events_raw DELETE WHERE site_id = ?`, uint32(testSiteID),
+		`ALTER TABLE statnive.events_raw DELETE WHERE site_id = ? SETTINGS mutations_sync = 2`,
+		uint32(testSiteID),
 	); cleanErr != nil {
 		t.Logf("delete-existing warning (ok on first run): %v", cleanErr)
 	}
@@ -97,11 +99,43 @@ func TestIngestPipelineSmoke(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = wal.Close() })
 
-	out := make(chan ingest.EnrichedEvent, eventCount*2)
-	consumer := ingest.NewConsumer(out, wal, store, ingest.ConsumerConfig{
+	saltMgr, err := identity.NewSaltManager([]byte("integration-test-master-secret-32"))
+	if err != nil {
+		t.Fatalf("salt manager: %v", err)
+	}
+
+	geoIP, err := enrich.NewGeoIPEnricher("", logger) // no-op (no DB)
+	if err != nil {
+		t.Fatalf("geoip: %v", err)
+	}
+	t.Cleanup(func() { _ = geoIP.Close() })
+
+	channelMapper, err := enrich.NewChannelMapper("../config/sources.yaml")
+	if err != nil {
+		t.Fatalf("channel mapper: %v", err)
+	}
+	t.Cleanup(channelMapper.Close)
+
+	pipeline := enrich.NewPipeline(enrich.Deps{
+		Salt:    saltMgr,
+		Bloom:   enrich.NewNewVisitorFilter(10000, 0.001),
+		GeoIP:   geoIP,
+		UA:      enrich.NewUAParser(),
+		Bot:     enrich.NewBotDetector(logger),
+		Channel: channelMapper,
+		Logger:  logger,
+	})
+
+	consumer := ingest.NewConsumer(pipeline.Out(), wal, store, ingest.ConsumerConfig{
 		BatchRows:     50,
 		BatchInterval: 100 * time.Millisecond,
 	}, logger)
+
+	pipelineDone := make(chan struct{})
+	go func() {
+		_ = pipeline.Run(ctx)
+		close(pipelineDone)
+	}()
 
 	consumerDone := make(chan struct{})
 	go func() {
@@ -111,9 +145,8 @@ func TestIngestPipelineSmoke(t *testing.T) {
 
 	router := chi.NewRouter()
 	router.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
-		Pipeline: enrich.NewStub(identity.NewHasherStub()),
+		Pipeline: pipeline,
 		Sites:    sites.New(store.Conn()),
-		Out:      out,
 		Logger:   logger,
 	}))
 
@@ -153,8 +186,10 @@ func TestIngestPipelineSmoke(t *testing.T) {
 	// Give the batcher time to flush (100ms interval + some CH latency).
 	waitForCount(t, ctx, store, testSiteID, eventCount, flushTimeout)
 
-	// Shutdown drains any in-flight batches.
+	// Shutdown: cancel ctx → pipeline.Run drains workers + closes Out →
+	// consumer.Run sees the close + exits.
 	cancel()
+	<-pipelineDone
 	<-consumerDone
 }
 
