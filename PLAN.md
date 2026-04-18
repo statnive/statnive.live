@@ -143,7 +143,9 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 |---|---|---|
 | **0 — Project setup** | ✅ Complete | PR #1 merged. Repo, Makefile, CI, schema, vendoring all live. |
 | **1 — Ingestion pipeline** | ✅ Complete | PR #2 merged. Real 6-stage enrichment, BLAKE3 + IRST salt, 18 MB bloom + cross-day grace, 17-step channel tree, 503 back-pressure. Deferred: max-PV burst guard, advisory locks, k6 load + crash-recovery tests (Phase 7). |
-| **2 — Security layer** | 🔜 Next | TLS PEM loader, dashboard auth + RBAC, httprate, audit log, systemd hardening, iptables, encrypted backups. |
+| **2a — Surface hardening** | ✅ Complete | PR #6 merged. TLS 1.3 with manual PEM + SIGHUP reload + expiry watcher; httprate rate limit (NAT-aware, audit-instrumented); JSONL audit log file sink with logrotate-aware reopen; FastRejectMiddleware so prefetches don't burn rate-limit budget. |
+| **2b — Auth + RBAC** | 🔜 Next | bcrypt + crypto/rand sessions + SameSite=Lax cookies + admin/viewer/api roles. Pairs with Phase 3 dashboard endpoint surface. |
+| **2c — Operational hardening** | ⏳ Pending | systemd unit (NoNewPrivileges + ProtectSystem), iptables, LUKS docs, backup script (clickhouse-backup + age + zstd). Pairs with Phase 8 deploy. |
 | **3 — Dashboard API** | ⏳ Pending | 8 stats endpoints + central `whereTimeAndTenant` + LRU cache + funnel `windowFunnel`. |
 | **4 — Tracker JS** | ⏳ Pending | <2 KB IIFE, sendBeacon, SPA route tracking. |
 | **5 — Dashboard frontend** | ⏳ Pending | Preact SPA + uPlot + Frappe Charts. |
@@ -189,17 +191,17 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 
 ### Phase 2: Security Layer (Weeks 5–6)
 
-- [ ] TLS: **manual PEM loader only** — read `tls.cert_file` + `tls.key_file` from config, reload on SIGHUP for quarterly rotations. Autocert/LE slips to v1.1.
-- [ ] Dashboard auth (bcrypt + `crypto/rand` sessions + SameSite=Lax cookies + RBAC)
-- [ ] Rate limiting via `go-chi/httprate.LimitByRealIP` (100 req/s, burst 200, NAT-aware)
-- [ ] Input validation (`http.MaxBytesReader` 8KB, field limits, timestamp ±1h)
-- [ ] Hostname validation on `/api/event` (HMAC skipped entirely per doc 20)
-- [ ] Audit log (JSONL via slog, append-only, **file sink only**)
-- [ ] systemd hardening (NoNewPrivileges, ProtectSystem=strict, PrivateTmp, empty CapabilityBoundingSet)
-- [ ] iptables rules (80/443/22 only; CH port 9000 never exposed)
-- [ ] LUKS setup procedure (documented, **optional** — evaluate 40–50% I/O overhead vs physical security)
-- [ ] Backup script (clickhouse-backup + age + zstd + cron + monthly restore test)
-- [ ] Security assertions folded into `test/integration_test.go` (not a separate harness): auth required, httprate returns 429, hostname validation rejects foreign Origin, CH not reachable externally
+- [x] TLS: **manual PEM loader only** — read `tls.cert_file` + `tls.key_file` from config, reload on SIGHUP for quarterly rotations. Autocert/LE slips to v1.1. (`internal/cert/loader.go` + `expiry.go` — atomic.Pointer hot-reload, fail-closed at boot, keep-old-on-reload-failure, expiry watcher with crossing-dedup at <30d/<7d.)
+- [ ] Dashboard auth (bcrypt + `crypto/rand` sessions + SameSite=Lax cookies + RBAC) — Phase 2b (deferred until Phase 3 dashboard contract lands)
+- [x] Rate limiting via `go-chi/httprate.LimitByRealIP` (100 req/s, NAT-aware) — `internal/ratelimit/ratelimit.go`. Keyed by the same `ingest.ClientIP` ladder the handler uses; emits `audit.ratelimit.exceeded` on 429. (Burst-as-separate-knob deferred — httprate uses a fixed window and the per-minute cap behaves as the burst.)
+- [x] Input validation (`http.MaxBytesReader` 8KB, field limits, timestamp ±1h) — already shipped in Phase 1; verified preserved.
+- [x] Hostname validation on `/api/event` (HMAC skipped entirely per doc 20) — already shipped in Phase 1; now also emits `audit.ingest.hostname_unknown` on miss.
+- [x] Audit log (JSONL via slog, append-only, **file sink only**) — `internal/audit/log.go`. `O_APPEND` for atomic concurrent writes; `Reopen()` for logrotate; typed `EventName` constants.
+- [ ] systemd hardening (NoNewPrivileges, ProtectSystem=strict, PrivateTmp, empty CapabilityBoundingSet) — Phase 2c (pairs with Phase 8 deploy)
+- [ ] iptables rules (80/443/22 only; CH port 9000 never exposed) — Phase 2c
+- [ ] LUKS setup procedure (documented, **optional** — evaluate 40–50% I/O overhead vs physical security) — Phase 2c
+- [ ] Backup script (clickhouse-backup + age + zstd + cron + monthly restore test) — Phase 2c
+- [x] Security assertions folded into `test/integration_test.go` (not a separate harness): httprate returns 429, hostname validation rejects, CH not reachable externally — `test/security_test.go` proves rate limit short-circuits before events reach ClickHouse. (Auth=403 deferred to Phase 2b.)
 
 ### Phase 3: Dashboard API (Weeks 7–9)
 
