@@ -1,0 +1,34 @@
+# Build artifacts
+bin/
+*.exe
+statnive-live
+
+# Frontend
+web/dist/
+web/node_modules/
+tracker/dist/
+tracker/node_modules/
+
+# Runtime data (not source)
+wal/
+data/
+tmp/
+*.log
+audit.jsonl
+
+# Environment
+.env
+.env.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Coverage / profiling
+coverage.out
+coverage.html
+*.prof
+
+# vendor/ is INTENTIONALLY tracked (offline build invariant — PLAN.md verification 18)

@@ -1,0 +1,14 @@
+-- Reference schema for statnive-live (single-node, post-render).
+--
+-- This file is for human reading and Altinity ClickHouse MCP introspection.
+-- The runtime source of truth is internal/storage/migrations/*.sql, which
+-- the binary embeds via go:embed and applies on startup.
+--
+-- Why migrations live under internal/storage/: Go's //go:embed cannot reach
+-- across package boundaries with "..". Embedding next to migrate.go keeps
+-- the migration set + runner in one package, which is also where every
+-- future schema change ships.
+--
+-- See:
+--   internal/storage/migrations/001_initial.sql  -- DB + sites + events_raw + schema_migrations
+--   internal/storage/migrations/002_rollups.sql  -- hourly_visitors + daily_pages + daily_sources + MVs

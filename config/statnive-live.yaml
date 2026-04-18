@@ -1,0 +1,34 @@
+# statnive-live default config. Overridable via env (STATNIVE_<SECTION>_<KEY>).
+# Reference: PLAN.md:150 (Phase 0 default config) + CLAUDE.md invariants.
+# Hot reload via fsnotify (viper) is wired in main.go; SIGHUP is the manual fallback.
+
+server:
+  listen: "127.0.0.1:8080"
+  read_timeout: "5s"
+  write_timeout: "5s"
+
+clickhouse:
+  addr: "127.0.0.1:9000"
+  database: "statnive"
+  username: "default"
+  password: ""
+  cluster: ""               # empty = single-node MergeTree; cluster name flips to ReplicatedMergeTree (PLAN.md:738)
+
+ingest:
+  wal_dir: "./wal"
+  wal_max_bytes: 10737418240   # 10 GB cap (PLAN.md:159)
+  batch_rows: 1000             # dual-trigger batch (PLAN.md:158, doc 24 §Sec 1.5)
+  batch_interval: "500ms"
+  batch_max_bytes: 10485760    # 10 MB
+
+license:
+  required: false             # dogfood / dev — no license enforcement
+  phone_home: false           # MUST stay false in v1 (Air-Gap invariant, PLAN.md:471)
+
+audit:
+  sink: "file"                # file-only in v1 (PLAN.md:474); syslog/Telegram = v1.1
+  path: "./audit.jsonl"
+
+tls:
+  cert_file: ""               # populated in Phase 2; manual PEM rotation
+  key_file: ""
