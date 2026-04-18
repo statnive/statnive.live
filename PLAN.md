@@ -89,16 +89,22 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   │   ├── migrations/                 # SQL embedded via go:embed (lives here, not under clickhouse/)
 │   │   │   ├── 001_initial.sql         # events_raw + sites + schema_migrations                          [shipped]
 │   │   │   └── 002_rollups.sql         # hourly_visitors + daily_pages + daily_sources + MVs            [shipped]
-│   │   ├── store.go                    # Typed Store interface for dashboard endpoints                  [planned: Phase 3]
-│   │   ├── queries.go                  # whereTimeAndTenant() helper + 8 endpoint queries               [planned: Phase 3]
-│   │   └── filter.go                   # Filter struct (site_id, time range, dimensions)                [planned: Phase 3]
+│   │   ├── store.go                    # Typed Store interface + ErrNotImplemented                     [shipped]
+│   │   ├── queries.go                  # whereTimeAndTenant + 6 v1 query implementations               [shipped]
+│   │   ├── filter.go                   # Filter struct + Validate + BLAKE3 Hash                         [shipped]
+│   │   ├── result.go                   # Typed per-endpoint result structs                              [shipped]
+│   │   ├── cached_store.go             # LRU decorator with per-endpoint TTL                            [shipped]
+│   │   └── storagetest/                # SeedEvents + CleanSiteEvents helpers (test-only)               [shipped]
 │   ├── sites/
 │   │   └── sites.go                    # Hostname → site_id lookup; slug/create/disable in Phase 11    [shipped]
 │   ├── health/
 │   │   └── check.go                    # /healthz (CH ping + WAL fill + uptime)                         [shipped]
 │   ├── dashboard/                      # 8 GET /api/stats/*, admin, signup, billing                    [planned: Phase 3 + 11]
 │   ├── auth/                           # bcrypt sessions + RBAC (admin/viewer/api)                     [planned: Phase 2b]
-│   └── cache/                          # LRU (realtime=10s / today=60s / historical=∞)                  [planned: Phase 3]
+│   ├── cache/                          # LRU (realtime=10s / today=60s / historical=∞) + ResolveTTL     [shipped]
+│   │   ├── lru.go                      # Thread-safe cache with per-entry expiresAt TTL
+│   │   └── policy.go                   # TTL tier constants + ResolveTTL pure function
+│   └── (dashboard/ + auth/ still planned — see above)
 ├── web/                                # Preact SPA (Vite + TypeScript + @preact/signals)              [planned: Phase 5]
 ├── tracker/                            # <2KB IIFE tracker (sendBeacon + history API)                  [planned: Phase 4]
 ├── clickhouse/
@@ -144,9 +150,11 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 | **0 — Project setup** | ✅ Complete | PR #1 merged. Repo, Makefile, CI, schema, vendoring all live. |
 | **1 — Ingestion pipeline** | ✅ Complete | PR #2 merged. Real 6-stage enrichment, BLAKE3 + IRST salt, 18 MB bloom + cross-day grace, 17-step channel tree, 503 back-pressure. Deferred: max-PV burst guard, advisory locks, k6 load + crash-recovery tests (Phase 7). |
 | **2a — Surface hardening** | ✅ Complete | PR #6 merged. TLS 1.3 with manual PEM + SIGHUP reload + expiry watcher; httprate rate limit (NAT-aware, audit-instrumented); JSONL audit log file sink with logrotate-aware reopen; FastRejectMiddleware so prefetches don't burn rate-limit budget. |
-| **2b — Auth + RBAC** | 🔜 Next | bcrypt + crypto/rand sessions + SameSite=Lax cookies + admin/viewer/api roles. Pairs with Phase 3 dashboard endpoint surface. |
+| **2b — Auth + RBAC** | ⏳ Pending | bcrypt + crypto/rand sessions + SameSite=Lax cookies + admin/viewer/api roles. Can land in parallel with Phase 3b. |
 | **2c — Operational hardening** | ⏳ Pending | systemd unit (NoNewPrivileges + ProtectSystem), iptables, LUKS docs, backup script (clickhouse-backup + age + zstd). Pairs with Phase 8 deploy. |
-| **3 — Dashboard API** | ⏳ Pending | 8 stats endpoints + central `whereTimeAndTenant` + LRU cache + funnel `windowFunnel`. |
+| **3a — Dashboard query foundation** | ✅ Complete | PR #9 merged. Filter + Store interface + 6 v1 queries (Overview/Sources/Pages/SEO/Campaigns/Realtime) + LRU with real per-entry TTL + tenancy-grep CI gate. Geo/Devices (v1.1 rollups) + Funnel (v2 windowFunnel) return ErrNotImplemented. |
+| **3b — Dashboard HTTP layer** | 🔜 Next | chi routes calling Store methods; WITH FILL gap-fill on overview trend; /api/realtime/visitors HTTP wrapper. Needs CachedStore (shipped) + auth (Phase 2b — can land independently). |
+| **3c — Admin CRUD** | ⏳ Pending | `/api/admin/users`, `/api/admin/goals` (writes YAML + SIGHUP). Needs Phase 2b auth. |
 | **4 — Tracker JS** | ⏳ Pending | <2 KB IIFE, sendBeacon, SPA route tracking. |
 | **5 — Dashboard frontend** | ⏳ Pending | Preact SPA + uPlot + Frappe Charts. |
 | **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, /healthz done. Admin-user first-run + Goal/Funnel CRUD wait on Phase 2/3. |
@@ -207,19 +215,19 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 
 All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they share date-parse, site_id scoping, cache key, and JSON shaping. Admin + billing are separate files since they mutate state. Query building lives in a **flat** `internal/storage/queries.go` (one Go function per endpoint) — we do NOT mirror Pirsch's 10 sub-analyzer split because our 8 endpoints don't warrant it (doc 24 §Sec 4 pattern 1 recommendation).
 
-- [ ] `internal/storage/store.go` — typed `Store` interface (doc 24 §Sec 4 pattern 3). One method per endpoint: `Overview(ctx, *Filter)`, `Sources(ctx, *Filter)`, etc. Enables Phase 7 integration-test mocking without a live ClickHouse.
-- [ ] `internal/storage/queries.go` — central `whereTimeAndTenant(*Filter) (string, []any)` helper that emits `WHERE site_id = ? AND time >= ? AND time < ?` as the first clause of every query (Architecture Rule 8 + doc 24 §Sec 4 pattern 6). Every endpoint SQL routes through this helper; a CI lint rejects any `SELECT` in `internal/storage/` that doesn't call it.
-- [ ] `internal/storage/filter.go` — `Filter` struct with `SiteID uint32`, `From`/`To time.Time`, `Path`, `Referrer`, `UTM*`, `Country`, `Browser`, `OS`, `Device`, `Sort`, `Search`. Field names aligned with Pirsch (doc 24 §Sec 4 pattern 2) so external examples port easily; `ClientID → SiteID` is the only rename.
-- [ ] `stats.go` with 8 handlers (`GET /api/stats/...`): overview, sources, pages, geo, devices, funnel, campaigns, seo (organic trend only in v1 — richer SEO panels = v1.1)
-- [ ] Time-series endpoints (overview trend, visitors hourly/daily) use **`WITH FILL … STEP INTERVAL`** for zero-result gap fill (doc 24 §Sec 4 pattern 8) — Preact dashboard never has to fake empty buckets
-- [ ] POST/PUT/DELETE /api/admin/users (user + RBAC CRUD, admin-only)
-- [ ] POST/PUT/DELETE /api/admin/goals (goal CRUD, writes YAML + triggers SIGHUP hot reload)
-- [ ] GET /api/realtime/visitors (10s cache, last-5-min active visitors — NOT full real-time)
-- [ ] Date range handling (Asia/Tehran UTC+3:30, no DST; store UTC, convert at API layer). Half-open intervals `[from, to)` at day granularity per doc 24 §Sec 4 pattern 7.
-- [ ] LRU cache (realtime=10s, today=60s, yesterday=1h, historical=forever) — doc 24 §Sec 4 pattern 9 notes Pirsch has no query cache; our LRU tier plan is a strict improvement and keeps CH load bounded at 10–20M DAU
-- [ ] Funnel endpoint uses **`windowFunnel()`** + 1h cache — explicitly diverge from Pirsch's N-CTE JOIN pattern (doc 24 §Sec 4 pattern 4): too expensive at our scale
-- [ ] Dashboard query benchmark under 7K EPS load, all endpoints scoped by `WHERE site_id = ?`
-- [ ] Integration test: call every endpoint with `site_id=A` and `site_id=B`, assert zero row leakage across sites (central-helper enforcement check)
+- [x] `internal/storage/store.go` — typed `Store` interface (doc 24 §Sec 4 pattern 3). One method per endpoint: `Overview(ctx, *Filter)`, `Sources(ctx, *Filter)`, etc. Enables Phase 7 integration-test mocking without a live ClickHouse.
+- [x] `internal/storage/queries.go` — central `whereTimeAndTenant(*Filter, col) (string, []any)` helper that emits `WHERE site_id = ? AND <col> >= ? AND <col> < ?` as the first clause of every query (Architecture Rule 8 + doc 24 §Sec 4 pattern 6). Every endpoint SQL routes through this helper; a CI `tenancy-grep` gate rejects any `SELECT` in `internal/storage/queries.go` that doesn't call it (Makefile target + CI step).
+- [x] `internal/storage/filter.go` — `Filter` struct with `SiteID uint32`, `From`/`To time.Time`, `Path`, `Referrer`, `UTM*`, `Country`, `Browser`, `OS`, `Device`, `Sort`, `Search`. Field names aligned with Pirsch; `ClientID → SiteID` is the only rename. Deterministic `Hash()` (BLAKE3-128, UTC-normalized) doubles as the cache key.
+- [ ] `stats.go` with 8 handlers (`GET /api/stats/...`): overview, sources, pages, geo, devices, funnel, campaigns, seo — Phase 3b
+- [ ] Time-series endpoints use **`WITH FILL … STEP INTERVAL`** for zero-result gap fill — Phase 3b (only meaningful once series-returning endpoints exist)
+- [ ] POST/PUT/DELETE /api/admin/users (user + RBAC CRUD, admin-only) — Phase 3c (needs Phase 2b auth)
+- [ ] POST/PUT/DELETE /api/admin/goals (goal CRUD, writes YAML + triggers SIGHUP hot reload) — Phase 3c
+- [ ] GET /api/realtime/visitors (10s cache, last-5-min active visitors — NOT full real-time) — Phase 3b (Store.Realtime query + cache TTL shipped in 3a; HTTP handler waits)
+- [x] Date range handling — half-open intervals `[from, to)` at day granularity (doc 24 §Sec 4 pattern 7) enforced in `Filter.Validate()`. Asia/Tehran conversion stays at the API layer (Phase 3b).
+- [x] LRU cache (realtime=10s, today=60s, yesterday=1h, historical=forever) — `internal/cache/{lru,policy}.go`. Per-entry TTL via `expiresAt` since the underlying `hashicorp/golang-lru/v2/expirable` only honors constructor-time TTL. `CachedStore` decorator in `internal/storage/cached_store.go`.
+- [ ] Funnel endpoint uses **`windowFunnel()`** + 1h cache — v2 (Store.Funnel returns ErrNotImplemented in 3a)
+- [ ] Dashboard query benchmark under 7K EPS load — Phase 7 hardening
+- [x] Integration test: call every endpoint with `site_id=A` and `site_id=B`, assert zero row leakage across sites — `test/dashboard_isolation_test.go` seeds two sites with disjoint paths + referrers, verifies Overview/Sources/Pages/Campaigns for each, asserts Geo/Devices/Funnel return ErrNotImplemented.
 
 ### Phase 4: Tracker JS (Week 10)
 
