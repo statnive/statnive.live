@@ -16,9 +16,10 @@ tmp/
 *.log
 audit.jsonl
 
-# Environment
+# Environment + secrets (NEVER commit master.key)
 .env
 .env.local
+config/master.key
 
 # Editor / OS
 .DS_Store

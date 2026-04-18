@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := ./...
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns
 
 all: lint test build
 
@@ -54,7 +54,23 @@ airgap-bundle:
 release:
 	@echo "TODO Phase 8: release-gate (lint + test + test-integration + airgap-test + bundle + sign)"
 
-## clean: Remove build + runtime artifacts (NOT vendor/)
+## dev-secret: Generate a random 32-byte master.key for local dev (chmod 0600)
+dev-secret:
+	@if [ -f config/master.key ]; then \
+		echo "config/master.key already exists; refusing to overwrite"; exit 1; \
+	fi
+	@mkdir -p config
+	@openssl rand -hex 32 > config/master.key
+	@chmod 0600 config/master.key
+	@echo "Generated config/master.key (chmod 0600)"
+
+## refresh-bot-patterns: Pull latest internal/enrich/crawler-user-agents.json from monperrus/crawler-user-agents (MIT)
+refresh-bot-patterns:
+	curl -sSfL https://raw.githubusercontent.com/monperrus/crawler-user-agents/master/crawler-user-agents.json \
+		-o internal/enrich/crawler-user-agents.json
+	@echo "Refreshed internal/enrich/crawler-user-agents.json"
+
+## clean: Remove build + runtime artifacts (NOT vendor/, NOT config/master.key)
 clean:
 	rm -rf $(BIN_DIR) wal/ data/ tmp/ coverage.out coverage.html *.prof audit.jsonl
 
