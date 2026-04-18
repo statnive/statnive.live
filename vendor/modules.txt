@@ -20,6 +20,15 @@ github.com/ClickHouse/clickhouse-go/v2/resources
 ## explicit; go 1.22
 github.com/andybalholm/brotli
 github.com/andybalholm/brotli/matchfinder
+# github.com/bits-and-blooms/bitset v1.24.2
+## explicit; go 1.16
+github.com/bits-and-blooms/bitset
+# github.com/bits-and-blooms/bloom/v3 v3.7.1
+## explicit; go 1.16
+github.com/bits-and-blooms/bloom/v3
+# github.com/boyter/go-string v1.0.5
+## explicit; go 1.20
+github.com/boyter/go-string
 # github.com/cespare/xxhash/v2 v2.3.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
@@ -43,6 +52,9 @@ github.com/go-viper/mapstructure/v2/internal/errors
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
+# github.com/ip2location/ip2location-go/v9 v9.8.0
+## explicit; go 1.14
+github.com/ip2location/ip2location-go/v9
 # github.com/klauspost/compress v1.18.3
 ## explicit; go 1.23
 github.com/klauspost/compress
@@ -53,6 +65,14 @@ github.com/klauspost/compress/internal/le
 github.com/klauspost/compress/internal/snapref
 github.com/klauspost/compress/zstd
 github.com/klauspost/compress/zstd/internal/xxhash
+# github.com/klauspost/cpuid/v2 v2.0.9
+## explicit; go 1.13
+github.com/klauspost/cpuid/v2
+# github.com/medama-io/go-useragent v1.2.3
+## explicit; go 1.21.4
+github.com/medama-io/go-useragent
+github.com/medama-io/go-useragent/agents
+github.com/medama-io/go-useragent/internal
 # github.com/paulmach/orb v0.12.0
 ## explicit; go 1.15
 github.com/paulmach/orb
@@ -160,3 +180,14 @@ golang.org/x/text/internal/utf8internal
 golang.org/x/text/runes
 golang.org/x/text/transform
 golang.org/x/text/unicode/norm
+# gopkg.in/yaml.v3 v3.0.1
+## explicit
+gopkg.in/yaml.v3
+# lukechampine.com/blake3 v1.4.1
+## explicit; go 1.22
+lukechampine.com/blake3
+lukechampine.com/blake3/bao
+lukechampine.com/blake3/guts
+# lukechampine.com/uint128 v1.2.0
+## explicit; go 1.12
+lukechampine.com/uint128
