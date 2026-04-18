@@ -99,12 +99,11 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   │   └── sites.go                    # Hostname → site_id lookup; slug/create/disable in Phase 11    [shipped]
 │   ├── health/
 │   │   └── check.go                    # /healthz (CH ping + WAL fill + uptime)                         [shipped]
-│   ├── dashboard/                      # 8 GET /api/stats/*, admin, signup, billing                    [planned: Phase 3 + 11]
-│   ├── auth/                           # bcrypt sessions + RBAC (admin/viewer/api)                     [planned: Phase 2b]
-│   ├── cache/                          # LRU (realtime=10s / today=60s / historical=∞) + ResolveTTL     [shipped]
+│   ├── cache/                          # LRU (realtime=10s / today=60s / historical=∞) + ResolveTTL    [shipped]
 │   │   ├── lru.go                      # Thread-safe cache with per-entry expiresAt TTL
 │   │   └── policy.go                   # TTL tier constants + ResolveTTL pure function
-│   └── (dashboard/ + auth/ still planned — see above)
+│   ├── dashboard/                      # chi routes + 8 GET /api/stats/* + admin + signup + billing    [planned: Phase 3b + 3c + 11]
+│   └── auth/                           # bcrypt sessions + RBAC (admin / viewer / api)                 [planned: Phase 2b]
 ├── web/                                # Preact SPA (Vite + TypeScript + @preact/signals)              [planned: Phase 5]
 ├── tracker/                            # <2KB IIFE tracker (sendBeacon + history API)                  [planned: Phase 4]
 ├── clickhouse/
@@ -130,10 +129,12 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   ├── enrichment_e2e_test.go          # All 6 stages produce expected events_raw columns              [shipped]
 │   ├── multitenant_isolation_test.go   # Privacy Rule 2: per-tenant visitor_hash separation            [shipped]
 │   ├── security_test.go                # Rate limit short-circuits before events reach ClickHouse      [shipped]
+│   ├── dashboard_isolation_test.go     # Architecture Rule 8: every Store query scoped by site_id     [shipped]
 │   ├── tls_keys/                       # Self-signed cert+key (make tls-test-keys)                     [shipped]
 │   └── k6/load-test.js                 # 7K EPS smoke                                                  [planned: Phase 7]
-├── Makefile                            # build, test, lint, vendor-check, licenses, dev-secret,        [shipped]
-│                                       # tls-test-keys, refresh-bot-patterns. airgap-bundle stub.
+├── Makefile                            # build, test, test-integration, lint, fmt, vendor-check,       [shipped]
+│                                       # licenses, tenancy-grep, dev-secret, tls-test-keys,
+│                                       # refresh-bot-patterns. airgap-bundle / release stubs.
 ├── go.mod
 ├── go.sum
 └── README.md                           # Operator quick-start                                          [planned]
