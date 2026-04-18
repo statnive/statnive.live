@@ -137,35 +137,52 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 
 ## Development Phases
 
+### Status — 2026-04-18
+
+| Phase | Status | Notes |
+|---|---|---|
+| **0 — Project setup** | ✅ Complete | PR #1 merged. Repo, Makefile, CI, schema, vendoring all live. |
+| **1 — Ingestion pipeline** | ✅ Complete | PR #2 merged. Real 6-stage enrichment, BLAKE3 + IRST salt, 18 MB bloom + cross-day grace, 17-step channel tree, 503 back-pressure. Deferred: max-PV burst guard, advisory locks, k6 load + crash-recovery tests (Phase 7). |
+| **2 — Security layer** | 🔜 Next | TLS PEM loader, dashboard auth + RBAC, httprate, audit log, systemd hardening, iptables, encrypted backups. |
+| **3 — Dashboard API** | ⏳ Pending | 8 stats endpoints + central `whereTimeAndTenant` + LRU cache + funnel `windowFunnel`. |
+| **4 — Tracker JS** | ⏳ Pending | <2 KB IIFE, sendBeacon, SPA route tracking. |
+| **5 — Dashboard frontend** | ⏳ Pending | Preact SPA + uPlot + Frappe Charts. |
+| **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, /healthz done. Admin-user first-run + Goal/Funnel CRUD wait on Phase 2/3. |
+| **7 — Testing & hardening** | ⏳ Pending | k6 7K EPS, benchmarks, crash recovery, disk-full, backup restore, manual TLS rotation. |
+| **8 — Deployment & launch** | ⏳ Pending | Hetzner CX32 staging, airgap-bundle, monitoring, runbook, v1 launch. |
+| **9 — Phase A dogfood** | ⏳ Pending | statnive.com → demo.statnive.live. |
+| **10 — Phase B Filimo** | ⏳ Pending | Iranian DC bare metal, paid DB23 GeoIP. |
+| **11 — Phase C SaaS** | ⏳ Pending | Polar.sh checkout + webhooks, signup, path-based tenancy. |
+
 ### Phase 0: Project Setup (Week 1)
 
-- [ ] Create `github.com/statnive/statnive-live` repository
-- [ ] Initialize Go module, copy go.mod from doc 22
-- [ ] Set up Makefile (build, test, lint, release, **airgap-bundle** targets)
-- [ ] Create ClickHouse schema SQL (events_raw + **3 v1 rollups**: `hourly_visitors`, `daily_pages`, `daily_sources`; additional 3 deferred to v1.1)
-- [ ] Copy all Go files from doc 22 into project structure
-- [ ] Set up CI (GitHub Actions: build + lint + test + **`go mod vendor` check**)
-- [ ] **Vendor all Go deps** (`go mod vendor`, commit to repo) — enables fully offline builds
-- [ ] Create config/sources.yaml (50+ Iranian sources from doc 22)
-- [ ] Create config/statnive-live.yaml (default config from doc 20)
+- [x] Create `github.com/statnive/statnive-live` repository
+- [x] Initialize Go module, copy go.mod from doc 22
+- [x] Set up Makefile (build, test, lint, release, **airgap-bundle** targets) — `airgap-bundle` is a placeholder; lands in Phase 8
+- [x] Create ClickHouse schema SQL (events_raw + **3 v1 rollups**: `hourly_visitors`, `daily_pages`, `daily_sources`; additional 3 deferred to v1.1)
+- [x] Copy all Go files from doc 22 into project structure
+- [x] Set up CI (GitHub Actions: build + lint + test + **`go mod vendor` check**) — actions SHA-pinned per security rule
+- [x] **Vendor all Go deps** (`go mod vendor`, commit to repo) — enables fully offline builds
+- [x] Create config/sources.yaml (50+ Iranian sources from doc 22) — 60 entries incl. AI bucket
+- [x] Create config/statnive-live.yaml (default config from doc 20)
 
 ### Phase 1: Ingestion Pipeline (Weeks 2–4)
 
-- [ ] Wire main.go (from doc 22 bonus code)
-- [ ] Add `SiteID` field to EnrichedEvent + populate in pipeline.processEvent() — required for multi-tenant from v1
-- [ ] Implement ingest/handler.go (JSON array parsing; site_id resolved from hostname) — **pre-pipeline fast-reject gate** (doc 24 §Sec 1.6): reject `X-Purpose`/`Purpose`/`X-Moz` prefetch headers, UA length < 16 or > 500, UA that parses as IP or UUID, non-ASCII UA → `204 No Content` before the event enters the pipeline channel. Parse `True-Client-IP` + `CF-Connecting-IP` alongside `X-Forwarded-For` (rightmost) for Iranian sites behind ArvanCloud / Cloudflare.
-- [ ] Implement ingest/pipeline.go (6-worker enrichment; order **locked**: identity → bloom → geo → ua → bot → channel). Bot detection is cheap-first *inside* the pipeline (doc 24 §Sec 1.3): prefetch → UA length/charset → UA-is-IP/UUID → referrer spam → browser version floor → UA keyword blacklist → UA regex blacklist. **Max-pageviews-per-visitor burst guard** — single counter per visitor_hash in WAL window (doc 24 §Sec 5 T2 #15).
-- [ ] Implement ingest/consumer.go (dual-trigger batch writer — size OR time OR ctx.Done per doc 24 §Sec 1.5: 1000 rows OR 500ms OR 10 MB payload. Exponential retry with backoff. **No `log.Panicf` on retry exhaustion** — WAL + graceful failure; DLQ deferred to after first prod failure pattern emerges.)
-- [ ] Implement ingest/wal.go (WAL + 100ms fsync + 10GB size cap; reject with 503 when >80% full)
-- [ ] Implement storage/clickhouse.go (**34-column** batch insert incl. site_id; `DateTime('UTC')` time column — not `DateTime64(3)` per doc 24 §Sec 2 Migration 0012)
-- [ ] Implement storage/migrate.go — numbered migrations, applied versions tracked in a `schema_migrations(version, dirty, sequence)` table with advisory locks for concurrent-start safety (doc 24 §Sec 2 migrations-at-startup pattern). Migrations authored with `{{if .Cluster}}` Go-template placeholders from day 1 (doc 24 §Sec 2 Migration 0029) so single-node → Distributed upgrade at SaaS scale is a config flip, not a migration rewrite.
-- [ ] Implement enrich/ (GeoIP with IP2Location **LITE DB23** in v1, medama-io UA, channel mapper, isbot + crawler-user-agents.json, bloom 18MB/10M visitors/0.1% FPR). Channel mapper implements the **17-step decision tree** per doc 24 §Sec 3.1 (paid-first ordering). Hostname lookups use `map[string]struct{}` not `slices.Contains` (~100× hot-path savings at 10–20M DAU per doc 24 §Sec 3.5).
-- [ ] Implement identity/ (BLAKE3-128 hash, deterministic daily salt `HMAC(master_secret, site_id || YYYY-MM-DD IRST)` — single master secret, site_id baked into HMAC input). **Cross-day fingerprint grace lookup** (doc 24 §Sec 1.1) — when the session cache / bloom filter misses at IRST-midnight boundary, retry with yesterday's salt before declaring a new visitor. Closes the `user-enters-site-at-23:59` ghost-session bug.
-- [ ] k6 load test: prove 7K EPS (Filimo baseline at 10–20M DAU per doc 16) with zero event loss
-- [ ] Crash recovery test: kill -9 → WAL replay → verify zero loss
-- [ ] Integration test: emit bot event → verify visitor_hash populated AND is_bot=1 (enrichment order assertion)
-- [ ] Integration test: prefetch header + oversized UA + UUID-as-UA + IP-as-UA → handler returns `204` with zero pipeline work (pre-pipeline fast-reject assertion)
-- [ ] Integration test: visitor seen at 23:58 IRST returns at 00:02 IRST → identified as returning (cross-day fingerprint grace assertion)
+- [x] Wire main.go (from doc 22 bonus code)
+- [x] Add `SiteID` field to EnrichedEvent + populate in pipeline.processEvent() — required for multi-tenant from v1
+- [x] Implement ingest/handler.go (JSON array parsing; site_id resolved from hostname) — **pre-pipeline fast-reject gate** (doc 24 §Sec 1.6): reject `X-Purpose`/`Purpose`/`X-Moz` prefetch headers, UA length < 16 or > 500, UA that parses as IP or UUID, non-ASCII UA → `204 No Content` before the event enters the pipeline channel. Parse `True-Client-IP` + `CF-Connecting-IP` alongside `X-Forwarded-For` (rightmost) for Iranian sites behind ArvanCloud / Cloudflare.
+- [x] Implement ingest/pipeline.go (6-worker enrichment; order **locked**: identity → bloom → geo → ua → bot → channel). Bot detection is cheap-first *inside* the pipeline (doc 24 §Sec 1.3): UA literal substring → UA regex → optional datacenter CIDR. (Deferred: max-pageviews-per-visitor burst guard — small follow-up; referrer-spam + browser-version-floor + datacenter-CIDR list = v1.1.)
+- [x] Implement ingest/consumer.go (dual-trigger batch writer — size OR time OR ctx.Done per doc 24 §Sec 1.5: 1000 rows OR 500ms OR 10 MB payload. **No `log.Panicf` on retry exhaustion** — WAL + graceful failure.) (Single 250 ms retry instead of exponential backoff; DLQ deferred to first prod failure pattern.)
+- [x] Implement ingest/wal.go (WAL + 100ms fsync + 10GB size cap). (>80% threshold surfaced via `/healthz` `wal_fill_ratio` rather than per-request 503; size-cap enforcer drops oldest segments when over.)
+- [x] Implement storage/clickhouse.go (**34-column** batch insert incl. site_id; `DateTime('UTC')` time column — not `DateTime64(3)` per doc 24 §Sec 2 Migration 0012)
+- [x] Implement storage/migrate.go — numbered migrations, applied versions tracked in a `schema_migrations(version, dirty, sequence)` table. Migrations authored with `{{if .Cluster}}` Go-template placeholders from day 1 (doc 24 §Sec 2 Migration 0029) so single-node → Distributed upgrade at SaaS scale is a config flip, not a migration rewrite. (Deferred: advisory locks for concurrent-start safety — single-binary deploys don't race on startup.)
+- [x] Implement enrich/ (GeoIP with IP2Location **LITE DB23** in v1, medama-io UA, channel mapper, isbot + crawler-user-agents.json, bloom 18MB/10M visitors/0.1% FPR). Channel mapper implements the **17-step decision tree** per doc 24 §Sec 3.1 (paid-first ordering). Hostname lookups use `map[string]struct{}` not `slices.Contains` (~100× hot-path savings at 10–20M DAU per doc 24 §Sec 3.5). (GeoIP is a no-op enricher when no BIN file is configured — operator drops in DB23 separately; never blocks boot.)
+- [x] Implement identity/ (BLAKE3-128 hash, deterministic daily salt `HMAC(master_secret, site_id || YYYY-MM-DD IRST)` — single master secret, site_id baked into HMAC input). **Cross-day fingerprint grace lookup** (doc 24 §Sec 1.1) — when the bloom filter misses, retry with yesterday's salt before declaring a new visitor. Closes the `user-enters-site-at-23:59` ghost-session bug.
+- [ ] k6 load test: prove 7K EPS (Filimo baseline at 10–20M DAU per doc 16) with zero event loss — Phase 7
+- [ ] Crash recovery test: kill -9 → WAL replay → verify zero loss — Phase 7
+- [x] Integration test: emit bot event → verify visitor_hash populated AND is_bot=1 (enrichment order assertion) — `test/enrichment_e2e_test.go` covers Googlebot UA → is_bot=1 + non-zero visitor_hash
+- [x] Integration test: prefetch header + oversized UA + UUID-as-UA + IP-as-UA → handler returns `204` with zero pipeline work (pre-pipeline fast-reject assertion) — `internal/ingest/handler_test.go` 10-case table
+- [x] Integration test: visitor seen at 23:58 IRST returns at 00:02 IRST → identified as returning (cross-day fingerprint grace assertion) — `internal/identity/identity_test.go` salt rotation + `internal/enrich/newvisitor_test.go` cross-day grace
 
 ### Phase 2: Security Layer (Weeks 5–6)
 
@@ -234,12 +251,12 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 
 ### Phase 6: Configuration & First-Run (Week 15)
 
-- [ ] YAML config loader (with hot reload for goals/funnels)
-- [ ] First-run setup: create admin user, init ClickHouse schema
+- [x] YAML config loader (with hot reload for goals/funnels) — viper-based; goals/funnels CRUD ships in Phase 3
+- [ ] First-run setup: create admin user, init ClickHouse schema — schema init done; admin user awaits Phase 2 auth
 - [ ] Goal CRUD (YAML-based, add/remove without restart)
 - [ ] Funnel CRUD (YAML-based)
-- [ ] Schema migration runner (embedded SQL, run on startup)
-- [ ] Health check endpoint (/healthz)
+- [x] Schema migration runner (embedded SQL, run on startup) — `internal/storage/migrate.go`
+- [x] Health check endpoint (/healthz) — `internal/health/check.go`
 
 ### Phase 7: Testing & Hardening (Week 16 — tightened from 2 weeks)
 
