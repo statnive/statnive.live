@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-lint:
+    name: build + test + lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false  # vendor/ checked in; cache adds noise
+
+      - name: Vendor check
+        run: make vendor-check
+
+      - name: Build (offline-capable, vendored)
+        run: make build
+
+      - name: Unit tests
+        run: make test
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9  # v8
+        with:
+          version: v2.0.2
+          args: --timeout=5m
+
+  licenses:
+    name: license check (no AGPL / strong-copyleft)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install go-licenses
+        run: go install github.com/google/go-licenses@5348b744d0983d85713295ea08a20cca1654a45e  # v1.6.0
+
+      - name: Check licenses (PLAN.md License Rules)
+        run: go-licenses check ./... --disallowed_types=forbidden,restricted
