@@ -25,8 +25,8 @@ type CachedStore struct {
 }
 
 // NewCachedStore wraps inner with an LRU of the given capacity.
-// 4096 entries ≈ 50 MB worst-case for typical OverviewResult sizes;
-// adequate for v1 + first ~100 SaaS tenants.
+// Capacity sizing is set by the caller — see the dashboardCacheCapacity
+// constant in cmd/statnive-live/main.go for the production default.
 func NewCachedStore(inner Store, capacity int) *CachedStore {
 	return &CachedStore{
 		inner: inner,

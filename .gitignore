@@ -1,7 +1,9 @@
-# Build artifacts
+# Build artifacts. Anchor to repo root — leading slash prevents the
+# pattern from also matching cmd/statnive-live/ (the package dir for
+# the entry point's main.go).
 bin/
 *.exe
-statnive-live
+/statnive-live
 
 # Frontend
 web/dist/

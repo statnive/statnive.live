@@ -40,3 +40,12 @@ const (
 	EventReopenOK     EventName = "audit.reopen_succeeded"
 	EventReopenFailed EventName = "audit.reopen_failed"
 )
+
+// Dashboard events. Emitted by internal/dashboard/* handlers + middleware.
+const (
+	EventDashboardOK             EventName = "dashboard.ok"
+	EventDashboardBadRequest     EventName = "dashboard.bad_request"
+	EventDashboardNotImplemented EventName = "dashboard.not_implemented"
+	EventDashboardError          EventName = "dashboard.error"
+	EventDashboardUnauthorized   EventName = "dashboard.unauthorized"
+)

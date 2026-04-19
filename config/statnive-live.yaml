@@ -37,7 +37,16 @@ tls:
   key_file: ""
 
 ratelimit:
-  # /api/event hot path. Keyed per client IP via the same NAT-aware
-  # ladder the handler uses (True-Client-IP → CF-Connecting-IP →
-  # X-Real-IP → rightmost X-Forwarded-For). /healthz is exempt.
+  # /api/event + /api/stats/* hot paths. Keyed per client IP via the
+  # same NAT-aware ladder the handler uses (True-Client-IP →
+  # CF-Connecting-IP → X-Real-IP → rightmost X-Forwarded-For).
+  # /healthz is exempt.
   requests_per_minute: 6000   # 100 req/s steady state
+
+dashboard:
+  # Pre-shared bearer token for /api/stats/* and /api/realtime/visitors.
+  # Empty = open (dev/local only). Production deployments MUST set a
+  # token via env (STATNIVE_DASHBOARD_BEARER_TOKEN=...) until Phase 2b
+  # ships full bcrypt + sessions + RBAC. Compared with constant-time
+  # equality to avoid timing leaks.
+  bearer_token: ""
