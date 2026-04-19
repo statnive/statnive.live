@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := ./...
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test
 
 all: lint test build
 
@@ -115,6 +115,18 @@ refresh-bot-patterns:
 	curl -sSfL https://raw.githubusercontent.com/monperrus/crawler-user-agents/master/crawler-user-agents.json \
 		-o internal/enrich/crawler-user-agents.json
 	@echo "Refreshed internal/enrich/crawler-user-agents.json"
+
+## audit: Hardening gate — vendor + tenancy + go vet + hot-path benches
+## Re-run before opening a PR. Slow tests + CH integration excluded.
+audit: vendor-check tenancy-grep
+	$(GO) vet -mod=vendor $(PKG)
+	$(GO) test -mod=vendor -bench=. -benchmem -run='^$$' -benchtime=2s -timeout 5m ./internal/enrich/ ./internal/ingest/
+
+## airgap-test: MANUAL — run the binary under iptables OUTPUT DROP and
+## confirm ingest + dashboard still work (loopback whitelisted). Procedure
+## documented in docs/runbook.md § Air-Gap Verification (single source of truth).
+airgap-test:
+	@echo "Manual procedure — see docs/runbook.md § Air-Gap Verification"
 
 ## clean: Remove build + runtime artifacts (NOT vendor/, NOT config/master.key)
 clean:
