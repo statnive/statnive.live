@@ -335,15 +335,15 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 
 **Onboarding sequence — app-by-app, not all-at-once.** Full StreamCo-class traffic (MAXIMUM envelope: 5M DAU / 200M events/day) requires a cluster. We enter the customer deployment with **web only** (MINIMUM envelope: ~200K DAU / 3M views/day — 30× smaller), then onboard iOS, Android, and TV apps across months 1–12 post-deployment. Hardware sizing evolves with the onboarding — see [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md) § 0 for the canonical 5-phase plan.
 
-Per-phase Iranian DC sizing target:
+Per-phase Iranian DC sizing target (Asiatech primary pick):
 
-| Sub-phase | Scope | Peak day | Monthly | Hardware |
-|---|---|---|---|---|
-| P1 (cutover) [MIN] | Web views only | 3M events | 75M | Asiatech G1/G2 VPS standard plan (~150 GB/mo cap fits) |
-| P2 (+1mo) | Web + curated interactions | ~15M | ~350M | Asiatech G2 standard plan (cap fits) |
-| P3 (+3mo) | +iOS onboarding | ~70M | ~1.4B | A1 with bandwidth upgrade to ≥500 GB/mo, OR small dedicated (8c/32GB/1TB NVMe) |
-| P4 (+6mo) | +Android | ~140M | ~3B | Dedicated 16–32c/64–128GB/2TB NVMe, ≥1 TB/mo or unmetered |
-| P5 (+10mo) [MAX] | +TV apps + HA | 200M | 4B | 2–3 node cluster with HA, unmetered bandwidth |
+| Sub-phase | Scope | Max DAU | Max MAU | Max daily events | Max monthly events | Asiatech server | Price/mo |
+|---|---|---|---|---|---|---|---|
+| **P1** (cutover) [MIN] | Web views only | 200K | 1.4M | 3M | 75M | `AT-VPS-G2` | 27.9M Rial |
+| **P2** (+1mo) | Web + curated interactions | 200K | 1.4M | 15M | 350M | `AT-VPS-G2` (carry over) | 27.9M Rial |
+| **P3** (+3mo) | +iOS onboarding | ~1.45M | ~5.65M | 70M | 1.4B | `AT-VPS-A1` + BW upgrade ≥500 GB/mo | 63.5M Rial + BW |
+| **P4** (+6mo) | +Android | ~3.45M | ~12.45M | 140M | 3B | Dedicated 16–32c/64–128GB/2TB NVMe + ≥1 TB/mo BW (outside VPS catalog) | quote |
+| **P5** (+10mo) [MAX] | +TV apps + HA | 5M | 17M | 200M | 4B | Dedicated cluster 2–3× (32c/128GB/4TB NVMe) + unmetered BW | quote |
 
 - [ ] **P1 cutover hardware:** start with **Asiatech G1 or G2 standard VPS** (~15–28M Rial/mo, 150 GB/mo bandwidth fits web-views-only). Postpone the "~8c/32GB/1TB NVMe dedicated" conversation to P3 when iOS joins and bandwidth upgrade becomes load-bearing.
 - [ ] Negotiate P3+ quotes in parallel: Asiatech bandwidth upgrade (500 GB/mo, 1 TB/mo, unmetered tiers), plus dedicated server quotes from Asiatech / Shatel / Afranet / ParsPack — 8c/32GB/1TB NVMe through 32c/128GB/4TB NVMe
