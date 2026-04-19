@@ -48,10 +48,13 @@ fmt:
 	$(GOLANGCI_LINT) fmt $(PKG)
 
 ## vendor-check: Verify go.sum + vendored deps are up to date (CI gate)
+## --ignore-cr-at-eol so CRLF in upstream README/CHANGELOG (klauspost/cpuid,
+## ClickHouse/clickhouse-go) doesn't fail the gate on Linux CI when the
+## same content was committed with LF normalization on macOS.
 vendor-check:
 	$(GO) mod verify
 	$(GO) mod vendor
-	git diff --exit-code vendor/ go.mod go.sum
+	git diff --ignore-cr-at-eol --exit-code vendor/ go.mod go.sum
 
 ## licenses: Check no AGPL / strong-copyleft deps shipped (CLAUDE.md License Rules)
 licenses:
