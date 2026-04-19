@@ -16,7 +16,10 @@ import (
 	"log/slog"
 	"runtime"
 	"sync"
+	"sync/atomic"
+	"time"
 
+	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/ingest"
 )
@@ -31,6 +34,8 @@ type Deps struct {
 	UA      *UAParser
 	Bot     *BotDetector
 	Channel *ChannelMapper
+	Burst   *ingest.BurstGuard // optional — nil disables the per-visitor cap
+	Audit   *audit.Logger      // optional — nil silences burst-drop audit lines
 	Logger  *slog.Logger
 }
 
@@ -43,9 +48,16 @@ type Pipeline struct {
 	out     chan ingest.EnrichedEvent
 	workers int
 
-	wg       sync.WaitGroup
+	burstDropped atomic.Uint64
+
+	wg        sync.WaitGroup
 	closeOnce sync.Once
 }
+
+// BurstDropped returns the count of events the per-visitor cap has
+// rejected since boot. Surfaced via /healthz so operators can detect
+// scraper-network attacks or runaway trackers.
+func (p *Pipeline) BurstDropped() uint64 { return p.burstDropped.Load() }
 
 // NewPipeline allocates the channels but does NOT start workers. Call Run.
 func NewPipeline(deps Deps) *Pipeline {
@@ -122,16 +134,20 @@ func (p *Pipeline) worker(ctx context.Context, id int) {
 			// Drain whatever is already buffered so events that made it
 			// past the handler don't get lost.
 			for raw := range p.in {
-				p.deliver(ctx, p.processEvent(raw))
+				if ev, ok := p.processEvent(raw); ok {
+					p.deliver(ctx, ev)
+				}
 			}
 
 			return
-		case raw, ok := <-p.in:
-			if !ok {
+		case raw, channelOpen := <-p.in:
+			if !channelOpen {
 				return
 			}
 
-			p.deliver(ctx, p.processEvent(raw))
+			if ev, ok := p.processEvent(raw); ok {
+				p.deliver(ctx, ev)
+			}
 		}
 	}
 }
@@ -146,13 +162,32 @@ func (p *Pipeline) deliver(ctx context.Context, ev ingest.EnrichedEvent) {
 }
 
 // processEvent is the locked 6-stage path. Order MUST stay
-// identity → bloom → geo → ua → bot → channel (CLAUDE.md Rule 6).
-func (p *Pipeline) processEvent(raw *ingest.RawEvent) ingest.EnrichedEvent {
+// identity → burst → bloom → geo → ua → bot → channel (CLAUDE.md
+// Rule 6 + Phase 7a burst guard insertion). Returns (event, ok=true)
+// for events that should land in events_raw, and (zero, ok=false) for
+// events the burst guard has rejected — the caller skips deliver().
+func (p *Pipeline) processEvent(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 	// Stage 1 — identity (BLAKE3 keyed by today's salt).
 	saltToday := p.deps.Salt.CurrentSalt(raw.SiteID)
 	saltPrev := p.deps.Salt.PreviousSalt(raw.SiteID)
 	visitorHash := identity.VisitorHash(raw.IP, raw.UserAgent, saltToday)
 	prevHash := identity.VisitorHash(raw.IP, raw.UserAgent, saltPrev)
+
+	// Burst guard sits between identity and bloom: needs visitor_hash
+	// to key by, must NOT pollute the bloom (which would mis-flag a
+	// future legitimate event from the same visitor as returning).
+	if p.deps.Burst != nil && !p.deps.Burst.Allow(visitorHash, time.Now()) {
+		p.burstDropped.Add(1)
+
+		if p.deps.Audit != nil {
+			p.deps.Audit.Event(context.Background(), audit.EventBurstDropped,
+				slog.Uint64("site_id", uint64(raw.SiteID)),
+				slog.String("visitor_hash", encodeHashPrefix(visitorHash)),
+			)
+		}
+
+		return ingest.EnrichedEvent{}, false
+	}
 
 	// Stage 2 — bloom (cross-day grace).
 	isNew := p.deps.Bloom.CheckAndMark(visitorHash, prevHash)
@@ -224,7 +259,7 @@ func (p *Pipeline) processEvent(raw *ingest.RawEvent) ingest.EnrichedEvent {
 		PropVals:      vals,
 		UserSegment:   raw.UserSegment,
 		IsBot:         boolU8(isBot),
-	}
+	}, true
 }
 
 func boolU8(b bool) uint8 {
@@ -233,6 +268,22 @@ func boolU8(b bool) uint8 {
 	}
 
 	return 0
+}
+
+// encodeHashPrefix returns the first 8 hex chars of a visitor hash for
+// audit log identifiers. Full hash would leak more identity than needed
+// for forensics; 32 bits of prefix is enough to distinguish bursts in
+// the log without making the log a re-identification vector.
+func encodeHashPrefix(h [16]byte) string {
+	const hex = "0123456789abcdef"
+
+	out := [8]byte{}
+	for i := 0; i < 4; i++ {
+		out[i*2] = hex[h[i]>>4]
+		out[i*2+1] = hex[h[i]&0x0f]
+	}
+
+	return string(out[:])
 }
 
 func flattenProps(props map[string]string) (keys, vals []string) {

@@ -21,6 +21,11 @@ ingest:
   batch_interval: "500ms"
   batch_max_bytes: 10485760    # 10 MB
 
+  # Per-visitor cap. Doc 24 §Sec 5 T2 #15 — protects against scraper
+  # networks and runaway trackers. 500/min ≈ 8 PVs/sec sustained per
+  # visitor, well above any human-clicker rate. Set to 0 to disable.
+  max_pageviews_per_minute_per_visitor: 500
+
 license:
   required: false             # dogfood / dev — no license enforcement
   phone_home: false           # MUST stay false in v1 (Air-Gap invariant, PLAN.md:471)

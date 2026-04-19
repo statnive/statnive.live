@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -111,6 +112,16 @@ func run() error {
 	}
 	defer func() { _ = wal.Close() }()
 
+	// Crash-recovery WAL replay. Events from a previous boot that
+	// hadn't yet been ack'd by the consumer are persisted in the WAL.
+	// Replay them straight into ClickHouse before the new consumer
+	// starts, then ack-truncate so the next batch sees a clean log.
+	// This closes the kill -9 → restart → zero-loss contract that
+	// Phase 1 implemented but never wired.
+	if replayErr := replayWAL(rootCtx, wal, store, logger); replayErr != nil {
+		return fmt.Errorf("wal replay: %w", replayErr)
+	}
+
 	bloom := enrich.NewNewVisitorFilter(bloomCapacity, bloomFPRate)
 	bloomPath := filepath.Join(cfg.Ingest.WALDir, "bloom.dat")
 
@@ -143,6 +154,8 @@ func run() error {
 	}
 	defer channelMapper.Close()
 
+	burstGuard := ingest.NewBurstGuard(cfg.Ingest.MaxPageviewsPerMinutePerVisitor)
+
 	pipeline := enrich.NewPipeline(enrich.Deps{
 		Salt:    saltMgr,
 		Bloom:   bloom,
@@ -150,6 +163,8 @@ func run() error {
 		UA:      enrich.NewUAParser(),
 		Bot:     enrich.NewBotDetector(logger),
 		Channel: channelMapper,
+		Burst:   burstGuard,
+		Audit:   auditLog,
 		Logger:  logger,
 	})
 
@@ -343,6 +358,68 @@ func runSIGHUP(ctx context.Context, logger *slog.Logger, auditLog *audit.Logger,
 	}
 }
 
+// replayWAL drains every persisted event from the WAL into ClickHouse,
+// then truncates the WAL through the last replayed index. Called once
+// at startup before the consumer reads from the live pipeline.
+//
+// Snapshot semantics: read LastIndex BEFORE replay; ack to that index
+// AFTER. The pipeline isn't started yet, so no new events arrive
+// during replay. Batches into chunks of replayBatchSize so a multi-GB
+// WAL doesn't blow up memory or send a single oversized INSERT.
+func replayWAL(ctx context.Context, wal *ingest.WALWriter, store *storage.ClickHouseStore, logger *slog.Logger) error {
+	const replayBatchSize = 1000
+
+	snapshotIdx := wal.CurrentIndex()
+	if snapshotIdx == 0 {
+		return nil
+	}
+
+	batch := make([]ingest.EnrichedEvent, 0, replayBatchSize)
+	total := 0
+
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+
+		if err := store.InsertBatch(ctx, batch); err != nil {
+			return fmt.Errorf("replay insert: %w", err)
+		}
+
+		total += len(batch)
+		batch = batch[:0]
+
+		return nil
+	}
+
+	err := wal.Replay(func(ev ingest.EnrichedEvent) error {
+		batch = append(batch, ev)
+
+		if len(batch) >= replayBatchSize {
+			return flush()
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := flush(); err != nil {
+		return err
+	}
+
+	if total > 0 {
+		if ackErr := wal.Ack(snapshotIdx); ackErr != nil {
+			logger.Warn("wal replay ack failed", "err", ackErr, "through", snapshotIdx)
+		}
+
+		logger.Info("wal replay complete", "events", total, "through_idx", snapshotIdx)
+	}
+
+	return nil
+}
+
 // appConfig is the typed view of statnive-live.yaml.
 type appConfig struct {
 	MasterSecretPath string
@@ -360,11 +437,12 @@ type appConfig struct {
 		Cluster  string
 	}
 	Ingest struct {
-		WALDir        string
-		WALMaxBytes   int64
-		BatchRows     int
-		BatchInterval time.Duration
-		BatchMaxBytes int
+		WALDir                          string
+		WALMaxBytes                     int64
+		BatchRows                       int
+		BatchInterval                   time.Duration
+		BatchMaxBytes                   int
+		MaxPageviewsPerMinutePerVisitor int
 	}
 	Enrich struct {
 		SourcesPath  string
@@ -396,6 +474,9 @@ func loadConfig() (appConfig, error) {
 	v.AddConfigPath(".")
 	v.SetEnvPrefix("STATNIVE")
 	v.AutomaticEnv()
+	// Map nested config keys to env vars: clickhouse.addr → STATNIVE_CLICKHOUSE_ADDR.
+	// Without this, AutomaticEnv silently misses every dotted key.
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	v.SetDefault("master_secret_path", "./config/master.key")
 	v.SetDefault("server.listen", "127.0.0.1:8080")
@@ -411,6 +492,7 @@ func loadConfig() (appConfig, error) {
 	v.SetDefault("ingest.batch_rows", 1000)
 	v.SetDefault("ingest.batch_interval", "500ms")
 	v.SetDefault("ingest.batch_max_bytes", 10*1024*1024)
+	v.SetDefault("ingest.max_pageviews_per_minute_per_visitor", 500)
 	v.SetDefault("enrich.sources_path", "./config/sources.yaml")
 	v.SetDefault("enrich.geoip_bin_path", "")
 	v.SetDefault("tls.cert_file", "")
@@ -445,6 +527,7 @@ func loadConfig() (appConfig, error) {
 	cfg.Ingest.BatchRows = v.GetInt("ingest.batch_rows")
 	cfg.Ingest.BatchInterval = v.GetDuration("ingest.batch_interval")
 	cfg.Ingest.BatchMaxBytes = v.GetInt("ingest.batch_max_bytes")
+	cfg.Ingest.MaxPageviewsPerMinutePerVisitor = v.GetInt("ingest.max_pageviews_per_minute_per_visitor")
 
 	cfg.Enrich.SourcesPath = v.GetString("enrich.sources_path")
 	cfg.Enrich.GeoIPBinPath = v.GetString("enrich.geoip_bin_path")

@@ -4,7 +4,16 @@
 
 9 research documents (docs 14–22), 400+ sources, and 2,000+ lines of drop-in Go code are complete. All architecture, features, schema, and security decisions are finalized.
 
-**statnive-live** is the standalone analytics platform (separate from the WordPress plugin "statnive"). It targets Iranian high-traffic sites (10–20M DAU), with Filimo as first customer.
+**statnive-live** is the standalone analytics platform (separate from the WordPress plugin "statnive"). It targets Iranian high-traffic sites, with Filimo as first customer.
+
+**Reference streaming workload (StreamCo, confirmed 2026-04-19).** Two endpoints frame the capacity envelope — we ship the minimum first and ramp to the maximum app-by-app.
+
+| Envelope | Scope | Peak day events | Monthly events | Bandwidth/mo | Disk/year | EPS peak |
+|---|---|---|---|---|---|---|
+| **MINIMUM — P1 cutover** | Web app, required events (views) only | 3M | 75M | ~22 GB | ~36 GB | ~140 |
+| **MAXIMUM — P5 full build** | All apps (web + iOS + Android + TV), all optional events | 200M | 4B | ~1.2 TB | ~1.9 TB | ~9,000 (spike ~18K) |
+
+Minimum fits the cheapest Asiatech VPS (G1/G2 standard plan, ~15–28M Rial/mo). Maximum requires a 2–3 node Iranian-DC cluster with HA and unmetered bandwidth (~800M–1.5B Rial/mo). 5-phase app-by-app roadmap between them (P1 web views → P2 web+interactions → P3 +iOS → P4 +Android → P5 +TV/HA) in [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md).
 
 - **Repo:** https://github.com/statnive/statnive.live.git
 - **Folder:** `statnive-live/`
@@ -199,7 +208,7 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 - [x] Implement storage/migrate.go — numbered migrations, applied versions tracked in a `schema_migrations(version, dirty, sequence)` table. Migrations authored with `{{if .Cluster}}` Go-template placeholders from day 1 (doc 24 §Sec 2 Migration 0029) so single-node → Distributed upgrade at SaaS scale is a config flip, not a migration rewrite. (Deferred: advisory locks for concurrent-start safety — single-binary deploys don't race on startup.)
 - [x] Implement enrich/ (GeoIP with IP2Location **LITE DB23** in v1, medama-io UA, channel mapper, isbot + crawler-user-agents.json, bloom 18MB/10M visitors/0.1% FPR). Channel mapper implements the **17-step decision tree** per doc 24 §Sec 3.1 (paid-first ordering). Hostname lookups use `map[string]struct{}` not `slices.Contains` (~100× hot-path savings at 10–20M DAU per doc 24 §Sec 3.5). (GeoIP is a no-op enricher when no BIN file is configured — operator drops in DB23 separately; never blocks boot.)
 - [x] Implement identity/ (BLAKE3-128 hash, deterministic daily salt `HMAC(master_secret, site_id || YYYY-MM-DD IRST)` — single master secret, site_id baked into HMAC input). **Cross-day fingerprint grace lookup** (doc 24 §Sec 1.1) — when the bloom filter misses, retry with yesterday's salt before declaring a new visitor. Closes the `user-enters-site-at-23:59` ghost-session bug.
-- [ ] k6 load test: prove 7K EPS (Filimo baseline at 10–20M DAU per doc 16) with zero event loss — Phase 7
+- [ ] k6 load test: prove peak EPS targets with zero event loss — Phase 7. StreamCo P1/P2 envelope (web only) targets ~1,300 peak EPS; P3+ ramps to ~9K peak EPS / ~18K spike at the MAXIMUM envelope (see capacity-planning doc). 7K EPS is a mid-phase (P3–P4) checkpoint.
 - [ ] Crash recovery test: kill -9 → WAL replay → verify zero loss — Phase 7
 - [x] Integration test: emit bot event → verify visitor_hash populated AND is_bot=1 (enrichment order assertion) — `test/enrichment_e2e_test.go` covers Googlebot UA → is_bot=1 + non-zero visitor_hash
 - [x] Integration test: prefetch header + oversized UA + UUID-as-UA + IP-as-UA → handler returns `204` with zero pipeline work (pre-pipeline fast-reject assertion) — `internal/ingest/handler_test.go` 10-case table
@@ -287,7 +296,7 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 
 ### Phase 7: Testing & Hardening (Week 16 — tightened from 2 weeks)
 
-- [ ] k6 smoke load test (7K EPS ramp, Persian URLs, Iranian UAs) — 7K EPS = ~600M events/day, Filimo baseline at 10–20M DAU per doc 16
+- [ ] k6 smoke load test — target ~1,300 peak EPS for P1/P2 cutover (StreamCo MIN envelope, web only) and ~9K peak EPS / ~18K spike for P3+ (StreamCo MAX envelope, full fidelity with mobile+TV apps). Persian URLs, Iranian UAs. See [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md) for per-phase EPS targets.
 - [ ] Go benchmark suite (every pipeline stage)
 - [ ] Integration test (100K events, multi-tenant → all v1 rollups → all API endpoints, each scoped by site_id; **security assertions folded in** — auth, rate limit, hostname validation, CH isolation, input limits)
 - [ ] Crash recovery test (kill -9 Go → WAL replay zero-loss; kill ClickHouse for 10 min → events buffer then drain)
@@ -324,8 +333,21 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 
 ### Phase 10: Filimo dedicated Iranian VPS (Weeks 21–24, Phase B of Launch Sequence)
 
-- [ ] Negotiate Iranian DC quote: Asiatech / Shatel / Afranet — 8c/32GB/1TB NVMe, 1 Gbps uplink, co-hosted ClickHouse, ~€180/mo target
-- [ ] Provision **Deployment D2** on Iranian DC bare metal
+**Onboarding sequence — app-by-app, not all-at-once.** Full StreamCo-class traffic (MAXIMUM envelope: 5M DAU / 200M events/day) requires a cluster. We enter the customer deployment with **web only** (MINIMUM envelope: ~200K DAU / 3M views/day — 30× smaller), then onboard iOS, Android, and TV apps across months 1–12 post-deployment. Hardware sizing evolves with the onboarding — see [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md) § 0 for the canonical 5-phase plan.
+
+Per-phase Iranian DC sizing target (Asiatech primary pick):
+
+| Sub-phase | Scope | Max DAU | Max MAU | Max daily events | Max monthly events | Asiatech server | Price/mo |
+|---|---|---|---|---|---|---|---|
+| **P1** (cutover) [MIN] | Web views only | 200K | 1.4M | 3M | 75M | `AT-VPS-G2` | 27.9M Rial |
+| **P2** (+1mo) | Web + curated interactions | 200K | 1.4M | 15M | 350M | `AT-VPS-G2` (carry over) | 27.9M Rial |
+| **P3** (+3mo) | +iOS onboarding | ~1.45M | ~5.65M | 70M | 1.4B | `AT-VPS-A1` + BW upgrade ≥500 GB/mo | 63.5M Rial + BW |
+| **P4** (+6mo) | +Android | ~3.45M | ~12.45M | 140M | 3B | Dedicated 16–32c/64–128GB/2TB NVMe + ≥1 TB/mo BW (outside VPS catalog) | quote |
+| **P5** (+10mo) [MAX] | +TV apps + HA | 5M | 17M | 200M | 4B | Dedicated cluster 2–3× (32c/128GB/4TB NVMe) + unmetered BW | quote |
+
+- [ ] **P1 cutover hardware:** start with **Asiatech G1 or G2 standard VPS** (~15–28M Rial/mo, 150 GB/mo bandwidth fits web-views-only). Postpone the "~8c/32GB/1TB NVMe dedicated" conversation to P3 when iOS joins and bandwidth upgrade becomes load-bearing.
+- [ ] Negotiate P3+ quotes in parallel: Asiatech bandwidth upgrade (500 GB/mo, 1 TB/mo, unmetered tiers), plus dedicated server quotes from Asiatech / Shatel / Afranet / ParsPack — 8c/32GB/1TB NVMe through 32c/128GB/4TB NVMe
+- [ ] Provision **Deployment D2** on Iranian DC (VPS for P1/P2, graduates to dedicated at P3)
 - [ ] DNS: CNAME `filimo.statnive.live` → Iranian DC IP (Cloudflare proxy **OFF** — traffic must reach Iranian DC directly)
 - [ ] Build offline install bundle via `make airgap-bundle`
 - [ ] SCP bundle → Iranian DC, verify SHA256 + Ed25519 signature
@@ -699,8 +721,8 @@ Iranian self-hosted deployments are exempt (no EU visitors / data stays on custo
 **Notes:**
 - **Start small:** CX32 (~€13/mo) handles statnive.com dogfood traffic (<100K PV/mo) for ~400× less cost than AX42. Upgrade to AX42 when SaaS load demands it. Saves ~€430/yr in year 1.
 - Iranian DCs are quote-based (not public pricing). Upfront CAPEX on custom bare-metal builds; monthly figure is colocation + bandwidth only.
-- Filimo's Iranian DC can safely run 8c/32GB per doc 19. SaaS headroom of 8c/64GB becomes relevant only at 30+ concurrent paying sites.
-- Bandwidth for 10–20M DAU @ ~1KB/event ≈ 10–20 GB/day raw → ~50–100 GB/day with responses; factored into Iranian DC quote.
+- **Customer Iranian DC sizing is phase-dependent**, not a single number. P1/P2 (StreamCo MIN, web only) runs on an Asiatech G2 standard VPS (~28M Rial/mo). P3 (+iOS) needs bandwidth upgrade or small dedicated. P4/P5 (StreamCo MAX, full fidelity) is a 2–3 node cluster. See the 5-phase table in Phase 10 above and [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md) for monthly bandwidth / disk / EPS per sub-phase.
+- **Bandwidth envelope by sub-phase** (StreamCo profile, at 300 B/event optimized): P1 ~22 GB/mo (MIN), P2 ~105 GB/mo, P3 ~420 GB/mo, P4 ~900 GB/mo, P5 ~1.2 TB/mo (MAX). All Asiatech standard VPS tiers cap at 150 GB/mo — upgrade conversation lands at P3, not at initial cutover.
 - IP2Location paid DB23 subscription only on D2 (Filimo) in v1. LITE DB23 on D1 (free, attribution required).
 
 ---
@@ -821,10 +843,10 @@ statnive-live ships in **three public-facing phases across two deployments**. Sa
 
 ### Phase B — Filimo dedicated Iranian VPS (Weeks 22–25)
 
-**Goal:** `filimo.statnive.live` runs on an Iranian DC, Filimo team logs in with admin credentials, tracker is `filimo.statnive.live/tracker.js`. Fully secure, max performance, air-gapped-capable.
+**Goal:** `filimo.statnive.live` runs on an Iranian DC, Filimo team logs in with admin credentials, tracker is `filimo.statnive.live/tracker.js`. Fully secure, max performance, air-gapped-capable. **Cutover scope = Filimo web traffic only** (P1 of the app-by-app onboarding plan — ~200K DAU / 3M views/day).
 
-- **Deployment:** D2 (Iranian DC bare metal, 8c/32GB/1TB NVMe, 1 Gbps uplink, ~€180/mo negotiated)
-- **Hardware:** negotiate quotes with Asiatech / Shatel / Afranet — colocation + bandwidth; we provide the hardware spec per doc 16 §12.2
+- **Deployment:** D2 — Iranian DC. **Initial cutover on an Asiatech G1/G2 standard VPS** (~15–28M Rial/mo, 150 GB/mo bandwidth fits web-only traffic). Graduates to dedicated bare-metal at P3 (+iOS, ~3 months post-cutover) when bandwidth need crosses 150 GB/mo. See Phase 10 sub-phase table above for hardware progression.
+- **Hardware progression:** VPS for P1/P2, dedicated bare-metal for P3/P4, cluster for P5. Quotes negotiated in parallel: Asiatech (all tiers + bandwidth upgrades), Shatel, Afranet, ParsPack.
 - **Install:** offline bundle from Phase 8 (`make airgap-bundle`) — SCP tarball via bastion, verify `SHA256SUMS` + Ed25519 signature, run `deploy/airgap-install.sh`
 - **DNS:** `CNAME filimo.statnive.live → <Iranian-DC-IP>`; Cloudflare proxy **OFF** (traffic must terminate inside Iran)
 - **TLS:** manual PEM files only. Either Filimo's internal CA (preferred — cert already trusted by Filimo's client base) or a self-signed cert we generate with our root distributed once. Rotated quarterly by operator via config reload.
@@ -839,7 +861,7 @@ statnive-live ships in **three public-facing phases across two deployments**. Sa
 - **Admin user:** password generated at first-run, delivered to Filimo via secure channel (Signal / in-person / PGP)
 - **Tracker install (on Filimo side):** `<script src="https://filimo.statnive.live/tracker.js" defer></script>` in their site template; root-domain cookie walking (Clarity pattern, doc 21) automatically covers all Filimo subdomains + CDN hosts
 - **Firewall:** `iptables -P OUTPUT DROP` with explicit allows for: loopback, ClickHouse port (localhost only), tracker client IP ranges (if geofenced), DNS resolver, NTP
-- **Acceptance:** k6 7K EPS ramp (Persian URLs, Iranian UA strings) sustains p99 <500ms; full air-gapped acceptance test from Phase 8 verification passes end-to-end; Filimo smoke test confirms live traffic in dashboard within 1h; monthly backup + restore drill succeeds
+- **Acceptance (P1 cutover, StreamCo MIN envelope):** k6 ~1,300 peak EPS ramp (Persian URLs, Iranian UA strings) sustains p99 <500ms; full air-gapped acceptance test from Phase 8 verification passes end-to-end; customer web smoke test confirms live traffic in dashboard within 1h; monthly backup + restore drill succeeds. Higher-EPS gates (7K / 18K — StreamCo MAX envelope) deferred to P3 / P5 graduation reviews.
 
 ### Phase C — International SaaS self-serve (Weeks 25–29)
 
