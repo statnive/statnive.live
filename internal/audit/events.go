@@ -28,10 +28,12 @@ const (
 	EventRateLimited EventName = "ratelimit.exceeded"
 )
 
-// Ingest events. Emitted by internal/ingest/handler.go.
+// Ingest events. Emitted by internal/ingest/handler.go +
+// internal/enrich/pipeline.go.
 const (
 	EventHostnameUnknown EventName = "ingest.hostname_unknown"
 	EventFastReject      EventName = "ingest.fast_reject"
+	EventBurstDropped    EventName = "ingest.burst_dropped"
 )
 
 // Audit-log internal events — emitted by the audit package itself when the

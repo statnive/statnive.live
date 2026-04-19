@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := ./...
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests
 
 all: lint test build
 
@@ -57,9 +57,31 @@ vendor-check:
 licenses:
 	$(GO_LICENSES) check $(PKG) --disallowed_types=forbidden,restricted
 
-## bench: Benchmark suite (Phase 7 — placeholder for now)
+## bench: Run all Go benchmarks (no integration tag — fast). Output to stdout.
 bench:
-	@echo "TODO Phase 7: benchmark enrichment + rollup queries"
+	$(GO) test -mod=vendor -bench=. -benchmem -run='^$$' -timeout 5m ./internal/...
+
+## load-test: Run the k6 7K EPS load script. Requires k6 installed +
+## the binary running on $STATNIVE_URL (default http://127.0.0.1:8080).
+## Pre-flight: seed the load-test site row (see test/perf/load.js header).
+load-test:
+	k6 run test/perf/load.js
+
+## crash-test: Subprocess kill -9 + WAL replay. Requires Docker + the
+## docker-compose ClickHouse running.
+crash-test:
+	$(GO) test -mod=vendor -tags=slow -timeout 5m -run TestCrashRecovery ./test/perf/...
+
+## ch-outage-test: Stop CH mid-flow + restart + verify drain.
+ch-outage-test:
+	$(GO) test -mod=vendor -tags=slow -timeout 5m -run TestCHOutage ./test/perf/...
+
+## disk-full-test: Fill WAL past cap + verify oldest dropped + binary survives.
+disk-full-test:
+	$(GO) test -mod=vendor -tags=slow -timeout 5m -run TestDiskFull ./test/perf/...
+
+## perf-tests: All Phase 7a stress tests (crash + ch-outage + disk-full).
+perf-tests: crash-test ch-outage-test disk-full-test
 
 ## airgap-bundle: Build offline install bundle (Phase 8 — placeholder)
 airgap-bundle:
