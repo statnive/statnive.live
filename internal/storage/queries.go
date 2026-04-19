@@ -165,15 +165,25 @@ func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, erro
 	return out, rows.Err()
 }
 
-// SEO reads daily_sources filtered to channel = 'Organic Search', then
-// rolls up by day. Returns a daily series the dashboard renders as the
-// organic-traffic trend line.
+// SEO reads daily_sources filtered to channel = 'Organic Search' then
+// rolls up by day. WITH FILL FROM .. TO .. STEP INTERVAL 1 DAY emits
+// a row for every day in the requested range, even days with zero
+// organic traffic — the Preact dashboard never has to fake empty
+// buckets in its trend chart (doc 24 §Sec 4 pattern 8).
+//
+// The fill range bounds (FROM/TO) are passed as arguments alongside
+// the standard whereTimeAndTenant args so clickhouse-go binds them
+// positionally.
 func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
 	}
 
 	where, args := whereTimeAndTenant(f, "day")
+
+	// Fill bounds: TO is exclusive in the rest of the codebase; CH's
+	// WITH FILL ... TO is also exclusive, so we pass f.To unchanged.
+	args = append(args, ChannelOrganicSearch, f.From, f.To)
 
 	rows, err := s.conn.Query(ctx, fmt.Sprintf(`
 		SELECT
@@ -184,8 +194,8 @@ func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) 
 			toUInt64(sum(revenue_rials))        AS revenue
 		FROM statnive.daily_sources %s AND channel = ?
 		GROUP BY day
-		ORDER BY day
-	`, where), append(args, ChannelOrganicSearch)...)
+		ORDER BY day WITH FILL FROM toDate(?) TO toDate(?) STEP INTERVAL 1 DAY
+	`, where), args...)
 	if err != nil {
 		return nil, fmt.Errorf("seo query: %w", err)
 	}
