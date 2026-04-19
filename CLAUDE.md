@@ -312,7 +312,9 @@ These are the release-blocking numbers. CI must assert them on every v1/v1.1 RC 
 
 ## Dev Tooling
 
-Claude Code skills + MCP server setup for this project live in [`docs/tooling.md`](docs/tooling.md) (not in CLAUDE.md — it's developer ergonomics, not product rules). That file covers the **4 skill collections** (cc-skills-golang, ClickHouse Agent Skills, trailofbits, marina-skill — 32 atomic skills total), **4 MCP servers** (Altinity ClickHouse, gopls, Hetzner, Grafana), and the phase → tooling mapping. The `/jaan-to:*` skills ship with the parent plugin and handle *what* (specs, scaffolds, tests, reviews); the 4 collections handle *how* (Go/ClickHouse/security/deploy patterns).
+Claude Code skills + MCP server setup for this project live in [`docs/tooling.md`](docs/tooling.md) (not in CLAUDE.md — it's developer ergonomics, not product rules). That file covers the **original 4 skill collections** (cc-skills-golang, ClickHouse Agent Skills, trailofbits, marina-skill — doc 23 foundation), the **doc 25 additions** (anthropics/skills cherry-pick, JetBrains use-modern-go, agamm/claude-code-owasp, BehiSecc/VibeSec-Skill, izar/tm_skills, vercel-labs web-design-guidelines, obra/superpowers 5-skill subset, knip, constant-time-analysis), the **6 project-local custom skills** (see § Enforcement below), **4 MCP servers** (Altinity ClickHouse, gopls, Hetzner, Grafana), and the phase → tooling mapping. The `/jaan-to:*` skills ship with the parent plugin and handle *what* (specs, scaffolds, tests, reviews); community collections handle *how* (Go/ClickHouse/security/deploy patterns); the 6 custom skills encode the 8 non-negotiable architecture rules as CI-blocking guardrails.
+
+**Do not install:** `anthropics/skills/web-artifacts-builder` (React+shadcn+CDN-fonts — air-gap violation, blows past bundle budget), `shajith003/awesome-claude-skills` (AI-slop), `sickn33/antigravity-awesome-skills`, `rohitg00/awesome-claude-code-toolkit` (inflated counts, low S/N). Reference: doc 25 §landscape.
 
 ### Skills Decision Tree
 
@@ -343,15 +345,40 @@ Task arrives
   ├─ Fetch library docs?                          → /jaan-to:dev-docs-fetch (Context7 MCP)
                                                     fallback: docs/tech-docs/ (16 cached refs)
   ├─ Preact SPA from handoff?                     → /jaan-to:frontend-scaffold / frontend-design
+  │                                                 (clamp: emit Preact-compatible output,
+  │                                                  self-hosted fonts only — same clamp applies
+  │                                                  to vercel-labs/web-design-guidelines)
   ├─ User flow diagrams?                          → /jaan-to:ux-flowchart-generate
   ├─ Microcopy / i18n (Persian/English)?          → /jaan-to:ux-microcopy-write
-  ├─ Tracker (<2 KB IIFE)?                        → build by hand, no skill coverage (doc 23 gap)
+  ├─ Skill / SKILL.md authoring?                  → anthropics/skills → skill-creator + template
+  ├─ Air-gap compliance / outbound-call review?   → .claude/skills/air-gap-validator (custom)
+  ├─ New ClickHouse rollup / MV?                  → .claude/skills/clickhouse-rollup-correctness +
+                                                    clickhouse-best-practices
+  ├─ New migration (single-node → Distributed)?   → .claude/skills/clickhouse-cluster-migration
+  ├─ Dashboard query review?                      → .claude/skills/tenancy-choke-point-enforcer
+  ├─ Preact / signals / bundle-budget review?     → .claude/skills/preact-signals-bundle-budget +
+                                                    vercel-labs/web-design-guidelines
+  ├─ BLAKE3 / HMAC / identity review?             → .claude/skills/blake3-hmac-identity-review +
+                                                    trailofbits/constant-time-analysis
+  ├─ Threat model / STRIDE?                       → izar/tm_skills (ctm / 4qpytm)
+  ├─ OWASP checklist?                             → agamm/claude-code-owasp
+  ├─ IDOR / horizontal authZ review?              → BehiSecc/VibeSec-Skill
+  ├─ Modern Go idioms (b.Loop, wg.Go)?            → JetBrains/use-modern-go
+  ├─ Planning / methodology?                      → obra/superpowers 5-skill subset
+                                                    (brainstorming, writing-plans,
+                                                     subagent-driven-development,
+                                                     verification-before-completion,
+                                                     systematic-debugging)
+  ├─ Frontend dead-code / unused-dep scan?        → agentskillexchange/knip-unused-code-dependency-finder
+  ├─ Tracker (<2 KB IIFE)?                        → .claude/skills/preact-signals-bundle-budget
+                                                    (covers the ~1.2 KB-min / ~600 B-gz tracker budget;
+                                                     builds are still hand-authored)
   └─ Unknown?                                      → open docs/tooling.md, don't guess
 ```
 
 ## Single Source of Truth
 
-`../statnive-workflow/jaan-to/docs/research/` (docs 14–24) is the canonical source for every architecture, feature, and threat-model decision in this project. Do **not** restate research conclusions in this `CLAUDE.md` or in skill prompts — reference by doc number and section only. When a decision changes, update the research doc; this file references it and never duplicates. Same rule applies to the feature matrix (doc 17, 18), the cost model (doc 19), the skill / MCP list (doc 23), and the **AGPL-safe Pirsch pattern extraction (doc 24)** — reference only, never port.
+`../statnive-workflow/jaan-to/docs/research/` (docs 14–25) is the canonical source for every architecture, feature, and threat-model decision in this project. Do **not** restate research conclusions in this `CLAUDE.md` or in skill prompts — reference by doc number and section only. When a decision changes, update the research doc; this file references it and never duplicates. Same rule applies to the feature matrix (doc 17, 18), the cost model (doc 19), the initial skill / MCP list (doc 23), the **AGPL-safe Pirsch pattern extraction (doc 24)** — reference only, never port — and the **Claude-skills install matrix + custom-skill catalog (doc 25)** — reference only, never restate the matrix in skill prompts.
 
 ## Enforcement
 
@@ -364,9 +391,20 @@ These integration tests pin the invariants in this file. They are Phase 0 / Phas
 - `test/security/no_agpl_test.go` — `go-licenses` asserts every direct + transitive dep is MIT / Apache / BSD / ISC (License Rules).
 - `web/src/__tests__/tenant-isolation.test.tsx` — Vitest guard that Preact signal stores don't leak `site_id` state across dashboard views.
 
+### Project-local SKILL.md guardrails (doc 25 §custom-skills)
+
+These six skills live under `.claude/skills/` and encode the 8 non-negotiable architecture rules as triggerable Claude guardrails. Each has a `SKILL.md` (frontmatter + trigger) and a `README.md` (full spec + CI wiring). Bodies (Semgrep rules, test fixtures) fill in per phase — the slots exist from day one so code cannot merge pretending they don't exist.
+
+- [`.claude/skills/tenancy-choke-point-enforcer/`](.claude/skills/tenancy-choke-point-enforcer/README.md) — encodes Architecture Rule 8. Rejects dashboard SQL that bypasses `whereTimeAndTenant()` or places `WHERE site_id = ?` anywhere but first.
+- [`.claude/skills/air-gap-validator/`](.claude/skills/air-gap-validator/README.md) — encodes the Isolation rule. Rejects new deps that do DNS/outbound at runtime, CDN imports in `web/`, or telemetry calls anywhere.
+- [`.claude/skills/clickhouse-rollup-correctness/`](.claude/skills/clickhouse-rollup-correctness/README.md) — encodes Architecture Rule 2 + doc 20 MV discipline. Validates `-State`/`-Merge`/`-MergeState` combinator discipline for `uniqCombined64` and rejects `Nullable` anywhere.
+- [`.claude/skills/clickhouse-cluster-migration/`](.claude/skills/clickhouse-cluster-migration/README.md) — encodes the `{{if .Cluster}}` templating rule from doc 24 §Migration 0029. Every migration must be single-node ↔ Distributed flip-ready.
+- [`.claude/skills/preact-signals-bundle-budget/`](.claude/skills/preact-signals-bundle-budget/README.md) — encodes the 50KB/15KB-gz dashboard + 1.2KB/600B-gz tracker budgets. Rejects barrel imports, >5KB deps, and CDN URLs in `web/` or `tracker/`.
+- [`.claude/skills/blake3-hmac-identity-review/`](.claude/skills/blake3-hmac-identity-review/README.md) — encodes Privacy Rules 2, 3, 4. Rejects MD5/SHA-1, non-`hmac.Equal` comparisons, and any code path that logs the master secret.
+
 `/simplify` and PR review must reject any new unguarded query (no `WHERE site_id = ?`), any new dependency without a license check, any new outbound network call not behind a config flag, and any new `Nullable(...)` column.
 
 ## Research Documents
 
 All architecture decisions are backed by research at:
-`../statnive-workflow/jaan-to/docs/research/` (docs 14–24, 500+ sources). Doc 23 covers the Claude Code tooling recommendations. **Doc 24** is the AGPL-safe Pirsch pattern extraction (reference-only audit of `github.com/pirsch-analytics/pirsch` v6) — informs ingestion shape (pre-pipeline fast-reject, cross-day fingerprint grace, cheap-first bot ordering), ClickHouse schema (reject mutable-row engines, `DateTime` not `DateTime64`, templated DDL for Distributed upgrade), channel mapping (17-step decision tree, AI channel on day 1), and dashboard query architecture (`Filter → Store → queryBuilder` shape, `WITH FILL` gap-fill, central `whereTimeAndTenant` helper). **Zero Pirsch code ported.**
+`../statnive-workflow/jaan-to/docs/research/` (docs 14–25, 500+ sources). Doc 23 covers the initial Claude Code tooling recommendations (doc-23 foundation: 30 installed skills, 4 MCP servers). **Doc 24** is the AGPL-safe Pirsch pattern extraction (reference-only audit of `github.com/pirsch-analytics/pirsch` v6) — informs ingestion shape (pre-pipeline fast-reject, cross-day fingerprint grace, cheap-first bot ordering), ClickHouse schema (reject mutable-row engines, `DateTime` not `DateTime64`, templated DDL for Distributed upgrade), channel mapping (17-step decision tree, AI channel on day 1), and dashboard query architecture (`Filter → Store → queryBuilder` shape, `WITH FILL` gap-fill, central `whereTimeAndTenant` helper). **Zero Pirsch code ported.** **Doc 25** is the Claude-skills install matrix and custom-skill catalog — 8 community bundles to install, 6 custom `.claude/skills/` to author, and an explicit blacklist (`web-artifacts-builder`, `shajith003/awesome-claude-skills`, etc.). Reference-only; never restate the matrix in skill prompts.

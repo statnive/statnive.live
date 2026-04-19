@@ -51,6 +51,15 @@ merged PR. Items marked **[planned]** are scheduled for a later phase.
 ```
 statnive-live/                          # https://github.com/statnive/statnive.live.git
 ├── CLAUDE.md                           # Project rules                                                  [shipped]
+├── .claude/
+│   └── skills/                         # Project-local Claude skills (custom + community copies)
+│       ├── tenancy-choke-point-enforcer/      # Architecture Rule 8 guardrail                          [scaffolded]
+│       ├── air-gap-validator/                 # Isolation rule guardrail                               [scaffolded]
+│       ├── clickhouse-rollup-correctness/     # AggregatingMergeTree / combinator discipline          [scaffolded]
+│       ├── clickhouse-cluster-migration/      # {{if .Cluster}} templating guardrail                   [scaffolded]
+│       ├── preact-signals-bundle-budget/      # 50KB-min / 15KB-gz + 1.2KB / 600B tracker              [scaffolded]
+│       ├── blake3-hmac-identity-review/       # BLAKE3-128 + HMAC(salt) + constant-time compare       [scaffolded]
+│       └── …                           # 30 doc-23 foundation skills + 17 doc-25 community additions [installed]
 ├── cmd/
 │   └── statnive-live/
 │       └── main.go                     # Entry point: wiring, SIGHUP fan-out, graceful shutdown         [shipped]
@@ -187,6 +196,8 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 
 ### Phase 0: Project Setup (Week 1)
 
+**Guardrails active:** [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md) — fires on the first `go.mod` addition and on any init-time network call. Scaffolded; Semgrep rule body fills in during this phase.
+
 - [x] Create `github.com/statnive/statnive-live` repository
 - [x] Initialize Go module, copy go.mod from doc 22
 - [x] Set up Makefile (build, test, lint, release, **airgap-bundle** targets) — `airgap-bundle` is a placeholder; lands in Phase 8
@@ -198,6 +209,8 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 - [x] Create config/statnive-live.yaml (default config from doc 20)
 
 ### Phase 1: Ingestion Pipeline (Weeks 2–4)
+
+**Guardrails active:** [`.claude/skills/tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md), [`.claude/skills/blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md), [`.claude/skills/clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md), [`.claude/skills/clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md) — must exist before `internal/identity/`, `internal/storage/`, or any MV DDL merges. All four scaffolded.
 
 - [x] Wire main.go (from doc 22 bonus code)
 - [x] Add `SiteID` field to EnrichedEvent + populate in pipeline.processEvent() — required for multi-tenant from v1
@@ -231,6 +244,8 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 
 ### Phase 3: Dashboard API (Weeks 7–9)
 
+**Guardrails active:** [`.claude/skills/tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md) enforces Architecture Rule 8 on every query in `internal/storage/queries.go` — pairs with the existing `make lint` `tenancy-grep` gate.
+
 All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they share date-parse, site_id scoping, cache key, and JSON shaping. Admin + billing are separate files since they mutate state. Query building lives in a **flat** `internal/storage/queries.go` (one Go function per endpoint) — we do NOT mirror Pirsch's 10 sub-analyzer split because our 8 endpoints don't warrant it (doc 24 §Sec 4 pattern 1 recommendation).
 
 - [x] `internal/storage/store.go` — typed `Store` interface (doc 24 §Sec 4 pattern 3). One method per endpoint: `Overview(ctx, *Filter)`, `Sources(ctx, *Filter)`, etc. Enables Phase 7 integration-test mocking without a live ClickHouse.
@@ -249,6 +264,8 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 
 ### Phase 4: Tracker JS (Week 10)
 
+**Guardrails active:** [`.claude/skills/preact-signals-bundle-budget`](.claude/skills/preact-signals-bundle-budget/README.md) enforces the ~1.2 KB-min / ~600 B-gz tracker budget from day 1 and rejects CDN URLs + XHR transport. [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md) cross-checks that no embedded asset references external hosts.
+
 - [ ] Build tracker from doc 20 source (~1.2KB minified / ~600B gzipped)
 - [ ] Rollup + Terser build config
 - [ ] Pageview + SPA (history API) + custom events + user_id + batching (outbound link tracking deferred to v1.1)
@@ -261,6 +278,8 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 **Deferred to v1.1:** engagement ping (10s heartbeat), throttle-with-last-event, base36 date encoding, envelope+payload separation. These power v2 session/engagement features — safe to defer until we build them.
 
 ### Phase 5: Dashboard Frontend (Weeks 11–13, reduced scope for v1 cut)
+
+**Guardrails active:** [`.claude/skills/preact-signals-bundle-budget`](.claude/skills/preact-signals-bundle-budget/README.md) enforces the ~50 KB-min / ~15 KB-gz dashboard budget, rejects React-style `useState`/`useEffect` in signal contexts, flags barrel imports, and forbids CDN fonts (reinforces air-gap). Pairs with the community-installed `vercel-labs/web-design-guidelines` (UI audit rules) and `knip-unused-code-dependency-finder` (bundle trim).
 
 > **Brand reference:** all components use the tokens + type ramp from
 > [§ Brand & Design](#brand--design--statnivelive-visual-identity). The Preact
@@ -297,6 +316,8 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 
 ### Phase 7: Testing & Hardening (Week 16 — tightened from 2 weeks)
 
+**Guardrails active:** [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md) acceptance test runs the binary under `iptables -P OUTPUT DROP` and asserts ingest, rollup materialization, and dashboard rendering all pass end-to-end — release-gate for every tagged build.
+
 - [x] k6 smoke load test — `test/perf/load.js` shipped in PR #14. 7K EPS ramp with Persian paths + Iranian UAs. Run via `make load-test`. (Per-phase EPS targets in [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md): ~1,300 peak EPS for P1/P2; ~9K peak / ~18K spike for P3+.)
 - [x] Go benchmark suite (every pipeline stage) — `internal/{ingest,enrich}/bench_test.go` shipped in PR #14. Baselines: BurstGuard ~50 ns/op, Channel ~280 ns, Bloom ~340 ns, UA ~300 ns, Bot ~500 ns, Handler full path ~4 µs.
 - [ ] Integration test (100K events, multi-tenant → all v1 rollups → all API endpoints, each scoped by site_id; **security assertions folded in** — auth, rate limit, hostname validation, CH isolation, input limits) — Phase 7b, after auth lands.
@@ -308,6 +329,8 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 - [x] CH outage buffer-and-drain test — `test/perf/ch_outage_test.go` shipped in PR #14 (10s in-test variant; 10-min variant documented in runbook for manual verification).
 
 ### Phase 8: Deployment & Launch (Weeks 17–18)
+
+**Guardrails active:** [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md) + [`.claude/skills/clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md) + [`.claude/skills/clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md) — gate the air-gap bundle build and the migration templating before Phase A ships. Run `AgriciDaniel/claude-cybersecurity` one-shot audit before cutover (doc 25 §priority, Weeks 9–12).
 
 - [ ] Deploy to Hetzner CX32 (~€13/mo) for Phase A dogfood staging
 - [ ] OR deploy to Iranian DC for Filimo (production)
@@ -573,6 +596,18 @@ return `mcp.invalid_params`, not silent empty results.
 MCP listens on `127.0.0.1` by default; operator must explicitly bind to
 a routable address + open the firewall to expose it externally — the
 binary won't dial out to register itself anywhere.
+
+---
+
+## Skills & Tooling Surface
+
+Authoritative inventory lives in [`docs/tooling.md`](docs/tooling.md) (community skills + MCP servers) and the six `.claude/skills/*/README.md` specs (project-local custom skills). Research anchors:
+
+- **Doc 23** — [`jaan-to/docs/research/23-ai-workflow-claude-skills-go-clickhouse-analytics.md`](../jaan-to/docs/research/23-ai-workflow-claude-skills-go-clickhouse-analytics.md) — initial Claude-skills + MCP landscape and Tier-1 installs. Shipped foundation: 30 installed skills (cc-skills-golang 12/37, ClickHouse/agent-skills 6, trailofbits 8, marina 4), 4 MCP servers (Altinity ClickHouse, gopls, Hetzner, Grafana).
+- **Doc 25** — [`jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md`](../jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md) — refinement: 17 community additions (anthropics/skills cherry-pick, JetBrains use-modern-go, agamm/claude-code-owasp, BehiSecc/VibeSec-Skill, izar/tm_skills, vercel-labs web-design-guidelines + react-best-practices, obra/superpowers 5-skill subset, knip, constant-time-analysis) + **6 mandatory** project-local custom skills that encode the 8 non-negotiable architecture rules (tenancy, air-gap, rollup correctness, cluster migration, Preact bundle budget, BLAKE3/HMAC identity). 12-week install order front-loads security and tenancy guardrails *before* their code phase.
+- **Blacklist** — `anthropics/skills/web-artifacts-builder` (air-gap violation), `shajith003/awesome-claude-skills`, `sickn33/antigravity-awesome-skills`, `rohitg00/awesome-claude-code-toolkit`.
+
+**Custom-skill status (scaffolded, bodies fill in per phase):** `tenancy-choke-point-enforcer`, `air-gap-validator`, `clickhouse-rollup-correctness`, `clickhouse-cluster-migration`, `preact-signals-bundle-budget`, `blake3-hmac-identity-review`. See each skill's `README.md` for Semgrep/ESLint rule spec, CI integration TODO, and research anchors.
 
 ---
 
@@ -1022,17 +1057,17 @@ All existing architectural decisions in the plan (schema, identity, transport, p
 14. Tracker: install on test page → events appear in dashboard within 1 hour
 15. GDPR (SaaS only): consent decline drops cookies + user_id; `/api/privacy/erase` removes visitor across raw + all v1 rollups (3 now, 6 after v1.1)
 16. License: demo-mode binary caps at 10K events/day; valid JWT unlocks; expired JWT falls back to demo-mode with warning
-17. **Air-gapped acceptance**: deploy offline bundle on host with `iptables -P OUTPUT DROP` (loopback + tracker IPs only). Binary starts, migrations apply, events ingest end-to-end, rollups materialize, dashboard renders, backup + restore succeed — all with zero outbound traffic
+17. **Air-gapped acceptance**: deploy offline bundle on host with `iptables -P OUTPUT DROP` (loopback + tracker IPs only). Binary starts, migrations apply, events ingest end-to-end, rollups materialize, dashboard renders, backup + restore succeed — all with zero outbound traffic (skill: [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md))
 18. **Offline build**: `go build -mod=vendor ./...` succeeds with `GOFLAGS=-mod=vendor` and no network access
 19. Manual TLS: binary serves traffic with `tls.cert_file` / `tls.key_file` pointing at internal-CA-issued PEMs; no autocert code path exercised (v1)
 20. Air-gapped GeoIP update: replace DB23 BIN + `SIGHUP` → new IPs resolve correctly without restart
 21. **Pre-pipeline fast-reject** (doc 24 §Sec 1.6): handler returns `204` on `X-Purpose: prefetch`, UA length < 16 or > 500, UA-as-IP, UA-as-UUID, non-ASCII UA — asserted with zero pipeline work (no bloom, no GeoIP, no batch write)
-22. **Cross-day fingerprint grace** (doc 24 §Sec 1.1): visitor hashed at 23:58 IRST with salt S₁ returns at 00:02 IRST — identified as *returning* via yesterday-salt lookup, not as a new visitor
+22. **Cross-day fingerprint grace** (doc 24 §Sec 1.1): visitor hashed at 23:58 IRST with salt S₁ returns at 00:02 IRST — identified as *returning* via yesterday-salt lookup, not as a new visitor (skill: [`.claude/skills/blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md))
 23. **Bot detection ordering** (doc 24 §Sec 1.3): integration test emits malformed UA, prefetch header, spam referrer, outdated Chrome, and regex-match bot — each short-circuits at the expected layer; `bot_reason` column (v1.1) records which layer fired
-24. **Central tenancy helper** (Architecture Rule 8): CI lint asserts every `SELECT` in `internal/storage/` calls `whereTimeAndTenant()`; test fails if any new file bypasses the helper
-25. **Schema time column**: ClickHouse asserts `time` is `DateTime('UTC')` (not `DateTime64`) on `events_raw` and all rollups
-26. **Templated migration DDL** (doc 24 §Sec 2 Migration 0029): every `CREATE TABLE` migration is authored with `{{if .Cluster}}` placeholders; template renders correctly for both single-node (current) and `ReplicatedMergeTree` + `Distributed` (SaaS future) modes
-27. **No Nullable columns** (Architecture Rule 5): CI lint asserts no `Nullable(` appears anywhere in `clickhouse/` or `internal/storage/migrate.go`
+24. **Central tenancy helper** (Architecture Rule 8): CI lint asserts every `SELECT` in `internal/storage/` calls `whereTimeAndTenant()`; test fails if any new file bypasses the helper (skill: [`.claude/skills/tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md))
+25. **Schema time column**: ClickHouse asserts `time` is `DateTime('UTC')` (not `DateTime64`) on `events_raw` and all rollups (skill: [`.claude/skills/clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md))
+26. **Templated migration DDL** (doc 24 §Sec 2 Migration 0029): every `CREATE TABLE` migration is authored with `{{if .Cluster}}` placeholders; template renders correctly for both single-node (current) and `ReplicatedMergeTree` + `Distributed` (SaaS future) modes (skill: [`.claude/skills/clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md))
+27. **No Nullable columns** (Architecture Rule 5): CI lint asserts no `Nullable(` appears anywhere in `clickhouse/` or `internal/storage/migrate.go` (skill: [`.claude/skills/clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md))
 28. **Hostname-list lookup shape** (doc 24 §Sec 3.5): channel mapper benchmark confirms `map[string]struct{}` lookup, not `slices.Contains` — hot-path p99 stays below 50 ns/call
 29. **AI channel present on day 1** (doc 24 §Sec 3.3): referrer from `chat.openai.com` / `claude.ai` / `gemini.google.com` / `copilot.microsoft.com` / `perplexity.ai` → `channel = "AI"`
 30. **Day-of-week growth comparison** (v1.1, doc 24 §Sec 5 T2 #19): this-Tuesday-vs-last-Tuesday returns correct percentages — not this-Tuesday-vs-last-Monday

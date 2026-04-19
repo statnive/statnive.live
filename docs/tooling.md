@@ -241,7 +241,97 @@ Per doc 23 §Gap Analysis, these have **no community skill coverage**. Author cu
 
 ## Maintenance
 
-- **30-skill cap:** Doc 23 warns that Claude Code's skill-discovery performance degrades past 30 visible skills. Current install is at 32 (the `static-analysis` plugin nests 3 sub-skills). Adding a new skill means removing one — favor removing cc-skills-golang entries that have gone unused in practice.
+- **Skill count ceiling (revised):** Doc 23's 30-skill cap was a heuristic. Doc 25 re-evaluates: the trigger-pattern clarity rule matters more than raw count — "install only skills whose trigger patterns you can articulate in one sentence". Post-doc-25, this project runs **~53 skills** (30 doc-23 foundation + 17 community additions + 6 custom). Watch for false activations; remove any community skill that fires on tasks it wasn't designed for.
 - **Skill updates:** None of the skills are tracked as git submodules. To update, re-clone the source repo and `cp -R` the updated `skills/<name>/` directory, preserving our `SOURCE` and `LICENSE.source` files.
 - **Air-gap invariant:** Skills must not embed remote fetches that execute at load time. Before adding a new skill, grep the SKILL.md for `curl`, `wget`, bare `https://` → the skill may instruct Claude to fetch at runtime, which breaks [CLAUDE.md § Isolation / Air-Gapped Capability](../CLAUDE.md#isolation--air-gapped-capability-non-negotiable).
 - **License attestation:** Each skill directory carries a `SOURCE` file (1-liner) and `LICENSE.source` file (full license text from the source repo). These are part of the repo and survive updates.
+
+---
+
+## Doc 25 additions (Weeks 1–12)
+
+**Summary.** [`jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md`](../../jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md) refines doc 23 with a vetted install matrix, an explicit blacklist, and six **mandatory** project-local custom skills that encode the 8 architecture rules from [`CLAUDE.md`](../CLAUDE.md) as CI-blocking guardrails. 12-week install order front-loads security and tenancy foundations.
+
+### Community skills added by doc 25
+
+| Skill | Source repo | License | Install path | Installed |
+|---|---|---|---|---|
+| `skill-creator` | anthropics/skills | MIT | `.claude/skills/skill-creator/` | ✓ |
+| `webapp-testing` | anthropics/skills | MIT | `.claude/skills/webapp-testing/` | ✓ |
+| `frontend-design` | anthropics/skills | MIT | `.claude/skills/frontend-design/` | ✓ (with CDN-font override, see below) |
+| `use-modern-go` | JetBrains/go-modern-guidelines | Apache-2.0 | `.claude/skills/use-modern-go/` | ✓ |
+| `owasp-security` | agamm/claude-code-owasp | MIT | `.claude/skills/owasp-security/` | ✓ |
+| `VibeSec-Skill` | BehiSecc/VibeSec-Skill | MIT | `.claude/skills/vibesec/` | ✓ |
+| `ctm` | izar/tm_skills | CC-BY-4.0 | `.claude/skills/ctm/` | ✓ |
+| `4qpytm` | izar/tm_skills | CC-BY-4.0 | `.claude/skills/4qpytm/` | ✓ |
+| `web-design-guidelines` | vercel-labs/agent-skills | MIT | `.claude/skills/web-design-guidelines/` | ✓ (with CDN-font override) |
+| `react-best-practices` | vercel-labs/agent-skills | MIT | `.claude/skills/react-best-practices/` | ✓ (bundle-size rules cherry-picked; Preact ≠ React re-render model) |
+| `brainstorming` | obra/superpowers | MIT | `.claude/skills/brainstorming/` | ✓ |
+| `writing-plans` | obra/superpowers | MIT | `.claude/skills/writing-plans/` | ✓ |
+| `subagent-driven-development` | obra/superpowers | MIT | `.claude/skills/subagent-driven-development/` | ✓ |
+| `verification-before-completion` | obra/superpowers | MIT | `.claude/skills/verification-before-completion/` | ✓ |
+| `systematic-debugging` | obra/superpowers | MIT | `.claude/skills/systematic-debugging/` | ✓ |
+| `constant-time-analysis` | trailofbits/skills | CC-BY-SA-4.0 | `.claude/skills/constant-time-analysis/` | ✓ |
+| `knip-unused-code-dependency-finder` | agentskillexchange/skills | CC-BY-SA-4.0 | `.claude/skills/knip-unused-code-dependency-finder/` | ✓ |
+
+**Frontend-design / web-design-guidelines clamp:** both default to CDN fonts. Claude must override to emit Preact-compatible output with self-hosted fonts only — this is enforced by the `air-gap-validator` + `preact-signals-bundle-budget` custom skills.
+
+**Obra/superpowers:** only 5 of 14 skills installed. The remaining 9 (`using-git-worktrees`, `finishing-a-development-branch`, `requesting-code-review`, `receiving-code-review`, `test-driven-development`, `dispatching-parallel-agents`, `writing-skills`, `using-superpowers`, `executing-plans`) are skipped to avoid bloat. Re-evaluate post-launch.
+
+### Custom skills catalog (doc 25 §gap-analysis)
+
+Six `.claude/skills/*` directories scaffolded; bodies fill in per phase. Each has `SKILL.md` (frontmatter + trigger) and `README.md` (full spec).
+
+| Skill | Architecture rule | Trigger | Required before |
+|---|---|---|---|
+| [`tenancy-choke-point-enforcer`](../.claude/skills/tenancy-choke-point-enforcer/README.md) | Rule 8 | SQL gen/mod in `internal/storage/` | First storage code (merged PR #9) |
+| [`air-gap-validator`](../.claude/skills/air-gap-validator/README.md) | Isolation | `go get`, new deps, net code | First `go.mod` addition |
+| [`clickhouse-rollup-correctness`](../.claude/skills/clickhouse-rollup-correctness/README.md) | Rule 2 | `AggregatingMergeTree` DDL, MV creation | First MV DDL (shipped in Phase 1) |
+| [`clickhouse-cluster-migration`](../.claude/skills/clickhouse-cluster-migration/README.md) | `{{if .Cluster}}` (doc 24 §Migration 0029) | New migration file | First migration (shipped) |
+| [`preact-signals-bundle-budget`](../.claude/skills/preact-signals-bundle-budget/README.md) | Stack (50KB/15KB-gz + 1.2KB/600B-gz) | Frontend changes | First Preact component (Phase 5) / first tracker build (Phase 4) |
+| [`blake3-hmac-identity-review`](../.claude/skills/blake3-hmac-identity-review/README.md) | Privacy Rules 2, 3, 4 | Crypto / identity code | First identity code (shipped) |
+
+### Blacklist (do not install)
+
+| Skill | Why |
+|---|---|
+| `anthropics/skills/web-artifacts-builder` | React 18 + Tailwind + shadcn + Parcel + html-inline — pulls network deps at build, blows past 50KB/15KB-gz dashboard budget. Air-gap violation. |
+| `shajith003/awesome-claude-skills` | AI-generated boilerplate; low signal. |
+| `sickn33/antigravity-awesome-skills` | Claims 1,431+ skills, mostly auto-generated duplicates; inflated counts. |
+| `rohitg00/awesome-claude-code-toolkit` | Inflated aggregate count, low signal-to-noise. |
+
+### 12-week install order (doc 25 §priority-ranking)
+
+**Week 1 — security & tenancy foundations** (launch-critical):
+- `samber/cc-skills-golang` (full bundle — already 12/37 installed; expand to 37 is a follow-up)
+- `ClickHouse/agent-skills` (already installed)
+- `trailofbits/skills` (already installed + `constant-time-analysis` added by this PR)
+- `anthropics/skills` cherry-pick (skill-creator, template, webapp-testing, frontend-design)
+- **Custom `tenancy-choke-point-enforcer`** — before any new storage code merges
+- **Custom `air-gap-validator`** — before any new dep is added
+
+**Weeks 2–4 — performance & correctness:**
+- `JetBrains/use-modern-go`
+- `agamm/claude-code-owasp` + `BehiSecc/VibeSec-Skill`
+- `obra/superpowers` 5-skill subset
+- **Custom `clickhouse-rollup-correctness`** — before any new MV DDL
+- **Custom `clickhouse-cluster-migration`** — before any new migration file
+
+**Weeks 5–8 — frontend & crypto hardening:**
+- `vercel-labs/agent-skills` (web-design-guidelines primary; react-best-practices for bundle rules)
+- `agentskillexchange/knip-unused-code-dependency-finder`
+- `izar/tm_skills` (ctm, 4qpytm)
+- **Custom `preact-signals-bundle-budget`** — Phase 4/5 load-bearing
+- **Custom `blake3-hmac-identity-review`** — Phase 1+ regression guard
+
+**Weeks 9–12 — launch hardening** (not always-on):
+- Run `AgriciDaniel/claude-cybersecurity` one-shot pre-launch audit (not installed; invoke from operator Claude session)
+- Run `fr33d3m0n/threat-modeling` full STRIDE pass on salt-rotation + air-gap stories
+- Defer `tracker-beacon-reliability` custom skill and any other v1.1 skill unless incidents materialize.
+
+### Follow-ups (out of scope for the doc-25 install PR)
+
+- Expand `cc-skills-golang` from 12 → full 37 (doc 25 warns against partial installs).
+- Fill in Semgrep rule bodies + test fixtures for the 6 custom skills (40–60 hrs total, scheduled per phase).
+- Wire `.claude/settings.json` hooks + `.githooks/pre-commit` to invoke custom skills via `claude-code` headless mode.
+- Install one of `qualixar/skillfortify` or `relaxcloud-cn/clawsafety` to vet future community installs (CycloneDX SBOM + `skill-lock.json`).
