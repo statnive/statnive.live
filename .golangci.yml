@@ -62,7 +62,8 @@ linters:
     - usetesting       # use t.Setenv/t.TempDir instead of os equivalents in tests
     - paralleltest     # tests and subtests missing t.Parallel()
     # modernization & meta
-    - modernize        # old patterns replaceable with newer Go features
+    # `modernize` was removed from golangci-lint v2.5+ — staticcheck (already
+    # enabled above) covers most modern-Go suggestions.
     - exptostd         # replace golang.org/x/exp/ functions with stdlib equivalents
     - intrange         # range over integer instead of C-style loop (Go 1.22+)
     - usestdlibvars    # use stdlib constants instead of hardcoded values
