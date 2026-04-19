@@ -130,139 +130,21 @@ npm --prefix web run lint   # eslint
 
 The pre-commit hook runs `make test && make lint` plus `npm --prefix web run test` on staged frontend files only. The release gate (`make release`) additionally runs `make test-integration` and the air-gap test from the Enforcement section.
 
-## Feature Scope (51 v1 + 10 v1.1 fast-follow + 17 v2 + 1 Future)
+## Feature Scope
 
-Derived from research doc 18 + doc 17, revised with doc 24 (Pirsch pattern extraction). v1 is scoped to what's load-bearing for Filimo's first 90 days and the 5 Project Goals. Polish features (organic SEO depth, comparison widget, Jalali, outbound links) slip to **v1.1** — a 4–6 week fast-follow after v1 cut. v2 is the post-launch 8–12 week product push.
+Full roadmap lives in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features, phased across 20 weeks. Derived from research docs 17, 18, 24. v1 is load-bearing for Filimo's first 90 days + the 5 Project Goals; polish slips to v1.1; product expansion lives in v2.
 
-### v1 — 51 features (MVP)
+### Deliberate skips (Pirsch has; statnive-live rejects)
 
-**Security (12):**
-1. TLS 1.3 via manual PEM files (one code path; works everywhere)
-2. ClickHouse localhost-only (bound 127.0.0.1)
-3. Hostname validation on `/api/event` (HMAC skipped per doc 20)
-4. Input validation (`MaxBytesReader` 8KB, field limits, timestamp ±1h)
-5. Rate limiting via `go-chi/httprate` (100 req/s, burst 200, NAT-aware)
-6. Dashboard auth (bcrypt + `crypto/rand` sessions, 14-day TTL, `SameSite=Lax`)
-7. RBAC (admin / viewer / api-only)
-8. Encrypted backups (`clickhouse-backup` + `age` + `zstd`, cron + monthly restore test)
-9. Disk encryption LUKS (optional; 40–50% I/O overhead trade-off)
-10. Audit log (JSONL, file sink only)
-11. User ID hashed before storage (SHA-256 of `master_secret || site_id || user_id`)
-12. systemd hardening + tracker via `go:embed` (first-party, ad-blocker-resistant)
-
-**Identity (3):**
-13. user_id pass-through (site sends; hashed server-side)
-14. Cookie fallback (httpOnly, SameSite=Lax, 1y max-age)
-15. BLAKE3-128 hash fallback with daily salt `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`
-
-**Events & Goals (4):**
-16. Custom event API: `statnive.track(name, props, value)`
-17. Goal YAML config (event → goal mapping, SIGHUP hot reload)
-18. Goal value column (UInt64 rials, `DEFAULT 0`, no Nullable)
-19. Goal rate per channel / per page (aggregated in rollups)
-
-**Funnels (2):**
-20. Funnel YAML definition (ordered event steps)
-21. Funnel report: count + drop-off % per step, 1h cache
-
-**Revenue & CRO (7):**
-22. Revenue sum per channel
-23. Revenue sum per page
-24. Revenue trend (daily / weekly)
-25. Conversion rate per source
-26. Conversion rate trend
-27. Average value per conversion per channel
-28. **Revenue Per Visitor (RPV) per channel** — primary CRO metric (Project Goal philosophy)
-
-**Attribution (6):**
-29. UTM tracking (5 params: source, medium, campaign, content, term)
-30. Auto source detection (referrer → named source via `sources.yaml`)
-31. Channel grouping (Organic / Social / Direct / Paid / Email / Referral priority) — **17-step decision tree** per doc 24 §Sec 3 (paid-first ordering: click-IDs → `utm_medium` tokens → organic fallback). Iranian referrer seed lives in `config/sources.yaml` (doc 24 §Sec 3b, ~55 hostnames original research).
-32. 50+ Iranian source database (Divar, Torob, Filimo, etc.)
-33. Campaign report (breakdown by `utm_campaign`)
-34. **AI traffic channel** (ChatGPT, Claude, Gemini, Copilot, Perplexity) — new bucket in the 17-step tree [doc 24 §Sec 3.3]. Free wedge, < 1d effort; AI referrer share is non-trivial on Iranian Filimo blog / news landing traffic in 2025–2026.
-
-**SEO (1):**
-35. Organic search traffic trend
-
-**Content & Trends (3):**
-36. Top pages (by visitors, views, goals, revenue)
-37. Visitors trend (hourly / daily)
-38. New vs returning visitors (18MB bloom filter, 10M visitors, 0.1% FPR)
-
-**Audience (5):**
-39. Iranian provinces / cities (IP2Location LITE DB23 in v1; paid DB23 for Filimo specifically)
-40. Device / browser / OS (`medama-io/go-useragent`, ~287 ns/op)
-41. ISP / carrier (MCI, Irancell, Rightel via DB23)
-42. User segments (custom properties sent with user_id)
-43. **Language dimension** (`LowCardinality(String)`, ISO-639 normalized — `en-us` → `en`) [doc 24 §Sec 5 Table 2 row 12]. One extra rollup column; Filimo has an English landing alongside Persian. < 1d effort.
-
-**Infrastructure (6):**
-44. Pageview tracking (`navigator.sendBeacon` + fetch keepalive)
-45. SPA route tracking (pushState/replaceState patching + popstate)
-46. Bot filtering — server (`omrilotan/isbot` + `crawler-user-agents.json`, layered cheap-first per doc 24 §Sec 1.3) + client (`navigator.webdriver`, `evt.isTrusted`, `_phantom`) + **max-pageviews-per-visitor** burst guard (doc 24 §Sec 5 Table 2 row 15 — one counter per visitor_hash in the WAL window, prevents Iranian scraper-network bot inflation)
-47. GeoIP at ingest (IP2Location `.BIN`, raw IP discarded after lookup). Proxy IP parsing honors `X-Forwarded-For` (rightmost), `X-Real-IP`, `True-Client-IP`, and `CF-Connecting-IP` (doc 24 §Sec 5 Table 2 row 20 — relevant for Iranian sites behind ArvanCloud / Cloudflare).
-48. UA parsing (Medama fast-path)
-49. Hourly active-visitors widget (NOT 5-min real-time — rollup-based)
-
-**Multi-tenant (1):**
-50. `site_id` on every raw + rollup row; hostname → site_id resolution at ingest; `WHERE site_id = ?` on every query (via central `whereTimeAndTenant()` helper — Architecture Rule 8)
-
-**Ingestion Hardening (1):**
-51. **Pre-pipeline fast-reject gate** in `internal/ingest/handler.go` — checks `X-Purpose`/`Purpose`/`X-Moz` prefetch headers + UA length (16–500) + UA-is-IP/UUID + non-ASCII UA *before* the event enters the enrichment pipeline. Returns `204 No Content`. Zero-cost on real traffic; skips all 6 pipeline stages on bots/prefetch. [doc 24 §Sec 1 item 6]
-
-### v1.1 — 10 fast-follow features (ship 4–6 weeks after v1 cut)
-
-These are polish / depth items, not load-bearing for the 5 goals:
-
-1. Top landing pages from organic search
-2. Organic conversion rate + revenue
-3. Organic vs paid split
-4. High-traffic / low-conversion pages
-5. Comparison periods (this period vs previous, % change UI) — **day-of-week aligned** (Tuesday-vs-Tuesday, not Tuesday-vs-Monday) per doc 24 §Sec 5 Table 2 row 19. Query change only; < 1d effort once comparison UI ships.
-6. Jalali calendar display (`jalaali-js` 3KB, client-side)
-7. Outbound link tracking (click delegation + sendBeacon on external links)
-8. **Weekday × hour heatmap** (when are my visitors active?) — drops out of `hourly_visitors` with one extra `toDayOfWeek(hour)` projection [doc 24 §Sec 5 Table 2 row 13]. High-signal for content-planning panels; < 1d effort.
-9. **Non-interactive events** — boolean column on `events_raw`, excluded from visitor counts [doc 24 §Sec 5 Table 2 row 18]. Needed for Filimo video-play telemetry, scroll-depth, and autoplay instrumentation without visitor inflation.
-10. **Bot-reason logging** — `LowCardinality(String)` column on `events_raw` recording *why* the row was flagged (`ua_regex` / `ua_length` / `referrer_spam` / `version_floor` / `isbot` / etc.) [doc 24 §Sec 5 Table 2 row 16]. Debugging gift for support; ship after Phase 8 bot filter stabilizes.
-
-Plus the **3 additional rollups** (`daily_geo`, `daily_devices`, `daily_users`) that power the v1.1 depth panels.
-
-### v2 — 17 features (post-launch, +8–12 weeks)
-
-1. Sequential funnel (`windowFunnel`, 24h window) — keep `windowFunnel()`; **do not adopt** Pirsch's N-CTE JOIN pattern (doc 24 §Sec 4 pattern 4 — too expensive at 10–20M DAU)
-2. Cohort / retention (first_seen cohort, weeks-later window)
-3. Filtering / drill-down (extra `WHERE` on rollups, hash-keyed cache)
-4. Google Search Console integration (OAuth2, keywords, position, CTR — 2–3d delay)
-5. Session tracking (duration, pages/session, window functions)
-6. Entry / exit pages (`first_value` / `last_value` per session) — use `argMaxState` in rollups, not mutable session rows (doc 24 §Sec 2 Migration 0008)
-7. Engagement time (page-gap between consecutive events per visitor)
-8. Email + Telegram weekly reports (`robfig/cron`, Monday 9 AM IRST, Persian numerals)
-9. CSV data export (`http.Flusher` chunked transfer, 1 export/hour rate limit)
-10. Public REST API (Bearer token auth, rate limited, OpenAPI docs)
-11. **Filter options API** — dynamic autocomplete for every dimension (hostnames, pages, referrer, utm_*, browser, OS) [doc 24 §Sec 5 Table 2 row 9]. Required companion to v2 #3 drill-down; without autocomplete, filter UX is broken. ~3 days using existing rollups.
-12. **Time on page** — session-local page duration (distinct from #7 engagement time which is visitor-level page-gap) [doc 24 §Sec 5 Table 2 row 7]. Feeds SEO panels (v1.1 #1–4). ~1 week alongside session tracking.
-13. **Session sampling** — `SAMPLE N` on rollups, feature-flagged per query [doc 24 §Sec 2 Migration 0020 + §Sec 5 Table 2 row 3]. Free once AggregatingMergeTree rollups are in place; keeps dashboard p95 flat at Filimo's 10–20M DAU. < 3 days.
-14. **Data import (CSV-in)** — minimal daily-rollup CSV ingestion endpoint for GA4 / Matomo / WP-Statistics historical migration [doc 24 §Sec 5 Table 2 row 4]. ~1 week. **Skip** Pirsch's 13-table `imported_*` shape — overkill for our need.
-15. **Anonymous click-ID tracking** — capture `gclid`, `msclkid`, Iranian equivalents (Yektanet / Tap30) without PII [doc 24 §Sec 5 Table 2 row 17]. Feeds paid-search attribution; plumbing is generic, click-ID → source mapping lives in `sources.yaml`. ~2 days.
-16. **Individual session drill-down** — separate narrow `session_detail` rollup (raw-table query forbidden by Architecture Rule 1) [doc 24 §Sec 5 Table 2 row 14]. Useful for Filimo support debugging. Ships alongside #5 session tracking.
-17. **Max-pageviews-per-visitor config** — configurable threshold (defaults: 500/request, 75ms–500ms min delay between PVs) [doc 24 §Sec 5 Table 2 row 15 — extended from v1 burst guard]. Adds per-site override to the v1 default.
-
-**Deliberate skips** (Pirsch has, statnive-live rejects per doc 24 §Sec 5 Table 2 dispositions):
-
-- ClickHouse cluster mode (single-node is the Architecture Rule)
-- Redis session cache (breaks the single-binary / air-gapped promise — WAL + in-memory replaces it)
-- Bounce rate (vanity metric per Never list; expose time-on-page + funnel drop-off as the honest answer if customers ask)
-
-### Future (post-v2)
-
-- **Microsoft Clarity integration** — free heatmaps + session recordings on Clarity's infra. Complementary (doc 21), not a replacement. Effort ~1 day.
+- ClickHouse **cluster mode at v1** (single-node is the Architecture Rule; migrations are Distributed-ready from day 1 per [`.claude/skills/clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md))
+- **Redis session cache** — breaks the single-binary / air-gap promise; WAL + in-memory replaces it
+- **Bounce rate** — vanity metric; expose time-on-page + funnel drop-off as the honest answer
 
 ### Never
 
-- 5-minute real-time (rollup-based hourly is the line; breaks cost model)
-- Bounce rate (vanity metric per research doc 09 / 14)
-- Multi-touch attribution (last-touch channel grouping is the final answer)
+- **5-minute real-time** — rollup-based hourly is the line; breaks cost model
+- **Bounce rate** — vanity metric per research docs 09 / 14
+- **Multi-touch attribution** — last-touch channel grouping is the final answer
 
 ## Key Paths
 
@@ -316,65 +198,20 @@ Claude Code skills + MCP server setup for this project live in [`docs/tooling.md
 
 **Do not install:** `anthropics/skills/web-artifacts-builder` (React+shadcn+CDN-fonts — air-gap violation, blows past bundle budget), `shajith003/awesome-claude-skills` (AI-slop), `sickn33/antigravity-awesome-skills`, `rohitg00/awesome-claude-code-toolkit` (inflated counts, low S/N). Reference: doc 25 §landscape.
 
-### Skills Decision Tree
+### Custom-skill triggers (project-local guardrails — fire automatically)
 
-Quick route before diving into `docs/tooling.md`:
+| Touching | Fires |
+|---|---|
+| Dashboard SQL / `internal/storage/` | [`tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md) |
+| New dep / outbound call / CDN URL | [`air-gap-validator`](.claude/skills/air-gap-validator/README.md) |
+| `AggregatingMergeTree` DDL / MV | [`clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md) |
+| Migration file | [`clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md) |
+| `web/**`, `tracker/**` | [`preact-signals-bundle-budget`](.claude/skills/preact-signals-bundle-budget/README.md) |
+| Crypto / identity code | [`blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md) |
 
-```
-Task arrives
-  ├─ PRD / story / roadmap?                       → /jaan-to:pm-prd-write, pm-story-write, pm-roadmap-add
-  ├─ ClickHouse schema design?                    → /jaan-to:backend-data-model
-                                                    then clickhouse-architecture-advisor + clickhouse MCP
-  ├─ API contract / OpenAPI?                      → /jaan-to:backend-api-contract
-  ├─ Scaffold Go service from spec?               → /jaan-to:backend-scaffold then golang-project-layout
-  ├─ Go concurrency / context / errors?           → golang-concurrency / golang-context / golang-error-handling
-  ├─ DB query tuning / rollups?                   → clickhouse-best-practices + clickhouse MCP
-  ├─ Security review / static analysis?           → static-analysis + golang-security +
-                                                    gopls MCP (govulncheck)
-  ├─ Remediate security findings?                 → /jaan-to:sec-audit-remediate
-  ├─ Engineering audit / scoring?                 → /jaan-to:detect-dev
-  ├─ Backend PR review?                           → /jaan-to:backend-pr-review +
-                                                    differential-review + second-opinion
-  ├─ BDD / Gherkin test cases?                    → /jaan-to:qa-test-cases
-  ├─ Runnable tests from cases?                   → /jaan-to:qa-test-generate
-  ├─ Run / diagnose / auto-fix tests?             → /jaan-to:qa-test-run + golang-linter
-  ├─ CI/CD / Docker scaffolds?                    → /jaan-to:devops-infra-scaffold
-  ├─ Deploy (Hetzner)?                            → server-management + server-bootstrap +
-                                                    hetzner MCP + /jaan-to:devops-deploy-activate
-  ├─ Verify running build?                        → /jaan-to:dev-verify
-  ├─ Fetch library docs?                          → /jaan-to:dev-docs-fetch (Context7 MCP)
-                                                    fallback: docs/tech-docs/ (16 cached refs)
-  ├─ Preact SPA from handoff?                     → /jaan-to:frontend-scaffold / frontend-design
-  │                                                 (clamp: emit Preact-compatible output,
-  │                                                  self-hosted fonts only — same clamp applies
-  │                                                  to vercel-labs/web-design-guidelines)
-  ├─ User flow diagrams?                          → /jaan-to:ux-flowchart-generate
-  ├─ Microcopy / i18n (Persian/English)?          → /jaan-to:ux-microcopy-write
-  ├─ Skill / SKILL.md authoring?                  → anthropics/skills → skill-creator + template
-  ├─ Air-gap compliance / outbound-call review?   → .claude/skills/air-gap-validator (custom)
-  ├─ New ClickHouse rollup / MV?                  → .claude/skills/clickhouse-rollup-correctness +
-                                                    clickhouse-best-practices
-  ├─ New migration (single-node → Distributed)?   → .claude/skills/clickhouse-cluster-migration
-  ├─ Dashboard query review?                      → .claude/skills/tenancy-choke-point-enforcer
-  ├─ Preact / signals / bundle-budget review?     → .claude/skills/preact-signals-bundle-budget +
-                                                    vercel-labs/web-design-guidelines
-  ├─ BLAKE3 / HMAC / identity review?             → .claude/skills/blake3-hmac-identity-review +
-                                                    trailofbits/constant-time-analysis
-  ├─ Threat model / STRIDE?                       → izar/tm_skills (ctm / 4qpytm)
-  ├─ OWASP checklist?                             → agamm/claude-code-owasp
-  ├─ IDOR / horizontal authZ review?              → BehiSecc/VibeSec-Skill
-  ├─ Modern Go idioms (b.Loop, wg.Go)?            → JetBrains/use-modern-go
-  ├─ Planning / methodology?                      → obra/superpowers 5-skill subset
-                                                    (brainstorming, writing-plans,
-                                                     subagent-driven-development,
-                                                     verification-before-completion,
-                                                     systematic-debugging)
-  ├─ Frontend dead-code / unused-dep scan?        → agentskillexchange/knip-unused-code-dependency-finder
-  ├─ Tracker (<2 KB IIFE)?                        → .claude/skills/preact-signals-bundle-budget
-                                                    (covers the ~1.2 KB-min / ~600 B-gz tracker budget;
-                                                     builds are still hand-authored)
-  └─ Unknown?                                      → open docs/tooling.md, don't guess
-```
+### Routing for everything else
+
+For community skills (Go / ClickHouse / security / frontend / methodology) and `/jaan-to:*` workflow skills, open [`docs/tooling.md`](docs/tooling.md) — full inventory, phase→tooling map, 4 MCP servers (Altinity ClickHouse, gopls, Hetzner, Grafana). Clamp for `frontend-design` / `vercel-labs/web-design-guidelines`: emit Preact-compatible output with self-hosted fonts only (air-gap rule).
 
 ## Single Source of Truth
 
@@ -391,16 +228,7 @@ These integration tests pin the invariants in this file. They are Phase 0 / Phas
 - `test/security/no_agpl_test.go` — `go-licenses` asserts every direct + transitive dep is MIT / Apache / BSD / ISC (License Rules).
 - `web/src/__tests__/tenant-isolation.test.tsx` — Vitest guard that Preact signal stores don't leak `site_id` state across dashboard views.
 
-### Project-local SKILL.md guardrails (doc 25 §custom-skills)
-
-These six skills live under `.claude/skills/` and encode the 8 non-negotiable architecture rules as triggerable Claude guardrails. Each has a `SKILL.md` (frontmatter + trigger) and a `README.md` (full spec + CI wiring). Bodies (Semgrep rules, test fixtures) fill in per phase — the slots exist from day one so code cannot merge pretending they don't exist.
-
-- [`.claude/skills/tenancy-choke-point-enforcer/`](.claude/skills/tenancy-choke-point-enforcer/README.md) — encodes Architecture Rule 8. Rejects dashboard SQL that bypasses `whereTimeAndTenant()` or places `WHERE site_id = ?` anywhere but first.
-- [`.claude/skills/air-gap-validator/`](.claude/skills/air-gap-validator/README.md) — encodes the Isolation rule. Rejects new deps that do DNS/outbound at runtime, CDN imports in `web/`, or telemetry calls anywhere.
-- [`.claude/skills/clickhouse-rollup-correctness/`](.claude/skills/clickhouse-rollup-correctness/README.md) — encodes Architecture Rule 2 + doc 20 MV discipline. Validates `-State`/`-Merge`/`-MergeState` combinator discipline for `uniqCombined64` and rejects `Nullable` anywhere.
-- [`.claude/skills/clickhouse-cluster-migration/`](.claude/skills/clickhouse-cluster-migration/README.md) — encodes the `{{if .Cluster}}` templating rule from doc 24 §Migration 0029. Every migration must be single-node ↔ Distributed flip-ready.
-- [`.claude/skills/preact-signals-bundle-budget/`](.claude/skills/preact-signals-bundle-budget/README.md) — encodes the 50KB/15KB-gz dashboard + 1.2KB/600B-gz tracker budgets. Rejects barrel imports, >5KB deps, and CDN URLs in `web/` or `tracker/`.
-- [`.claude/skills/blake3-hmac-identity-review/`](.claude/skills/blake3-hmac-identity-review/README.md) — encodes Privacy Rules 2, 3, 4. Rejects MD5/SHA-1, non-`hmac.Equal` comparisons, and any code path that logs the master secret.
+**Project-local SKILL.md guardrails** — six scaffolded skills under `.claude/skills/` encode Architecture Rules 2/5/8 + Isolation + Privacy Rules 2/3/4 as triggerable guardrails. Full specs in each skill's `README.md`; triggers in § Dev Tooling above.
 
 `/simplify` and PR review must reject any new unguarded query (no `WHERE site_id = ?`), any new dependency without a license check, any new outbound network call not behind a config flag, and any new `Nullable(...)` column.
 
