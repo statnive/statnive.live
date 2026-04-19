@@ -50,12 +50,14 @@ func BenchmarkBloom_CheckAndMark(b *testing.B) {
 	b.ReportAllocs()
 
 	var i int
+
 	for b.Loop() {
 		var h [16]byte
 		h[0] = byte(i)
 		h[1] = byte(i >> 8)
 		h[2] = byte(i >> 16)
 		f.CheckAndMark(h, h)
+
 		i++
 	}
 }

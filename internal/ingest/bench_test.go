@@ -63,11 +63,13 @@ func BenchmarkBurstGuard_Allow(b *testing.B) {
 	b.ReportAllocs()
 
 	var i int
+
 	for b.Loop() {
 		var h [16]byte
 		h[0] = byte(i)
 		h[1] = byte(i >> 8)
 		g.Allow(h, now)
+
 		i++
 	}
 }
