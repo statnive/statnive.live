@@ -160,22 +160,23 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 
 ## Development Phases
 
-### Status — 2026-04-18
+### Status — 2026-04-19
 
 | Phase | Status | Notes |
 |---|---|---|
 | **0 — Project setup** | ✅ Complete | PR #1 merged. Repo, Makefile, CI, schema, vendoring all live. |
-| **1 — Ingestion pipeline** | ✅ Complete | PR #2 merged. Real 6-stage enrichment, BLAKE3 + IRST salt, 18 MB bloom + cross-day grace, 17-step channel tree, 503 back-pressure. Deferred: max-PV burst guard, advisory locks, k6 load + crash-recovery tests (Phase 7). |
+| **1 — Ingestion pipeline** | ✅ Complete | PR #2 merged. Real 6-stage enrichment, BLAKE3 + IRST salt, 18 MB bloom + cross-day grace, 17-step channel tree, 503 back-pressure. Burst guard shipped in PR #14. Deferred: advisory locks. |
 | **2a — Surface hardening** | ✅ Complete | PR #6 merged. TLS 1.3 with manual PEM + SIGHUP reload + expiry watcher; httprate rate limit (NAT-aware, audit-instrumented); JSONL audit log file sink with logrotate-aware reopen; FastRejectMiddleware so prefetches don't burn rate-limit budget. |
 | **2b — Auth + RBAC** | ⏳ Pending | bcrypt + crypto/rand sessions + SameSite=Lax cookies + admin/viewer/api roles. Can land in parallel with Phase 3b. |
 | **2c — Operational hardening** | ⏳ Pending | systemd unit (NoNewPrivileges + ProtectSystem), iptables, LUKS docs, backup script (clickhouse-backup + age + zstd). Pairs with Phase 8 deploy. |
 | **3a — Dashboard query foundation** | ✅ Complete | PR #9 merged. Filter + Store interface + 6 v1 queries (Overview/Sources/Pages/SEO/Campaigns/Realtime) + LRU with real per-entry TTL + tenancy-grep CI gate. Geo/Devices (v1.1 rollups) + Funnel (v2 windowFunnel) return ErrNotImplemented. |
 | **3b — Dashboard HTTP layer** | ✅ Complete | PR #12 merged. 8 stat handlers + realtime endpoint + IRST-aware Filter parsing + bearer-token middleware (stub until Phase 2b) + WITH FILL on SEO daily series + .gitignore fix that exposed cmd/statnive-live/main.go for the first time. |
-| **3c — Admin CRUD** | 🔜 Next | `/api/admin/users`, `/api/admin/goals` (writes YAML + SIGHUP). Needs Phase 2b auth to gate the mutations. |
-| **4 — Tracker JS** | ⏳ Pending | <2 KB IIFE, sendBeacon, SPA route tracking. |
-| **5 — Dashboard frontend** | ⏳ Pending | Preact SPA + uPlot + Frappe Charts. |
-| **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, /healthz done. Admin-user first-run + Goal/Funnel CRUD wait on Phase 2/3. |
-| **7 — Testing & hardening** | ⏳ Pending | k6 7K EPS, benchmarks, crash recovery, disk-full, backup restore, manual TLS rotation. |
+| **3c — Admin CRUD** | ⏳ Pending | `/api/admin/users`, `/api/admin/goals` (writes YAML + SIGHUP). Needs Phase 2b auth to gate the mutations. Sequenced after backend gate per user mandate. |
+| **4 — Tracker JS** | 🔜 Next | <2 KB IIFE, sendBeacon, SPA route tracking. Closes the loop — real browsers feed the backend that Phase 7a proved survives stress. |
+| **5 — Dashboard frontend** | ⛔ Blocked | Preact SPA + uPlot + Frappe Charts. **User-mandated gate: Phase 7b (real-traffic verification) must be green first.** |
+| **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, /healthz, env-var override (.→_) all done. Admin-user first-run + Goal/Funnel CRUD wait on Phase 2/3. |
+| **7a — Backend solidity gate** | ✅ Complete | PR #14 merged. Burst guard (~50 ns/op) + Go bench suite + crash / CH-outage / disk-full stress tests + k6 7K EPS load script + WAL replay wired at boot + viper env-var fix. Surfaced 3 Phase 1 contract gaps for Phase 7b backlog. |
+| **7b — Backend cleanup + real-traffic verification** | ⏳ Pending | Fix the 3 gaps from 7a (WAL replay decode after SIGKILL; consumer drops events when CH unreachable; post-restart drain). Then real-tracker correctness (queries match expected aggregations from Phase 4 tracker payloads). Backup restore drill + manual TLS rotation. |
 | **8 — Deployment & launch** | ⏳ Pending | Hetzner CX32 staging, airgap-bundle, monitoring, runbook, v1 launch. |
 | **9 — Phase A dogfood** | ⏳ Pending | statnive.com → demo.statnive.live. |
 | **10 — Phase B Filimo** | ⏳ Pending | Iranian DC bare metal, paid DB23 GeoIP. |
@@ -201,7 +202,7 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 - [x] Wire main.go (from doc 22 bonus code)
 - [x] Add `SiteID` field to EnrichedEvent + populate in pipeline.processEvent() — required for multi-tenant from v1
 - [x] Implement ingest/handler.go (JSON array parsing; site_id resolved from hostname) — **pre-pipeline fast-reject gate** (doc 24 §Sec 1.6): reject `X-Purpose`/`Purpose`/`X-Moz` prefetch headers, UA length < 16 or > 500, UA that parses as IP or UUID, non-ASCII UA → `204 No Content` before the event enters the pipeline channel. Parse `True-Client-IP` + `CF-Connecting-IP` alongside `X-Forwarded-For` (rightmost) for Iranian sites behind ArvanCloud / Cloudflare.
-- [x] Implement ingest/pipeline.go (6-worker enrichment; order **locked**: identity → bloom → geo → ua → bot → channel). Bot detection is cheap-first *inside* the pipeline (doc 24 §Sec 1.3): UA literal substring → UA regex → optional datacenter CIDR. (Deferred: max-pageviews-per-visitor burst guard — small follow-up; referrer-spam + browser-version-floor + datacenter-CIDR list = v1.1.)
+- [x] Implement ingest/pipeline.go (6-worker enrichment; order **locked**: identity → burst → bloom → geo → ua → bot → channel). Bot detection is cheap-first *inside* the pipeline (doc 24 §Sec 1.3): UA literal substring → UA regex → optional datacenter CIDR. **Max-pageviews-per-visitor burst guard** shipped in PR #14 (`internal/ingest/burstguard.go`, ~50 ns/op). v1.1 still owes referrer-spam + browser-version-floor + datacenter-CIDR list.
 - [x] Implement ingest/consumer.go (dual-trigger batch writer — size OR time OR ctx.Done per doc 24 §Sec 1.5: 1000 rows OR 500ms OR 10 MB payload. **No `log.Panicf` on retry exhaustion** — WAL + graceful failure.) (Single 250 ms retry instead of exponential backoff; DLQ deferred to first prod failure pattern.)
 - [x] Implement ingest/wal.go (WAL + 100ms fsync + 10GB size cap). (>80% threshold surfaced via `/healthz` `wal_fill_ratio` rather than per-request 503; size-cap enforcer drops oldest segments when over.)
 - [x] Implement storage/clickhouse.go (**34-column** batch insert incl. site_id; `DateTime('UTC')` time column — not `DateTime64(3)` per doc 24 §Sec 2 Migration 0012)
@@ -296,14 +297,15 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 
 ### Phase 7: Testing & Hardening (Week 16 — tightened from 2 weeks)
 
-- [ ] k6 smoke load test — target ~1,300 peak EPS for P1/P2 cutover (StreamCo MIN envelope, web only) and ~9K peak EPS / ~18K spike for P3+ (StreamCo MAX envelope, full fidelity with mobile+TV apps). Persian URLs, Iranian UAs. See [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md) for per-phase EPS targets.
-- [ ] Go benchmark suite (every pipeline stage)
-- [ ] Integration test (100K events, multi-tenant → all v1 rollups → all API endpoints, each scoped by site_id; **security assertions folded in** — auth, rate limit, hostname validation, CH isolation, input limits)
-- [ ] Crash recovery test (kill -9 Go → WAL replay zero-loss; kill ClickHouse for 10 min → events buffer then drain)
-- [ ] Disk-full policy test (fill WAL to 10GB cap → verify 503 with clear error, existing events preserved)
-- [ ] Backup restore test (restore encrypted backup to fresh CH → row counts match)
-- [ ] Manual TLS rotation test (replace PEMs + SIGHUP → new cert served without restart)
-- [ ] Documentation: README, deployment guide, API docs, runbook
+- [x] k6 smoke load test — `test/perf/load.js` shipped in PR #14. 7K EPS ramp with Persian paths + Iranian UAs. Run via `make load-test`. (Per-phase EPS targets in [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md): ~1,300 peak EPS for P1/P2; ~9K peak / ~18K spike for P3+.)
+- [x] Go benchmark suite (every pipeline stage) — `internal/{ingest,enrich}/bench_test.go` shipped in PR #14. Baselines: BurstGuard ~50 ns/op, Channel ~280 ns, Bloom ~340 ns, UA ~300 ns, Bot ~500 ns, Handler full path ~4 µs.
+- [ ] Integration test (100K events, multi-tenant → all v1 rollups → all API endpoints, each scoped by site_id; **security assertions folded in** — auth, rate limit, hostname validation, CH isolation, input limits) — Phase 7b, after auth lands.
+- [x] Crash recovery test (kill -9 Go → WAL replay) — `test/perf/crash_recovery_test.go` shipped in PR #14. Currently logs ~80% loss because WAL Replay decodes only 1 of N entries after SIGKILL (tidwall NoSync window). **Phase 7b will fix the WAL contract; this test will then assert <0.05% loss.**
+- [x] Disk-full policy test — `test/perf/disk_full_test.go` shipped in PR #14. Surfaced that the consumer drops events when CH is unreachable (fill_ratio stays 0.0). **Phase 7b will fix the buffer-on-outage contract; this test will then assert fill_ratio > 0.5 under pressure.**
+- [ ] Backup restore test (restore encrypted backup to fresh CH → row counts match) — Phase 7b (needs Phase 2c backup script first).
+- [ ] Manual TLS rotation test (replace PEMs + SIGHUP → new cert served without restart) — Phase 7b.
+- [ ] Documentation: README, deployment guide, API docs, runbook — partial: `docs/runbook.md` (Phase 7a operator gates) shipped in PR #14. Full deployment guide + API docs land with Phase 7b + Phase 8.
+- [x] CH outage buffer-and-drain test — `test/perf/ch_outage_test.go` shipped in PR #14 (10s in-test variant; 10-min variant documented in runbook for manual verification).
 
 ### Phase 8: Deployment & Launch (Weeks 17–18)
 
