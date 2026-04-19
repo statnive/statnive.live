@@ -17,6 +17,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          # Full history so golangci-lint --new-from-rev=origin/main can
+          # diff against the merge base. Default depth=1 leaves no merge
+          # base for the lint baseline check.
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
