@@ -102,7 +102,14 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │   ├── cache/                          # LRU (realtime=10s / today=60s / historical=∞) + ResolveTTL    [shipped]
 │   │   ├── lru.go                      # Thread-safe cache with per-entry expiresAt TTL
 │   │   └── policy.go                   # TTL tier constants + ResolveTTL pure function
-│   ├── dashboard/                      # chi routes + 8 GET /api/stats/* + admin + signup + billing    [planned: Phase 3b + 3c + 11]
+│   ├── dashboard/                      # 8 GET /api/stats/* + /api/realtime/visitors + bearer-token mw [shipped]
+│   │   ├── filter.go                   # ?site / ?from / ?to (IRST→UTC) → storage.Filter
+│   │   ├── stats.go                    # 8 handlers (3 return 501 until v1.1/v2)
+│   │   ├── realtime.go                 # GET /api/realtime/visitors (10s cache via CachedStore)
+│   │   ├── errors.go                   # writeError + classifyError (400 / 501 / 500 + audit)
+│   │   ├── auth.go                     # BearerTokenMiddleware (stub — Phase 2b replaces wholesale)
+│   │   └── router.go                   # Mount(chi.Router, Deps) — caller decides middleware stack
+│   │   # admin/* + signup/* + billing/* routes wait on                                   [planned: Phase 3c + 11]
 │   └── auth/                           # bcrypt sessions + RBAC (admin / viewer / api)                 [planned: Phase 2b]
 ├── web/                                # Preact SPA (Vite + TypeScript + @preact/signals)              [planned: Phase 5]
 ├── tracker/                            # <2KB IIFE tracker (sendBeacon + history API)                  [planned: Phase 4]
@@ -154,8 +161,8 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 | **2b — Auth + RBAC** | ⏳ Pending | bcrypt + crypto/rand sessions + SameSite=Lax cookies + admin/viewer/api roles. Can land in parallel with Phase 3b. |
 | **2c — Operational hardening** | ⏳ Pending | systemd unit (NoNewPrivileges + ProtectSystem), iptables, LUKS docs, backup script (clickhouse-backup + age + zstd). Pairs with Phase 8 deploy. |
 | **3a — Dashboard query foundation** | ✅ Complete | PR #9 merged. Filter + Store interface + 6 v1 queries (Overview/Sources/Pages/SEO/Campaigns/Realtime) + LRU with real per-entry TTL + tenancy-grep CI gate. Geo/Devices (v1.1 rollups) + Funnel (v2 windowFunnel) return ErrNotImplemented. |
-| **3b — Dashboard HTTP layer** | 🔜 Next | chi routes calling Store methods; WITH FILL gap-fill on overview trend; /api/realtime/visitors HTTP wrapper. Needs CachedStore (shipped) + auth (Phase 2b — can land independently). |
-| **3c — Admin CRUD** | ⏳ Pending | `/api/admin/users`, `/api/admin/goals` (writes YAML + SIGHUP). Needs Phase 2b auth. |
+| **3b — Dashboard HTTP layer** | ✅ Complete | PR #12 merged. 8 stat handlers + realtime endpoint + IRST-aware Filter parsing + bearer-token middleware (stub until Phase 2b) + WITH FILL on SEO daily series + .gitignore fix that exposed cmd/statnive-live/main.go for the first time. |
+| **3c — Admin CRUD** | 🔜 Next | `/api/admin/users`, `/api/admin/goals` (writes YAML + SIGHUP). Needs Phase 2b auth to gate the mutations. |
 | **4 — Tracker JS** | ⏳ Pending | <2 KB IIFE, sendBeacon, SPA route tracking. |
 | **5 — Dashboard frontend** | ⏳ Pending | Preact SPA + uPlot + Frappe Charts. |
 | **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, /healthz done. Admin-user first-run + Goal/Funnel CRUD wait on Phase 2/3. |
@@ -219,11 +226,11 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 - [x] `internal/storage/store.go` — typed `Store` interface (doc 24 §Sec 4 pattern 3). One method per endpoint: `Overview(ctx, *Filter)`, `Sources(ctx, *Filter)`, etc. Enables Phase 7 integration-test mocking without a live ClickHouse.
 - [x] `internal/storage/queries.go` — central `whereTimeAndTenant(*Filter, col) (string, []any)` helper that emits `WHERE site_id = ? AND <col> >= ? AND <col> < ?` as the first clause of every query (Architecture Rule 8 + doc 24 §Sec 4 pattern 6). Every endpoint SQL routes through this helper; a CI `tenancy-grep` gate rejects any `SELECT` in `internal/storage/queries.go` that doesn't call it (Makefile target + CI step).
 - [x] `internal/storage/filter.go` — `Filter` struct with `SiteID uint32`, `From`/`To time.Time`, `Path`, `Referrer`, `UTM*`, `Country`, `Browser`, `OS`, `Device`, `Sort`, `Search`. Field names aligned with Pirsch; `ClientID → SiteID` is the only rename. Deterministic `Hash()` (BLAKE3-128, UTC-normalized) doubles as the cache key.
-- [ ] `stats.go` with 8 handlers (`GET /api/stats/...`): overview, sources, pages, geo, devices, funnel, campaigns, seo — Phase 3b
-- [ ] Time-series endpoints use **`WITH FILL … STEP INTERVAL`** for zero-result gap fill — Phase 3b (only meaningful once series-returning endpoints exist)
+- [x] `stats.go` with 8 handlers (`GET /api/stats/...`): overview, sources, pages, geo, devices, funnel, campaigns, seo — `internal/dashboard/stats.go`. Geo/Devices/Funnel mounted but their Store methods return `ErrNotImplemented` → 501 (v1.1 / v2).
+- [x] Time-series endpoints use **`WITH FILL … STEP INTERVAL`** for zero-result gap fill — SEO daily series in `internal/storage/queries.go`. Visitors-trend endpoint deferred until Phase 5 frontend asks for it (would need a new `Store.VisitorsTrend` method).
 - [ ] POST/PUT/DELETE /api/admin/users (user + RBAC CRUD, admin-only) — Phase 3c (needs Phase 2b auth)
 - [ ] POST/PUT/DELETE /api/admin/goals (goal CRUD, writes YAML + triggers SIGHUP hot reload) — Phase 3c
-- [ ] GET /api/realtime/visitors (10s cache, last-5-min active visitors — NOT full real-time) — Phase 3b (Store.Realtime query + cache TTL shipped in 3a; HTTP handler waits)
+- [x] GET /api/realtime/visitors (10s cache, last-5-min active visitors — NOT full real-time) — `internal/dashboard/realtime.go`; cache TTL = `cache.TTLRealtime` (10s) via the CachedStore wrapping.
 - [x] Date range handling — half-open intervals `[from, to)` at day granularity (doc 24 §Sec 4 pattern 7) enforced in `Filter.Validate()`. Asia/Tehran conversion stays at the API layer (Phase 3b).
 - [x] LRU cache (realtime=10s, today=60s, yesterday=1h, historical=forever) — `internal/cache/{lru,policy}.go`. Per-entry TTL via `expiresAt` since the underlying `hashicorp/golang-lru/v2/expirable` only honors constructor-time TTL. `CachedStore` decorator in `internal/storage/cached_store.go`.
 - [ ] Funnel endpoint uses **`windowFunnel()`** + 1h cache — v2 (Store.Funnel returns ErrNotImplemented in 3a)
