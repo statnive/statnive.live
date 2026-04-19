@@ -103,9 +103,8 @@ func (p *Pipeline) Enqueue(ctx context.Context, raw *ingest.RawEvent) bool {
 // cancellation it drains in-flight events and closes the out-channel so
 // downstream consumers see a clean EOF.
 func (p *Pipeline) Run(ctx context.Context) error {
-	for i := 0; i < p.workers; i++ {
-		p.wg.Add(1)
-		go p.worker(ctx, i)
+	for range p.workers {
+		p.wg.Go(func() { p.worker(ctx) })
 	}
 
 	p.deps.Logger.Info("enrich pipeline started", "workers", p.workers)
@@ -125,9 +124,7 @@ func (p *Pipeline) Stop() {
 	})
 }
 
-func (p *Pipeline) worker(ctx context.Context, id int) {
-	defer p.wg.Done()
-
+func (p *Pipeline) worker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -163,9 +160,9 @@ func (p *Pipeline) deliver(ctx context.Context, ev ingest.EnrichedEvent) {
 
 // processEvent is the locked 6-stage path. Order MUST stay
 // identity → burst → bloom → geo → ua → bot → channel (CLAUDE.md
-// Rule 6 + Phase 7a burst guard insertion). Returns (event, ok=true)
-// for events that should land in events_raw, and (zero, ok=false) for
-// events the burst guard has rejected — the caller skips deliver().
+// Architecture Rule 6). Returns (event, ok=true) for events that
+// should land in events_raw, and (zero, ok=false) for events the
+// burst guard has rejected — the caller skips deliver().
 func (p *Pipeline) processEvent(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 	// Stage 1 — identity (BLAKE3 keyed by today's salt).
 	saltToday := p.deps.Salt.CurrentSalt(raw.SiteID)

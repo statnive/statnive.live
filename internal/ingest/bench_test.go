@@ -42,10 +42,9 @@ func BenchmarkHandler_FullPath(b *testing.B) {
 
 	body := `{"hostname":"bench.example.com","pathname":"/","event_type":"pageview","event_name":"pageview"}`
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		req := httptest.NewRequest(http.MethodPost, "/api/event", strings.NewReader(body))
 		req.Header.Set("User-Agent", "Mozilla/5.0 (BenchTest/1.0) BrowserLike")
 		req.Header.Set("Content-Type", "text/plain")
@@ -61,13 +60,14 @@ func BenchmarkBurstGuard_Allow(b *testing.B) {
 	g := ingest.NewBurstGuard(500)
 	now := time.Now()
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	var i int
+	for b.Loop() {
 		var h [16]byte
 		h[0] = byte(i)
 		h[1] = byte(i >> 8)
 		g.Allow(h, now)
+		i++
 	}
 }

@@ -143,14 +143,19 @@ func (m *ChannelMapper) Reload() error {
 	for _, s := range sdb.Sources {
 		bucketSet := bucketSetFor(cd, s.Channel)
 
+		// Pre-lowercase Name once at load time so Classify's hot path
+		// reads it without a per-call ToLower allocation.
+		entry := s
+		entry.Name = strings.ToLower(s.Name)
+
 		for _, d := range s.Domains {
 			d = strings.ToLower(strings.TrimSpace(d))
 			if d == "" {
 				continue
 			}
 
-			cd.exact[d] = s
-			cd.suffixIdx = append(cd.suffixIdx, suffixEntry{suffix: "." + d, entry: s})
+			cd.exact[d] = entry
+			cd.suffixIdx = append(cd.suffixIdx, suffixEntry{suffix: "." + d, entry: entry})
 
 			if bucketSet != nil {
 				bucketSet[d] = struct{}{}
@@ -200,7 +205,8 @@ type classCtx struct {
 
 // Classify runs the 17-step decision tree from doc 24 §3.1 and returns the
 // resulting (referrer-name, channel) pair. The order of the steps is
-// load-bearing — reordering breaks attribution.
+// load-bearing — reordering breaks attribution. Hot-path floor is the
+// regex thread-state allocation in step2; see bench.out for the budget.
 func (m *ChannelMapper) Classify(referrer, utmSource, utmMedium, utmCampaign, clickID string) Decision {
 	cd := m.db.Load()
 	if cd == nil {
@@ -254,11 +260,11 @@ func step0Normalize(cd *compiledDB, referrer, utmSource, utmMedium, utmCampaign,
 
 	if c.referrer != "" {
 		if entry, ok := cd.exact[c.referrer]; ok {
-			c.referrerName = strings.ToLower(entry.Name)
+			c.referrerName = entry.Name
 		} else {
 			for _, se := range cd.suffixIdx {
 				if strings.HasSuffix(c.referrer, se.suffix) {
-					c.referrerName = strings.ToLower(se.entry.Name)
+					c.referrerName = se.entry.Name
 					break
 				}
 			}
