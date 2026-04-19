@@ -129,6 +129,73 @@ Key fields under load:
   exceeding 500 PVs/min/visitor; cross-reference with
   `audit.jsonl | grep ingest.burst_dropped`.
 
+## Phase 7c — Optimization & Hardening (audit gates)
+
+### Bench baseline
+
+`bench.out` at the repo root holds the Phase 7c baseline (Apple M1).
+Future PRs should run `make audit` and pipe output through `benchstat`:
+
+```bash
+go install golang.org/x/perf/cmd/benchstat@latest
+make audit > bench.new.txt
+benchstat bench.out bench.new.txt
+```
+
+A regression > 5% on any line is a PR-blocker. Improvements are
+welcome but must be re-baselined in the same PR.
+
+### Air-Gap Verification (manual)
+
+The binary must function with **zero** outbound network. Verify on a
+Linux host (Hetzner / Iranian DC / VM) before any new release:
+
+```bash
+# 1. Build + spin up CH locally (still on loopback).
+make build
+docker compose -f deploy/docker-compose.dev.yml up -d clickhouse
+
+# 2. Block all outbound traffic for the user the binary runs as,
+#    EXCEPT loopback (CH + tracker + dashboard all on 127.0.0.1).
+sudo iptables -A OUTPUT -j DROP -m owner --uid-owner $(id -u) ! -d 127.0.0.1/8
+
+# 3. Boot the binary. Should start cleanly.
+./bin/statnive-live &
+APP_PID=$!
+
+# 4. Health check + sample event + dashboard query.
+curl -fsSL http://127.0.0.1:8080/healthz
+curl -fsSL -X POST http://127.0.0.1:8080/api/event \
+  -H 'User-Agent: Mozilla/5.0 (AirgapTest/1.0) BrowserLike' \
+  -d '{"hostname":"airgap.example.com","pathname":"/","event_type":"pageview","event_name":"pageview"}'
+
+# 5. Tear down.
+kill $APP_PID
+sudo iptables -D OUTPUT -j DROP -m owner --uid-owner $(id -u) ! -d 127.0.0.1/8
+```
+
+**Expected:** all curl commands return 200 / 202 / 204. If any timeout,
+something in the binary made a non-loopback call → bug, file under
+Architecture Rule (Isolation). The vendored `ip2location-go`
+webservice path is the only known suspect; we never enable it (config
+omits the API key), so the code path stays dead.
+
+### Dependency licenses (pre-merge)
+
+Every PR that touches `go.mod` must run:
+
+```bash
+go install github.com/google/go-licenses@latest   # one-time
+make licenses
+```
+
+Allowed: MIT, Apache-2.0, BSD-2/3-Clause, ISC. Currently allowed under
+the same gate but called out explicitly: `hashicorp/golang-lru/v2`
+(MPL-2.0). MPL-2.0 is permissible because we do **not** modify the
+upstream files — only modified MPL-2.0 files would require source
+disclosure. Any new MPL dep needs the same justification documented
+inline.
+
 ## Future hardening (Phase 7b)
 
 - Backup + restore drill (`clickhouse-backup` + `age` + `zstd`)
@@ -136,6 +203,9 @@ Key fields under load:
   served on next handshake)
 - Real-tracker correctness (queries match expected aggregations from
   Phase 4 tracker payloads)
+- WAL replay zero-loss after SIGKILL (currently ~80% loss tracked in
+  `crash_recovery_test.go`)
+- Consumer buffer-on-CH-outage (currently drops; should fill WAL)
 - Full deployment runbook (bare metal, air-gap install bundle)
 
 These wait for Phase 4 tracker + Phase 2c operational hardening to

@@ -35,10 +35,9 @@ sources:
 	}
 	defer m.Close()
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = m.Classify("https://google.ir/search?q=foo", "", "", "", "")
 	}
 }
@@ -48,15 +47,18 @@ sources:
 func BenchmarkBloom_CheckAndMark(b *testing.B) {
 	f := enrich.NewNewVisitorFilter(10_000_000, 0.001)
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	var i int
+
+	for b.Loop() {
 		var h [16]byte
 		h[0] = byte(i)
 		h[1] = byte(i >> 8)
 		h[2] = byte(i >> 16)
 		f.CheckAndMark(h, h)
+
+		i++
 	}
 }
 
@@ -65,10 +67,9 @@ func BenchmarkUA_Parse(b *testing.B) {
 	p := enrich.NewUAParser()
 	const ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120"
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = p.Parse(ua)
 	}
 }
@@ -80,10 +81,9 @@ func BenchmarkBot_IsBot(b *testing.B) {
 	d := enrich.NewBotDetector(logger)
 	const ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120"
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = d.IsBot(ua, "")
 	}
 }

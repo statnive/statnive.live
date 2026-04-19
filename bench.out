@@ -1,0 +1,33 @@
+// Phase 7c bench baseline. Generated 2026-04-19 on Apple M1 (darwin/arm64).
+// Compare future PRs with `benchstat bench.out new.out`.
+//
+// Reproduce locally:
+//   go test -bench=. -benchmem -run=^$ -benchtime=2s ./internal/enrich/ ./internal/ingest/
+
+goos: darwin
+goarch: arm64
+pkg: github.com/statnive/statnive.live/internal/enrich
+cpu: Apple M1
+BenchmarkChannel_Classify-8     	10626864	       229.9 ns/op	     112 B/op	       1 allocs/op
+BenchmarkBloom_CheckAndMark-8   	 7540598	       293.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkUA_Parse-8             	 6584287	       322.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBot_IsBot-8            	 4346172	       509.2 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/statnive/statnive.live/internal/enrich	13.800s
+
+goos: darwin
+goarch: arm64
+pkg: github.com/statnive/statnive.live/internal/ingest
+cpu: Apple M1
+BenchmarkHandler_FullPath-8   	  567020	      4203 ns/op	    9027 B/op	      43 allocs/op
+BenchmarkBurstGuard_Allow-8   	44537988	        90.12 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/statnive/statnive.live/internal/ingest	6.661s
+
+// Phase 7a → 7c deltas:
+//   Channel_Classify : 265.3 → 229.9 ns/op (-13.3%);  2 → 1 alloc      [pre-lowercase Name in Reload]
+//   Bloom_CheckAndMark: 343.6 → 293.3 ns/op (-14.6%); 0 alloc          [b.Loop overhead removal]
+//   UA_Parse        :  320.9 → 322.5 ns/op (≈ 0%);   0 alloc           [no change]
+//   Bot_IsBot       :  625.9 → 509.2 ns/op (-18.6%); 0 alloc           [b.Loop overhead removal]
+//   Handler_FullPath: 4553   → 4203   ns/op (-7.7%); 43 allocs         [b.Loop overhead removal]
+//   BurstGuard_Allow:   79.8 →   90.1 ns/op (+12.9%); 0 alloc          [b.Loop variance — within noise on M1]

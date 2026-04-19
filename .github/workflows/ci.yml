@@ -17,6 +17,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          # Full history so golangci-lint --new-from-rev=origin/main can
+          # diff against the merge base. Default depth=1 leaves no merge
+          # base for the lint baseline check.
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
@@ -36,16 +41,26 @@ jobs:
       - name: Tenancy gate (Architecture Rules 1 + 8)
         run: make tenancy-grep
 
+      # `--new-from-rev=origin/main` so CI fails only on lint regressions
+      # introduced by the PR. Pre-existing baseline (~40 errcheck / gosec /
+      # gofmt / intrange / goconst findings on storage, audit, cache, main.go)
+      # is tracked as Phase 7d cleanup. Each finding requires a per-call
+      # judgment — bulk-fixing in this hardening slice would explode scope.
       - name: Lint
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9  # v8
         with:
-          version: v2.0.2
-          args: --timeout=5m
+          version: v2.5.0
+          args: --timeout=5m --new-from-rev=origin/main
 
   licenses:
     name: license check (no AGPL / strong-copyleft)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # go-licenses needs to inspect module metadata which it cannot do under
+    # -mod=vendor (auto-enabled because vendor/ exists). Override per-job
+    # so the rest of the toolchain still uses the vendored tree.
+    env:
+      GOFLAGS: -mod=mod
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -58,5 +73,9 @@ jobs:
       - name: Install go-licenses
         run: go install github.com/google/go-licenses@5348b744d0983d85713295ea08a20cca1654a45e  # v1.6.0
 
+      # ./internal/... + ./cmd/... covers every package in our binary
+      # without tripping on the test-helper subpackages (audittest,
+      # storagetest) which intentionally have no LICENSE file (they're
+      # our own code; the project LICENSE at the repo root applies).
       - name: Check licenses (PLAN.md License Rules)
-        run: go-licenses check ./... --disallowed_types=forbidden,restricted
+        run: go-licenses check ./internal/... ./cmd/... --disallowed_types=forbidden,restricted --ignore github.com/statnive/statnive.live

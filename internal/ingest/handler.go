@@ -30,11 +30,10 @@ type Pipeline interface {
 }
 
 const (
-	maxBodyBytes  = 8 * 1024  // PLAN.md:153 — Security feature #4 (8 KB MaxBytesReader)
-	maxArrayItems = 10        // single tracker request batches at most 10 events
-	uaMinLen      = 16        // PLAN.md:156 + doc 24 §Sec 1.6 fast-reject gate
+	maxBodyBytes  = 8 * 1024 // PLAN.md:153 — Security feature #4 (8 KB MaxBytesReader)
+	maxArrayItems = 10       // single tracker request batches at most 10 events
+	uaMinLen      = 16       // PLAN.md:156 + doc 24 §Sec 1.6 fast-reject gate
 	uaMaxLen      = 500
-	maxClockDrift = time.Hour // PLAN.md:153 timestamp ±1h drift tolerance
 )
 
 // SiteResolver is the subset of sites.Registry that the handler needs.
@@ -94,14 +93,12 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig) {
 	for i := range events {
 		raw := &events[i]
 
+		// Server-authoritative — TSUTC, UserAgent, IP, CookieID are
+		// json:"-" on RawEvent. Trust the request, not the body.
 		raw.TSUTC = now
 		raw.UserAgent = ua
 		raw.IP = ip
 		raw.CookieID = cookieID
-
-		if !validTimestamp(now, raw.TSUTC) {
-			raw.TSUTC = now
-		}
 
 		siteID, sErr := cfg.Sites.LookupSiteIDByHostname(r.Context(), strings.ToLower(raw.Hostname))
 		if sErr != nil {
@@ -224,21 +221,6 @@ func parseBody(r io.Reader) ([]RawEvent, error) {
 	}
 }
 
-// validTimestamp checks the client-claimed timestamp is within the drift
-// window. We don't trust client clocks — clamp to server time on mismatch.
-func validTimestamp(now, claimed time.Time) bool {
-	if claimed.IsZero() {
-		return false
-	}
-
-	diff := now.Sub(claimed)
-	if diff < 0 {
-		diff = -diff
-	}
-
-	return diff <= maxClockDrift
-}
-
 // ClientIP honors proxy headers in priority order. The result is used for
 // GeoIP enrichment and rate-limit keying; it is never persisted (Privacy
 // Rule 1 is enforced by the EnrichedEvent struct having no IP field).
@@ -320,13 +302,13 @@ func emitAudit(ctx context.Context, a *audit.Logger, name audit.EventName, attrs
 	a.Event(ctx, name, attrs...)
 }
 
-// truncate clips s to at most max bytes. Used to bound the size of UA
+// truncate clips s to at most n bytes. Used to bound the size of UA
 // strings written to the audit log — abuse vectors include 10-MB UAs
 // designed to balloon the log file.
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, n int) string {
+	if len(s) <= n {
 		return s
 	}
 
-	return s[:max]
+	return s[:n]
 }
