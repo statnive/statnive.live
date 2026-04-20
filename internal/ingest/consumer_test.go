@@ -76,6 +76,7 @@ func TestConsumer_RetriesTransientErrors(t *testing.T) {
 	c := ingest.NewConsumer(in, wal, flaky, ingest.ConsumerConfig{
 		BatchRows:     1,
 		BatchInterval: 50 * time.Millisecond,
+		DrainSettle:   100 * time.Millisecond, // keep the test fast
 	}, nil, slog.New(slog.DiscardHandler))
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -128,6 +129,7 @@ func TestConsumer_DoesNotAckWhenCHErrorExhaustsRetries(t *testing.T) {
 	c := ingest.NewConsumer(in, wal, failing, ingest.ConsumerConfig{
 		BatchRows:     1,
 		BatchInterval: 50 * time.Millisecond,
+		DrainSettle:   100 * time.Millisecond,
 	}, nil, slog.New(slog.DiscardHandler))
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -158,5 +160,80 @@ func TestConsumer_DoesNotAckWhenCHErrorExhaustsRetries(t *testing.T) {
 	// 4 attempts total: initial + 3 retries (100ms / 500ms / 2s backoff).
 	if got := failing.calls.Load(); got != 4 {
 		t.Errorf("InsertBatch calls = %d; want 4 (initial + 3 retries)", got)
+	}
+}
+
+// passingInserter always succeeds.
+type passingInserter struct{ calls atomic.Int32 }
+
+func (p *passingInserter) InsertBatch(_ context.Context, _ []ingest.EnrichedEvent) error {
+	p.calls.Add(1)
+
+	return nil
+}
+
+// Drain bound: after ctx cancel, drain exits within
+// DrainSettle + BatchInterval × 2. Previous implementation used
+// `default: return` which exited immediately on any empty-chan moment,
+// leaking in-flight events under low post-restart traffic.
+func TestConsumer_DrainBoundedAfterCancel(t *testing.T) {
+	t.Parallel()
+
+	wal := testWAL(t)
+	ins := &passingInserter{}
+
+	in := make(chan ingest.WALEnvelope, 4)
+
+	const settle = 150 * time.Millisecond
+
+	c := ingest.NewConsumer(in, wal, ins, ingest.ConsumerConfig{
+		BatchRows:     1,
+		BatchInterval: 50 * time.Millisecond,
+		DrainSettle:   settle,
+	}, nil, slog.New(slog.DiscardHandler))
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+
+	go func() {
+		c.Run(ctx)
+		close(done)
+	}()
+
+	// Send a trailing event right before cancel to prove the drain
+	// doesn't short-circuit on empty-chan mid-flight.
+	in <- ingest.WALEnvelope{Idx: 1, Ev: ingest.EnrichedEvent{SiteID: 1}}
+
+	time.Sleep(20 * time.Millisecond)
+
+	cancel()
+
+	start := time.Now()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("drain did not exit within 2s after ctx cancel")
+	}
+
+	elapsed := time.Since(start)
+
+	// Upper bound: DrainSettle + 1 BatchInterval grace (for the flush
+	// tick to run before the settle timer fires). Going significantly
+	// over either means drain is not bounded.
+	if elapsed > settle+200*time.Millisecond {
+		t.Errorf("drain took %v; expected ≤ %v", elapsed, settle+200*time.Millisecond)
+	}
+
+	// And it must have waited at least the settle window (rather than
+	// bailing instantly via the old default:return race).
+	if elapsed < settle/2 {
+		t.Errorf("drain exited too fast (%v); expected at least the settle window", elapsed)
+	}
+
+	// The in-flight event should have landed in CH.
+	if got := ins.calls.Load(); got < 1 {
+		t.Errorf("drain did not flush the trailing event; InsertBatch calls = %d", got)
 	}
 }

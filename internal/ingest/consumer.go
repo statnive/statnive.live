@@ -27,6 +27,12 @@ type ConsumerConfig struct {
 	BatchRows     int
 	BatchInterval time.Duration
 	BatchMaxBytes int
+	// DrainSettle is the bounded wait during shutdown drain: after the
+	// in-channel goes quiet for DrainSettle AND the in-flight batch is
+	// flushed, the consumer exits. Default 30s — covers the WAL replay
+	// window plus the BatchInterval × 2 flush grace. wal-durability-
+	// review gap #3 (post-restart drain unreliability).
+	DrainSettle time.Duration
 }
 
 // Inserter is the abstraction the consumer needs from the storage layer.
@@ -67,6 +73,10 @@ func NewConsumer(in <-chan WALEnvelope, wal *WALWriter, store Inserter, cfg Cons
 
 	if cfg.BatchMaxBytes <= 0 {
 		cfg.BatchMaxBytes = 10 * 1024 * 1024
+	}
+
+	if cfg.DrainSettle <= 0 {
+		cfg.DrainSettle = 30 * time.Second
 	}
 
 	return &Consumer{in: in, wal: wal, store: store, cfg: cfg, auditLog: auditLog, logger: logger}
@@ -196,13 +206,28 @@ func (c *Consumer) Run(ctx context.Context) {
 	}
 }
 
+// drain walks the in-channel until it closes OR stays quiet for
+// cfg.DrainSettle (default 30s). The previous implementation used a
+// `default: return` race that would exit immediately on any empty-chan
+// moment — under low post-restart traffic that leaked in-flight events
+// (wal-durability-review gap #3). A bounded wait is the correct upper
+// bound: we give the upstream pipeline enough time to flush its WAL
+// replay + handlers, but still exit on a legitimate idle shutdown.
 func (c *Consumer) drain(flush func(reason string), add func(WALEnvelope) bool) {
+	settle := time.NewTimer(c.cfg.DrainSettle)
+	defer settle.Stop()
+
+	flushNow := func(reason string) {
+		flush(reason)
+
+		_ = c.wal.Sync()
+	}
+
 	for {
 		select {
 		case env, ok := <-c.in:
 			if !ok {
-				flush("shutdown-drain")
-				_ = c.wal.Sync()
+				flushNow("shutdown-drain")
 
 				return
 			}
@@ -210,9 +235,19 @@ func (c *Consumer) drain(flush func(reason string), add func(WALEnvelope) bool) 
 			if add(env) {
 				flush("shutdown-size")
 			}
-		default:
-			flush("shutdown")
-			_ = c.wal.Sync()
+
+			// Saw traffic — restart the settle timer. Go 1.23+
+			// Stop + non-blocking drain pattern, matching walgroup.go.
+			settle.Stop()
+
+			select {
+			case <-settle.C:
+			default:
+			}
+
+			settle.Reset(c.cfg.DrainSettle)
+		case <-settle.C:
+			flushNow("shutdown-settle")
 
 			return
 		}
