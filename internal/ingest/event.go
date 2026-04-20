@@ -27,9 +27,17 @@ type RawEvent struct {
 	UserSegment   string            `json:"user_segment"`
 	Props         map[string]string `json:"props"`
 
+	// UserID is the raw, customer-supplied identifier sent by the tracker
+	// via statnive.identify(). The handler hashes it via
+	// identity.HexUserIDHash and clears this field before the pipeline
+	// sees the event — Privacy Rule 4 (raw user_id never logged, never
+	// written to disk, never echoed to the wire). Mirrors the IP
+	// contract in Privacy Rule 1 (geoip.go discards IP after lookup).
+	UserID string `json:"user_id"`
+
 	// Server-side fields, never decoded from JSON.
 	TSUTC      time.Time `json:"-"`
-	UserIDHash string    `json:"-"`
+	UserIDHash string    `json:"-"` // populated by handler from UserID + master_secret.
 	CookieID   string    `json:"-"`
 	IP         string    `json:"-"` // dropped before EnrichedEvent — Privacy Rule 1.
 	UserAgent  string    `json:"-"`
