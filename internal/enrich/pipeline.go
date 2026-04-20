@@ -2,20 +2,18 @@
 // identity → bloom → geo → ua → bot → channel. The order is load-bearing
 // (CLAUDE.md Architecture Rule 6) and pinned by integration tests.
 //
-// The pipeline owns its in-channel and out-channel. Lifecycle:
-//
-//	p := NewPipeline(deps)        // constructor only — no goroutines yet
-//	go func() { _ = p.Run(ctx) }()
-//	p.Enqueue(ctx, raw)           // returns false on backpressure
-//	p.Stop()                      // closes in-channel, waits for workers
-//	for ev := range p.Out() {...} // out-channel drains naturally
+// Phase 7b1b made the pipeline a synchronous library: callers run
+// Enrich on their own goroutine, then immediately call WAL.AppendAndWait
+// (which blocks until fsync). The previous worker-pool + in/out channels
+// were removed because net/http already creates one goroutine per
+// request — adding another fan-out only added queueing latency without
+// parallelism benefit, and made the ack-after-fsync chain harder to reason
+// about (handler had to wait for a worker to wait for a fsync).
 package enrich
 
 import (
 	"context"
 	"log/slog"
-	"runtime"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -39,19 +37,12 @@ type Deps struct {
 	Logger  *slog.Logger
 }
 
-// Pipeline is the worker pool. Workers all run the same 6-stage path; we
-// fan out across events, never across stages, so the order invariant
-// holds without coordination between workers.
+// Pipeline owns no goroutines and no channels. Construct once, call
+// Enrich from any goroutine — internal state (bloom + burst-guard +
+// channel-mapper atomic.Pointer + salt-cache mutex) handles concurrency.
 type Pipeline struct {
-	deps    Deps
-	in      chan *ingest.RawEvent
-	out     chan ingest.EnrichedEvent
-	workers int
-
+	deps         Deps
 	burstDropped atomic.Uint64
-
-	wg        sync.WaitGroup
-	closeOnce sync.Once
 }
 
 // BurstDropped returns the count of events the per-visitor cap has
@@ -59,7 +50,7 @@ type Pipeline struct {
 // scraper-network attacks or runaway trackers.
 func (p *Pipeline) BurstDropped() uint64 { return p.burstDropped.Load() }
 
-// NewPipeline allocates the channels but does NOT start workers. Call Run.
+// NewPipeline validates required deps + returns a ready-to-use pipeline.
 func NewPipeline(deps Deps) *Pipeline {
 	if deps.Salt == nil || deps.Bloom == nil || deps.GeoIP == nil ||
 		deps.UA == nil || deps.Bot == nil || deps.Channel == nil ||
@@ -67,103 +58,14 @@ func NewPipeline(deps Deps) *Pipeline {
 		panic("enrich: NewPipeline called with nil dep")
 	}
 
-	workers := runtime.GOMAXPROCS(0) - 2
-	if workers < 2 {
-		workers = 2
-	}
-
-	return &Pipeline{
-		deps:    deps,
-		in:      make(chan *ingest.RawEvent, 256),
-		out:     make(chan ingest.EnrichedEvent, 4096),
-		workers: workers,
-	}
+	return &Pipeline{deps: deps}
 }
 
-// Out is the read-only side of the enriched-event channel the consumer
-// drains. The channel closes after Stop drains the workers.
-func (p *Pipeline) Out() <-chan ingest.EnrichedEvent { return p.out }
-
-// Enqueue tries to hand a raw event to a worker. Returns false when the
-// in-channel is full (backpressure) or the context is canceled. Never
-// blocks the caller — handlers must stay responsive.
-func (p *Pipeline) Enqueue(ctx context.Context, raw *ingest.RawEvent) bool {
-	select {
-	case p.in <- raw:
-		return true
-	case <-ctx.Done():
-		return false
-	default:
-		// Saturated. Caller (handler) returns 503.
-		return false
-	}
-}
-
-// Run starts the worker pool and blocks until ctx is canceled. After
-// cancellation it drains in-flight events and closes the out-channel so
-// downstream consumers see a clean EOF.
-func (p *Pipeline) Run(ctx context.Context) error {
-	for range p.workers {
-		p.wg.Go(func() { p.worker(ctx) })
-	}
-
-	p.deps.Logger.Info("enrich pipeline started", "workers", p.workers)
-
-	<-ctx.Done()
-	p.Stop()
-
-	return nil
-}
-
-// Stop closes the in-channel and waits for workers to drain. Idempotent.
-func (p *Pipeline) Stop() {
-	p.closeOnce.Do(func() {
-		close(p.in)
-		p.wg.Wait()
-		close(p.out)
-	})
-}
-
-func (p *Pipeline) worker(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			// Drain whatever is already buffered so events that made it
-			// past the handler don't get lost.
-			for raw := range p.in {
-				if ev, ok := p.processEvent(raw); ok {
-					p.deliver(ctx, ev)
-				}
-			}
-
-			return
-		case raw, channelOpen := <-p.in:
-			if !channelOpen {
-				return
-			}
-
-			if ev, ok := p.processEvent(raw); ok {
-				p.deliver(ctx, ev)
-			}
-		}
-	}
-}
-
-func (p *Pipeline) deliver(ctx context.Context, ev ingest.EnrichedEvent) {
-	select {
-	case p.out <- ev:
-	case <-ctx.Done():
-		// Best-effort drop; the consumer is shutting down.
-		p.deps.Logger.Warn("enrich pipeline drop on shutdown")
-	}
-}
-
-// processEvent is the locked 6-stage path. Order MUST stay
-// identity → burst → bloom → geo → ua → bot → channel (CLAUDE.md
-// Architecture Rule 6). Returns (event, ok=true) for events that
-// should land in events_raw, and (zero, ok=false) for events the
-// burst guard has rejected — the caller skips deliver().
-func (p *Pipeline) processEvent(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
+// Enrich runs the 6-stage pipeline inline. Returns ok=false when the
+// burst guard rejects the event (caller drops it without sending to
+// WAL). Order MUST stay identity → burst → bloom → geo → ua → bot →
+// channel (CLAUDE.md Architecture Rule 6).
+func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 	// Stage 1 — identity (BLAKE3 keyed by today's salt).
 	saltToday := p.deps.Salt.CurrentSalt(raw.SiteID)
 	saltPrev := p.deps.Salt.PreviousSalt(raw.SiteID)
@@ -275,7 +177,7 @@ func encodeHashPrefix(h [16]byte) string {
 	const hex = "0123456789abcdef"
 
 	out := [8]byte{}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		out[i*2] = hex[h[i]>>4]
 		out[i*2+1] = hex[h[i]&0x0f]
 	}

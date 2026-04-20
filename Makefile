@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := ./...
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full
 
 all: lint test build
 
@@ -85,6 +85,16 @@ disk-full-test:
 
 ## perf-tests: All Phase 7a stress tests (crash + ch-outage + disk-full).
 perf-tests: crash-test ch-outage-test disk-full-test
+
+## wal-killtest: 5-iteration kill-9 smoke (chained into make audit).
+## Asserts CH count >= sent * (1 - 0.0005) after each random-offset SIGKILL.
+wal-killtest:
+	./.claude/skills/wal-durability-review/test/kill9/harness.sh 5
+
+## wal-killtest-full: 50-iteration kill-9 hard gate (Phase 7b1b doc 27 §Gap 1).
+## Slow (~30 min); on-demand or nightly, NOT in make audit.
+wal-killtest-full:
+	./.claude/skills/wal-durability-review/test/kill9/harness.sh 50
 
 ## airgap-bundle: Build offline install bundle (Phase 8 — placeholder)
 airgap-bundle:

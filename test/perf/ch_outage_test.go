@@ -127,25 +127,14 @@ func TestCHOutage_BufferAndDrain(t *testing.T) {
 
 	totalSent := pre + gap
 
-	// Phase 7a contract: at least the pre-stop events should land
-	// (they were ack'd to CH before the stop). Pre-kill in-flight +
-	// during-outage events fall under the WAL fsync-window loss
-	// documented in crash_recovery_test.go. Strict zero-loss is a
-	// Phase 7b target.
-	time.Sleep(5 * time.Second) // give the consumer time to drain
-
-	row := store2.Conn().QueryRow(ctx,
-		`SELECT count() FROM statnive.events_raw WHERE site_id = ?`, outageSiteID,
-	)
-
-	var got uint64
-	if err := row.Scan(&got); err != nil {
-		t.Fatalf("count query: %v", err)
+	// Phase 7b1b strict gate: the consumer buffered to WAL during the
+	// CH outage (Step 2: ack-after-CH-commit means failed inserts
+	// leave the WAL intact). After restart, every 2xx-acked event must
+	// drain to events_raw within the 0.05% loss SLO. waitForCount
+	// shares the helper from crash_recovery_test.go.
+	if err := waitForCount(t, ctx, store2, outageSiteID, totalSent, 60*time.Second); err != nil {
+		t.Fatalf("ch-outage drain did not meet 0.05%% SLO: %v", err)
 	}
 
-	t.Logf("ch-outage summary: sent=%d landed=%d (Phase 7b target: 100%% drain)", totalSent, got)
-
-	if got == 0 {
-		t.Fatal("zero events landed after CH restart — binary did not recover from outage at all")
-	}
+	t.Logf("ch-outage summary: sent=%d drained within 0.05%% SLO", totalSent)
 }

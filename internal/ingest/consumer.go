@@ -2,9 +2,24 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
+
+	"github.com/statnive/statnive.live/internal/audit"
 )
+
+// chInsertRetryDelays is the backoff schedule for transient ClickHouse
+// errors (network blip, short restart). After the final delay the
+// consumer gives up on the batch — the WAL stays intact, so the batch
+// will retry on the next flush tick. Doc 27 §Gap 1 item 3: wal.Ack is
+// gated on CH success; no ack on failure means no data loss, just
+// back-pressure.
+var chInsertRetryDelays = []time.Duration{
+	100 * time.Millisecond,
+	500 * time.Millisecond,
+	2 * time.Second,
+}
 
 // ConsumerConfig caps the dual-trigger batcher. PLAN.md:158, doc 24 §Sec 1.5:
 // flush on rows OR interval OR bytes — first to fire wins.
@@ -12,6 +27,12 @@ type ConsumerConfig struct {
 	BatchRows     int
 	BatchInterval time.Duration
 	BatchMaxBytes int
+	// DrainSettle is the bounded wait during shutdown drain: after the
+	// in-channel goes quiet for DrainSettle AND the in-flight batch is
+	// flushed, the consumer exits. Default 30s — covers the WAL replay
+	// window plus the BatchInterval × 2 flush grace. wal-durability-
+	// review gap #3 (post-restart drain unreliability).
+	DrainSettle time.Duration
 }
 
 // Inserter is the abstraction the consumer needs from the storage layer.
@@ -20,20 +41,28 @@ type Inserter interface {
 	InsertBatch(ctx context.Context, events []EnrichedEvent) error
 }
 
-// Consumer drains the enriched-event channel, persists each event to the WAL
-// for durability, batches rows, and flushes to the Inserter on the first
-// trigger to fire. After every successful flush it ack's the WAL so segments
-// can be reclaimed.
+// Consumer drains the GroupSyncer's downstream channel and batches
+// rows for ClickHouse. The WAL Append + Sync already happened in the
+// GroupSyncer (handler-side); the consumer only needs to insert into
+// CH and then ack the WAL. After every successful flush it ack's the
+// WAL through the latest envelope's index so segments can be reclaimed.
+//
+// Phase 7b1b changed the input type from `<-chan EnrichedEvent` to
+// `<-chan WALEnvelope` so the consumer can ack the right WAL index
+// (rather than re-querying CurrentIndex inside its own goroutine, which
+// would race with the GroupSyncer's writer).
 type Consumer struct {
-	in     <-chan EnrichedEvent
-	wal    *WALWriter
-	store  Inserter
-	cfg    ConsumerConfig
-	logger *slog.Logger
+	in       <-chan WALEnvelope
+	wal      *WALWriter
+	store    Inserter
+	cfg      ConsumerConfig
+	auditLog *audit.Logger
+	logger   *slog.Logger
 }
 
 // NewConsumer wires the consumer. cfg defaults: 1000 rows / 500 ms / 10 MB.
-func NewConsumer(in <-chan EnrichedEvent, wal *WALWriter, store Inserter, cfg ConsumerConfig, logger *slog.Logger) *Consumer {
+// auditLog is optional (nil silences audit emissions; test mode).
+func NewConsumer(in <-chan WALEnvelope, wal *WALWriter, store Inserter, cfg ConsumerConfig, auditLog *audit.Logger, logger *slog.Logger) *Consumer {
 	if cfg.BatchRows <= 0 {
 		cfg.BatchRows = 1000
 	}
@@ -46,7 +75,46 @@ func NewConsumer(in <-chan EnrichedEvent, wal *WALWriter, store Inserter, cfg Co
 		cfg.BatchMaxBytes = 10 * 1024 * 1024
 	}
 
-	return &Consumer{in: in, wal: wal, store: store, cfg: cfg, logger: logger}
+	if cfg.DrainSettle <= 0 {
+		cfg.DrainSettle = 30 * time.Second
+	}
+
+	return &Consumer{in: in, wal: wal, store: store, cfg: cfg, auditLog: auditLog, logger: logger}
+}
+
+// insertWithRetry attempts the CH insert with bounded backoff. Returns
+// nil on success; the underlying error from the final attempt on
+// exhaustion. Caller MUST gate wal.Ack on this returning nil
+// (Architecture Rule 3 in wal-durability-review/SKILL.md).
+func (c *Consumer) insertWithRetry(parent context.Context, batch []EnrichedEvent) error {
+	var lastErr error
+
+	attempts := len(chInsertRetryDelays) + 1
+
+	for attempt := range attempts {
+		fctx, cancel := context.WithTimeout(parent, 10*time.Second)
+		err := c.store.InsertBatch(fctx, batch)
+
+		cancel()
+
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		if attempt == attempts-1 {
+			break // out of retries
+		}
+
+		select {
+		case <-time.After(chInsertRetryDelays[attempt]):
+		case <-parent.Done():
+			return errors.Join(lastErr, parent.Err())
+		}
+	}
+
+	return lastErr
 }
 
 // Run blocks until ctx is canceled or the in channel closes.
@@ -66,18 +134,30 @@ func (c *Consumer) Run(ctx context.Context) {
 			return
 		}
 
-		fctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err := c.store.InsertBatch(fctx, batch)
-
-		cancel()
-
+		err := c.insertWithRetry(ctx, batch)
 		if err != nil {
-			// Ack the WAL anyway so we don't replay forever (PLAN.md:158
-			// — "no log.Panicf on retry exhaust"). Real DLQ ships in Phase 2.
-			c.logger.Error("flush failed after retry", "reason", reason, "err", err, "rows", len(batch))
-		} else {
-			c.logger.Debug("flush ok", "reason", reason, "rows", len(batch))
+			// CH unreachable beyond retry budget. DO NOT ack the WAL —
+			// the events stay durable and the next flush retries from
+			// the same WAL index. The fill_ratio backpressure middleware
+			// will start returning 503 to handlers if the backlog grows
+			// past 80% of the WAL cap (Architecture Rule 3 + item #6 in
+			// wal-durability-review/SKILL.md).
+			c.logger.Error("ch insert failed; batch retained in WAL",
+				"reason", reason, "err", err, "rows", len(batch),
+				"last_wal_idx", lastWALIdx)
+			emitConsumerAudit(c.auditLog, audit.EventCHInsertFailed,
+				slog.String("reason", reason),
+				slog.String("err", err.Error()),
+				slog.Int("rows", len(batch)),
+				slog.Uint64("last_wal_idx", lastWALIdx))
+
+			batch = batch[:0]
+			batchBytes = 0
+
+			return
 		}
+
+		c.logger.Debug("flush ok", "reason", reason, "rows", len(batch))
 
 		if lastWALIdx > 0 {
 			if ackErr := c.wal.Ack(lastWALIdx); ackErr != nil {
@@ -89,14 +169,13 @@ func (c *Consumer) Run(ctx context.Context) {
 		batchBytes = 0
 	}
 
-	add := func(ev EnrichedEvent) bool {
-		if walErr := c.wal.Append(ev); walErr != nil {
-			c.logger.Warn("wal append", "err", walErr)
-		}
-
-		lastWALIdx = c.wal.CurrentIndex()
-		batch = append(batch, ev)
-		batchBytes += approxRowBytes(&ev)
+	// Events arrive already WAL-fsynced (GroupSyncer owns the Append
+	// path). Consumer's job: batch and insert into CH, then ack the
+	// WAL. No Append here — doing so would double-write.
+	add := func(env WALEnvelope) bool {
+		lastWALIdx = env.Idx
+		batch = append(batch, env.Ev)
+		batchBytes += approxRowBytes(&env.Ev)
 
 		return len(batch) >= c.cfg.BatchRows || batchBytes >= c.cfg.BatchMaxBytes
 	}
@@ -108,7 +187,7 @@ func (c *Consumer) Run(ctx context.Context) {
 
 			return
 
-		case ev, ok := <-c.in:
+		case env, ok := <-c.in:
 			if !ok {
 				flush("channel-closed")
 				_ = c.wal.Sync()
@@ -116,7 +195,7 @@ func (c *Consumer) Run(ctx context.Context) {
 				return
 			}
 
-			if add(ev) {
+			if add(env) {
 				flush("size")
 				ticker.Reset(c.cfg.BatchInterval)
 			}
@@ -127,27 +206,64 @@ func (c *Consumer) Run(ctx context.Context) {
 	}
 }
 
-func (c *Consumer) drain(flush func(reason string), add func(EnrichedEvent) bool) {
+// drain walks the in-channel until it closes OR stays quiet for
+// cfg.DrainSettle (default 30s). The previous implementation used a
+// `default: return` race that would exit immediately on any empty-chan
+// moment — under low post-restart traffic that leaked in-flight events
+// (wal-durability-review gap #3). A bounded wait is the correct upper
+// bound: we give the upstream pipeline enough time to flush its WAL
+// replay + handlers, but still exit on a legitimate idle shutdown.
+func (c *Consumer) drain(flush func(reason string), add func(WALEnvelope) bool) {
+	settle := time.NewTimer(c.cfg.DrainSettle)
+	defer settle.Stop()
+
+	flushNow := func(reason string) {
+		flush(reason)
+
+		_ = c.wal.Sync()
+	}
+
 	for {
 		select {
-		case ev, ok := <-c.in:
+		case env, ok := <-c.in:
 			if !ok {
-				flush("shutdown-drain")
-				_ = c.wal.Sync()
+				flushNow("shutdown-drain")
 
 				return
 			}
 
-			if add(ev) {
+			if add(env) {
 				flush("shutdown-size")
 			}
-		default:
-			flush("shutdown")
-			_ = c.wal.Sync()
+
+			// Saw traffic — restart the settle timer. Go 1.23+
+			// Stop + non-blocking drain pattern, matching walgroup.go.
+			settle.Stop()
+
+			select {
+			case <-settle.C:
+			default:
+			}
+
+			settle.Reset(c.cfg.DrainSettle)
+		case <-settle.C:
+			flushNow("shutdown-settle")
 
 			return
 		}
 	}
+}
+
+// emitConsumerAudit is a nil-safe wrapper around audit.Logger.Event so
+// the consumer's audit emissions stay terse + the test path can pass
+// auditLog: nil without an explicit guard at every call site. Mirrors
+// emitAudit in handler.go.
+func emitConsumerAudit(log *audit.Logger, name audit.EventName, attrs ...slog.Attr) {
+	if log == nil {
+		return
+	}
+
+	log.Event(context.Background(), name, attrs...)
 }
 
 // approxRowBytes is a cheap upper-bound estimate used for the bytes trigger.

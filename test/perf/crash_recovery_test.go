@@ -143,14 +143,16 @@ func TestCrashRecovery_KillNineWALReplay(t *testing.T) {
 	}
 
 	lossPct := float64(lost) / float64(totalSent) * 100
-	t.Logf("crash-recovery summary: sent=%d landed=%d lost=%d (%.2f%%) — Phase 7b target: <0.05%%",
+	t.Logf("crash-recovery summary: sent=%d landed=%d lost=%d (%.2f%%) — SLO: ≤ 0.05%%",
 		totalSent, got, lost, lossPct)
 
-	// Minimum survival assertion: at least some events landed (binary
-	// recovered + consumer ran). Stricter assertions land in 7b once
-	// the WAL replay + consumer drain bugs are fixed.
-	if got == 0 {
-		t.Fatal("zero events landed after crash recovery — binary did not recover at all")
+	// Phase 7b1b strict gate: CH count must land within 0.05% of the
+	// client-received 2xx total. GroupSyncer ack-after-fsync guarantees
+	// every 2xx reply corresponds to a durably persisted event, and
+	// the consumer's ack-after-CH-commit guarantees replay idempotency
+	// across restart.
+	if err := waitForCount(t, ctx, store, crashSiteID, totalSent, 30*time.Second); err != nil {
+		t.Fatalf("post-crash drain did not meet 0.05%% SLO: %v", err)
 	}
 }
 

@@ -40,6 +40,7 @@ var ErrGroupSyncerStopped = errors.New("wal group syncer stopped")
 type GroupSyncer struct {
 	wal      WALAppender
 	incoming chan walReq
+	out      chan WALEnvelope // downstream channel; consumer reads here
 
 	batchMax int
 	interval time.Duration
@@ -66,6 +67,20 @@ type GroupConfig struct {
 	// back-pressure earlier. Default 4096 (~7K EPS × 100ms = 700, with
 	// headroom for spikes).
 	IncomingBuffer int
+	// OutBuffer caps the downstream channel that the consumer reads
+	// from. Sized larger than IncomingBuffer so a slow consumer
+	// back-pressures via the loop's downstream send rather than blocking
+	// individual handlers. Default 4096.
+	OutBuffer int
+}
+
+// WALEnvelope pairs an enriched event with the WAL index assigned to it.
+// The consumer uses the index to ack the WAL only after a successful
+// ClickHouse insert (Architecture Rule 3 in the wal-durability-review
+// skill). Sent on GroupSyncer.Out() after the batch fsync completes.
+type WALEnvelope struct {
+	Idx uint64
+	Ev  EnrichedEvent
 }
 
 type walReq struct {
@@ -93,9 +108,14 @@ func NewGroupSyncer(w WALAppender, cfg GroupConfig, auditLog *audit.Logger, logg
 		cfg.IncomingBuffer = 4096
 	}
 
+	if cfg.OutBuffer <= 0 {
+		cfg.OutBuffer = 4096
+	}
+
 	g := &GroupSyncer{
 		wal:      w,
 		incoming: make(chan walReq, cfg.IncomingBuffer),
+		out:      make(chan WALEnvelope, cfg.OutBuffer),
 		batchMax: cfg.BatchMax,
 		interval: cfg.Interval,
 		auditLog: auditLog,
@@ -141,6 +161,12 @@ func (g *GroupSyncer) AppendAndWait(ctx context.Context, ev EnrichedEvent) (uint
 	}
 }
 
+// Out is the read-only side of the downstream channel the consumer
+// drains. Each WALEnvelope is sent ONLY after the containing batch has
+// been fsynced, so a consumer that reads from Out can trust the WAL has
+// the event durably. The channel closes when the loop exits via Close.
+func (g *GroupSyncer) Out() <-chan WALEnvelope { return g.out }
+
 // Close stops the loop after flushing the in-flight batch. Safe to call
 // multiple times — second call is a no-op.
 func (g *GroupSyncer) Close() {
@@ -156,6 +182,9 @@ func (g *GroupSyncer) Close() {
 
 func (g *GroupSyncer) loop() {
 	defer g.stopWG.Done()
+	// Close the downstream channel after final flush so the consumer
+	// sees a clean EOF on shutdown (range loop exits naturally).
+	defer close(g.out)
 
 	pending := make([]walReq, 0, g.batchMax)
 
@@ -253,10 +282,32 @@ func (g *GroupSyncer) flush(batch []walReq) {
 		return
 	}
 
+	// Two-step signal-then-fanout. Handlers care about durability
+	// (Sync just succeeded) so unblock them first; the consumer can
+	// catch up without blocking handler ack latency.
 	for i, req := range batch {
 		req.ack <- walAck{idx: indices[i], err: appendErrs[i]}
 
 		close(req.ack)
+	}
+
+	// Push successful events to the consumer. Blocking send so a slow
+	// consumer back-pressures the loop (and eventually the handlers via
+	// the upstream incoming chan) instead of dropping events that are
+	// already durable in the WAL.
+	for i := range batch {
+		if appendErrs[i] != nil {
+			continue
+		}
+
+		select {
+		case g.out <- WALEnvelope{Idx: indices[i], Ev: batch[i].ev}:
+		case <-g.stopCh:
+			// Shutting down; consumer will pick up via WAL replay on next
+			// boot. Event is durable (Sync done above).
+			g.logger.Warn("wal group syncer dropping post-fsync delivery on shutdown",
+				"idx", indices[i])
+		}
 	}
 }
 

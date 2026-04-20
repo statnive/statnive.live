@@ -92,17 +92,25 @@ func TestDiskFull_WALDropsOldest(t *testing.T) {
 	sent := FireEvents(t, ctx, diskFullHostname, 10_000, 1000)
 	t.Logf("phase 1: sent %d events (CH down, WAL filling)", sent)
 
-	// Phase 7a: fill_ratio reading is informational. Current behavior
-	// is that the consumer drops events when CH is unreachable rather
-	// than queueing them in the WAL — so the WAL stays at 0.0
-	// fill_ratio. Phase 7b target: consumer should buffer to WAL
-	// during outage + this assertion should flip to ratio > 0.5.
+	// Phase 7b1b strict gate (Step 2 + Step 4 + wal-durability-review
+	// item #6): the consumer buffers to WAL when CH is unreachable, so
+	// the fill_ratio MUST climb under pressure. Anything ≤ 0.05 means
+	// the consumer is dropping events instead of buffering them — the
+	// pre-7b1b regression we explicitly fixed.
 	ratio, err := readWALFillRatio(t, ctx)
 	if err != nil {
-		t.Logf("read fill_ratio: %v", err)
+		t.Fatalf("read fill_ratio: %v", err)
 	}
 
-	t.Logf("disk-full summary: sent=%d wal_fill_ratio=%.2f (Phase 7b target: >0.5 after pressure)", sent, ratio)
+	t.Logf("disk-full summary: sent=%d wal_fill_ratio=%.2f", sent, ratio)
+
+	// 0.05 instead of the plan's 0.5 because tidwall's segment-size
+	// rotation + the 1 MB WAL cap means we're dropping oldest segments
+	// long before reaching half-full; the assertion is "events DID
+	// reach the WAL", not "WAL is half-full".
+	if ratio <= 0.05 {
+		t.Fatalf("fill_ratio = %.4f after pressure; want > 0.05 (consumer should buffer to WAL on CH outage, not drop)", ratio)
+	}
 
 	// Restart CH so we can verify the binary stayed up + healthz still answers.
 	if err := DockerCommand("start", chContainerName); err != nil {
