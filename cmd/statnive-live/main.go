@@ -107,6 +107,7 @@ func run() error {
 	wal, err := ingest.NewWALWriter(ingest.WALConfig{
 		Dir:      cfg.Ingest.WALDir,
 		MaxBytes: cfg.Ingest.WALMaxBytes,
+		AuditLog: auditLog,
 	}, logger)
 	if err != nil {
 		return fmt.Errorf("wal: %w", err)

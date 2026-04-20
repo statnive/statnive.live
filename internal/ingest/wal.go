@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -9,9 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	twal "github.com/tidwall/wal"
+
+	"github.com/statnive/statnive.live/internal/audit"
 )
 
 // walFsyncInterval is the periodic fsync cadence (PLAN.md:159 — 100 ms).
@@ -23,6 +27,9 @@ const walFsyncInterval = 100 * time.Millisecond
 type WALConfig struct {
 	Dir      string
 	MaxBytes int64 // PLAN.md:159 — default 10 GB cap.
+	// AuditLog is optional; nil silences wal.corrupt_skipped emissions.
+	// Injected by main.go for the prod path; test WALWriters pass nil.
+	AuditLog *audit.Logger
 }
 
 // WALWriter wraps tidwall/wal with an fsync ticker and a periodic
@@ -33,6 +40,7 @@ type WALWriter struct {
 	maxBytes int64
 	mu       sync.Mutex
 	nextIdx  uint64
+	auditLog *audit.Logger
 	logger   *slog.Logger
 
 	stopCh chan struct{}
@@ -47,6 +55,15 @@ func NewWALWriter(cfg WALConfig, logger *slog.Logger) (*WALWriter, error) {
 
 	if err := os.MkdirAll(cfg.Dir, 0o750); err != nil {
 		return nil, fmt.Errorf("wal mkdir: %w", err)
+	}
+
+	// wal-durability-review item #4: WAL directory must live on the
+	// same filesystem as its parent so tidwall's segment rotation
+	// (which uses os.Rename) stays atomic. A cross-FS rename is two
+	// copy-then-unlink operations; a crash between them leaves
+	// partial or duplicated segments on disk.
+	if err := assertSameFilesystem(cfg.Dir); err != nil {
+		return nil, fmt.Errorf("wal dir: %w", err)
 	}
 
 	maxBytes := cfg.MaxBytes
@@ -76,6 +93,7 @@ func NewWALWriter(cfg WALConfig, logger *slog.Logger) (*WALWriter, error) {
 		dir:      cfg.Dir,
 		maxBytes: maxBytes,
 		nextIdx:  last + 1,
+		auditLog: cfg.AuditLog,
 		logger:   logger,
 		stopCh:   make(chan struct{}),
 	}
@@ -120,6 +138,13 @@ func (w *WALWriter) CurrentIndex() uint64 {
 // Replay iterates every persisted entry and invokes cb. The callback is
 // called in WAL order. Stops on the first cb error; the caller decides
 // whether to truncate.
+//
+// Structured logging per wal-durability-review item #8: emits
+// `wal_replay{first_idx, last_idx}` at start and
+// `wal_replay_done{total, corrupt_skipped, elapsed_ms}` at end. Corrupt
+// entries (tidwall ErrNotFound on an in-range index, or a gob decode
+// error) fire audit.EventWALCorruptSkipped rather than being silently
+// swallowed (item #10).
 func (w *WALWriter) Replay(cb func(EnrichedEvent) error) error {
 	first, err := w.log.FirstIndex()
 	if err != nil {
@@ -135,10 +160,30 @@ func (w *WALWriter) Replay(cb func(EnrichedEvent) error) error {
 		return nil
 	}
 
+	// Item #9: LastIndex must be monotonically ≥ FirstIndex once the
+	// log has any entries. A regression here means tidwall returned
+	// inconsistent metadata — fail fast.
+	if last < first {
+		return fmt.Errorf("wal invariant violated: last_idx %d < first_idx %d", last, first)
+	}
+
+	w.logger.Info("wal_replay", "first_idx", first, "last_idx", last)
+
+	start := time.Now()
+
+	var (
+		total   int64
+		corrupt int64
+	)
+
 	for i := first; i <= last; i++ {
 		data, readErr := w.log.Read(i)
 		if readErr != nil {
 			if errors.Is(readErr, twal.ErrNotFound) {
+				corrupt++
+
+				w.emitCorrupt(i, "read_not_found")
+
 				continue
 			}
 
@@ -147,7 +192,9 @@ func (w *WALWriter) Replay(cb func(EnrichedEvent) error) error {
 
 		var ev EnrichedEvent
 		if decErr := gob.NewDecoder(bytes.NewReader(data)).Decode(&ev); decErr != nil {
-			w.logger.Warn("wal entry corrupt, skipping", "idx", i, "err", decErr)
+			corrupt++
+
+			w.emitCorrupt(i, "gob_decode_error")
 
 			continue
 		}
@@ -155,9 +202,33 @@ func (w *WALWriter) Replay(cb func(EnrichedEvent) error) error {
 		if cbErr := cb(ev); cbErr != nil {
 			return cbErr
 		}
+
+		total++
 	}
 
+	w.logger.Info("wal_replay_done",
+		"total", total,
+		"corrupt_skipped", corrupt,
+		"elapsed_ms", time.Since(start).Milliseconds(),
+	)
+
 	return nil
+}
+
+// emitCorrupt audits one corrupt-segment detection. Kept private so
+// the loop stays terse while preserving the audit trail required by
+// wal-durability-review item #10.
+func (w *WALWriter) emitCorrupt(idx uint64, reason string) {
+	w.logger.Warn("wal entry corrupt, skipping", "idx", idx, "reason", reason)
+
+	if w.auditLog == nil {
+		return
+	}
+
+	w.auditLog.Event(context.Background(), audit.EventWALCorruptSkipped,
+		slog.Uint64("idx", idx),
+		slog.String("reason", reason),
+	)
 }
 
 // Ack truncates the front so entries up to and including throughIndex are
@@ -307,4 +378,43 @@ func dirSize(dir string) (int64, error) {
 	})
 
 	return total, err
+}
+
+// assertSameFilesystem fails when dir lives on a different filesystem
+// than its parent. tidwall/wal's segment rotation uses os.Rename; a
+// cross-FS rename is NOT atomic (copy-then-unlink), so a crash between
+// copy and unlink leaves either a missing segment (data loss) or a
+// duplicate (replay misorder). wal-durability-review item #4.
+//
+// No-op on Linux + macOS when the dir is a child of a filesystem mount
+// point (common case). Returns an error only when the operator has
+// mounted the WAL dir on a separate volume — which is a deployment
+// mistake we want to fail loud rather than silently corrupt.
+func assertSameFilesystem(dir string) error {
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("stat %q: %w", dir, err)
+	}
+
+	parentInfo, err := os.Stat(filepath.Dir(dir))
+	if err != nil {
+		return fmt.Errorf("stat parent of %q: %w", dir, err)
+	}
+
+	dirSys, dirOK := dirInfo.Sys().(*syscall.Stat_t)
+	parSys, parOK := parentInfo.Sys().(*syscall.Stat_t)
+
+	// If either cast fails (non-Unix platform — test environment etc.)
+	// we skip the check rather than blocking startup. The invariant is
+	// relevant only on Linux production; macOS dev rigs use a single
+	// volume by default.
+	if !dirOK || !parOK {
+		return nil
+	}
+
+	if dirSys.Dev != parSys.Dev {
+		return fmt.Errorf("WAL dir %q is on a different filesystem than its parent — rename atomicity is not guaranteed across mounts (wal-durability-review item #4)", dir)
+	}
+
+	return nil
 }
