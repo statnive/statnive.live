@@ -33,11 +33,12 @@
 
 ## License Rules (Critical)
 
-- **ALL dependencies MUST be MIT/Apache/BSD/ISC** — no AGPL in the binary
+- **ALL linked dependencies MUST be MIT/Apache/BSD/ISC** — no AGPL in the binary
 - statnive-live is sold as SaaS outside Iran where AGPL Section 13 applies
 - **DO NOT import pirsch-analytics/pirsch** (AGPL) — reference patterns only
 - **DO NOT use knadh/koanf** (AGPL) — use viper (MIT) or env-only config
 - Before adding any dependency, verify its license with `go-licenses`
+- **CC-BY-SA-4.0 carve-out for non-linked data files only** (doc 28 §Gap 1 policy). IP2Location LITE DB23 and similar GeoIP BINs are data, not linked code — the binary surface gate does not apply. Attribution is delivered in three surfaces (`LICENSE-third-party.md` + `/about` JSON + dashboard footer) enforced by the [`geoip-pipeline-review`](.claude/skills/geoip-pipeline-review/README.md) skill. Every major free city-level GeoIP DB is CC-BY-SA-4.0; the previous blanket rejection was unsatisfiable. Paid IP2Location DB23 Site License at Phase 10 waives attribution; until then LITE stays default.
 
 ## Privacy Rules (Non-Negotiable)
 
@@ -197,7 +198,7 @@ These are the release-blocking numbers. CI must assert them on every v1/v1.1 RC 
 
 ## Dev Tooling
 
-Claude Code skills + MCP server setup for this project live in [`docs/tooling.md`](docs/tooling.md) (not in CLAUDE.md — it's developer ergonomics, not product rules). That file covers the **original 4 skill collections** (cc-skills-golang, ClickHouse Agent Skills, trailofbits, marina-skill — doc 23 foundation), the **doc 25 additions** (anthropics/skills cherry-pick, JetBrains use-modern-go, agamm/claude-code-owasp, BehiSecc/VibeSec-Skill, izar/tm_skills, vercel-labs web-design-guidelines, obra/superpowers 5-skill subset, knip, constant-time-analysis), the **6 project-local custom skills** (see § Enforcement below), **4 MCP servers** (Altinity ClickHouse, gopls, Hetzner, Grafana), and the phase → tooling mapping. The `/jaan-to:*` skills ship with the parent plugin and handle *what* (specs, scaffolds, tests, reviews); community collections handle *how* (Go/ClickHouse/security/deploy patterns); the 6 custom skills encode the 8 non-negotiable architecture rules as CI-blocking guardrails.
+Claude Code skills + MCP server setup for this project live in [`docs/tooling.md`](docs/tooling.md) (not in CLAUDE.md — it's developer ergonomics, not product rules). That file covers the **original 4 skill collections** (cc-skills-golang, ClickHouse Agent Skills, trailofbits, marina-skill — doc 23 foundation), the **doc 25 additions** (anthropics/skills cherry-pick, JetBrains use-modern-go, agamm/claude-code-owasp, BehiSecc/VibeSec-Skill, izar/tm_skills, vercel-labs web-design-guidelines, obra/superpowers 5-skill subset, knip, constant-time-analysis), the **doc 27 additions** (`grc-gdpr`, `legal-compliance-check`, custom `wal-durability-review` + `ratelimit-tuning-review` + `gdpr-code-review` + `dsar-completeness-checker`), the **doc 28 additions** (custom `iranian-dc-deploy` + `clickhouse-operations-review` + `clickhouse-upgrade-playbook` + `geoip-pipeline-review`), the **10 + 4 project-local custom skills** (see § Enforcement below), **4 MCP servers** (Altinity ClickHouse, gopls, Hetzner, Grafana), and the phase → tooling mapping. The `/jaan-to:*` skills ship with the parent plugin and handle *what* (specs, scaffolds, tests, reviews); community collections handle *how* (Go/ClickHouse/security/deploy patterns); the 14 custom skills encode the 8 non-negotiable architecture rules + privacy + air-gap + Iranian-DC contract as CI-blocking guardrails.
 
 **Do not install:** `anthropics/skills/web-artifacts-builder` (React+shadcn+CDN-fonts — air-gap violation, blows past bundle budget), `shajith003/awesome-claude-skills` (AI-slop), `sickn33/antigravity-awesome-skills`, `rohitg00/awesome-claude-code-toolkit` (inflated counts, low S/N). Reference: doc 25 §landscape.
 
@@ -215,6 +216,23 @@ Claude Code skills + MCP server setup for this project live in [`docs/tooling.md
 | `internal/ratelimit/**` / `httprate` / middleware chain | [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md) |
 | `internal/privacy/**` / `/api/privacy/*` / tracker JS / EnrichedEvent | [`gdpr-code-review`](.claude/skills/gdpr-code-review/README.md) |
 | New migration + erase.go + audit sink | [`dsar-completeness-checker`](.claude/skills/dsar-completeness-checker/README.md) |
+| `deploy/**` / `ops/**` / DNS / TLS / NTP / license code | [`iranian-dc-deploy`](.claude/skills/iranian-dc-deploy/README.md) |
+| `internal/enrich/geoip.go` / ip2location-go / SIGHUP wiring / attribution surfaces | [`geoip-pipeline-review`](.claude/skills/geoip-pipeline-review/README.md) |
+| `migrations/*.sql` / `internal/ingest/**` / `internal/query/**` / `prometheus/*.rules.yml` | [`clickhouse-operations-review`](.claude/skills/clickhouse-operations-review/README.md) |
+| `Engine=` or `{{if .Cluster}}` in migrations (advisory runbook) | [`clickhouse-upgrade-playbook`](.claude/skills/clickhouse-upgrade-playbook/README.md) |
+
+### Anti-patterns (doc 28 §Anti-patterns) — absolute bans
+
+These are enforced by the custom-skill Semgrep rules. Human-facing mirror here so PR review can reject on sight without needing the CI job to fire:
+
+- **No Cloudflare on any IR-resident code path** — no CF for DNS, TLS, DDoS, or KV. OFAC 31 CFR 560.540(b)(3) + no IR POP. Enforced by `iran-no-cloudflare`.
+- **No ACME / Let's Encrypt from inside Iran** — issue PEMs on outside-Iran `cert-forge` box, rsync inward, SIGHUP swap. Enforced by `iran-no-letsencrypt-in-binary`.
+- **No fsnotify for GeoIP reload** — overlayfs/NFS/kqueue lose events silently; SIGHUP only. Enforced by `geoip-no-fsnotify-on-bin`.
+- **No `OPTIMIZE TABLE ... FINAL` without `PARTITION`** — serializes merges, OOMs 8c/32GB, non-idempotent on AggregatingMergeTree. Sanctioned alternative is `OPTIMIZE ... PARTITION '...' FINAL DEDUPLICATE` off-peak or `min_age_to_force_merge_seconds=3600`. Enforced by `ch-ops-no-optimize-final-in-sql`.
+- **No phone-home license check "even for telemetry"** — telemetry = "services rendered" under OFAC interpretation; `560.540(b)(3)` excludes. Offline Ed25519 JWT, zero `net.Dial`. Enforced by `iran-license-verify-must-be-offline`.
+- **No AGPL linked into the binary; CC-BY-SA only via the § License Rules data-file carve-out** — OS daemons (chrony, acme.sh, knot, bind) are operator-installed and live outside the binary boundary. GeoIP BIN data qualifies as non-linked data. No other exceptions.
+- **`{{if .Cluster}}` is DDL templating only, NOT cluster-upgrade automation** — data migration from MergeTree → ReplicatedMergeTree is manual via hard-link `ATTACH PARTITION`. See the advisory [`clickhouse-upgrade-playbook`](.claude/skills/clickhouse-upgrade-playbook/README.md) runbook.
+- **Never ArvanCloud** — sanctioned + 2022 breach. Asiatech primary, ParsPack or Shatel backup.
 
 ### Routing for everything else
 
@@ -222,7 +240,7 @@ For community skills (Go / ClickHouse / security / frontend / methodology) and `
 
 ## Single Source of Truth
 
-`../statnive-workflow/jaan-to/docs/research/` (docs 14–27) is the canonical source for every architecture, feature, and threat-model decision in this project. Do **not** restate research conclusions in this `CLAUDE.md` or in skill prompts — reference by doc number and section only. When a decision changes, update the research doc; this file references it and never duplicates. Same rule applies to the feature matrix (doc 17, 18), the cost model (doc 19), the initial skill / MCP list (doc 23), the **AGPL-safe Pirsch pattern extraction (doc 24)** — reference only, never port — the **Claude-skills install matrix + custom-skill catalog (doc 25)**, and the **three-gap closure (doc 27 — WAL durability / CGNAT rate limit / GDPR-on-HLL)** — reference only, never restate in skill prompts.
+`../statnive-workflow/jaan-to/docs/research/` (docs 14–28) is the canonical source for every architecture, feature, and threat-model decision in this project. Do **not** restate research conclusions in this `CLAUDE.md` or in skill prompts — reference by doc number and section only. When a decision changes, update the research doc; this file references it and never duplicates. Same rule applies to the feature matrix (doc 17, 18), the cost model (doc 19), the initial skill / MCP list (doc 23), the **AGPL-safe Pirsch pattern extraction (doc 24)** — reference only, never port — the **Claude-skills install matrix + custom-skill catalog (doc 25)**, the **three-gap closure (doc 27 — WAL durability / CGNAT rate limit / GDPR-on-HLL)**, and the **final-three-gap closure (doc 28 — GeoIP pipeline / Iranian DC deploy / ClickHouse ops + upgrade playbook)** — reference only, never restate in skill prompts.
 
 ## Enforcement
 
@@ -235,7 +253,7 @@ These integration tests pin the invariants in this file. They are Phase 0 / Phas
 - `test/security/no_agpl_test.go` — `go-licenses` asserts every direct + transitive dep is MIT / Apache / BSD / ISC (License Rules).
 - `web/src/__tests__/tenant-isolation.test.tsx` — Vitest guard that Preact signal stores don't leak `site_id` state across dashboard views.
 
-**Project-local SKILL.md guardrails** — six scaffolded skills under `.claude/skills/` encode Architecture Rules 2/5/8 + Isolation + Privacy Rules 2/3/4 as triggerable guardrails. Full specs in each skill's `README.md`; triggers in § Dev Tooling above.
+**Project-local SKILL.md guardrails** — fourteen scaffolded skills under `.claude/skills/` encode Architecture Rules 2/5/8 + Isolation + Privacy Rules 2/3/4 + Iranian-DC operational contract (doc 28) + GeoIP privacy (doc 28) + ClickHouse ops (doc 28) as triggerable guardrails. Full specs in each skill's `README.md`; triggers in § Dev Tooling above. Semgrep bodies + fixtures fill in per phase — doc-25 set shipped, doc-27 set mid-implementation, doc-28 set scaffolded for Weeks 17–22.
 
 `/simplify` and PR review must reject any new unguarded query (no `WHERE site_id = ?`), any new dependency without a license check, any new outbound network call not behind a config flag, and any new `Nullable(...)` column.
 

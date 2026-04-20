@@ -1,0 +1,86 @@
+# Semgrep rules for iranian-dc-deploy
+#
+# Authored per doc 28 §Gap 2 (lines 392–461). Bodies ship here; `.github/workflows/
+# iran-dc-gate.yml` must register this file as its `config:` path.
+#
+# License: proprietary (statnive-live internal)
+# Research anchor: jaan-to/docs/research/28-geoip-iranian-dc-clickhouse.md §Gap 2
+#
+# STATUS: scaffold complete — 7 rules with full patterns from doc 28. Next step is
+# wiring the `.github/workflows/iran-dc-gate.yml` CI job (Weeks 17–18) + authoring
+# fixtures under test/ to exercise each rule's positive + negative cases.
+
+rules:
+  - id: iran-no-cloudflare
+    languages: [go, yaml, generic]
+    severity: ERROR
+    message: Cloudflare not usable for Iranian traffic (OFAC + no IR POP).
+    pattern-regex: '(api\.cloudflare\.com|(^|[^a-z0-9.])cloudflare\.com|dash\.cloudflare\.com|1\.1\.1\.1|1\.0\.0\.1)'
+    paths:
+      exclude: ["ci/**", "docs/**", "**/*_test.go"]
+
+  - id: iran-no-letsencrypt-in-binary
+    languages: [go, generic]
+    severity: ERROR
+    message: ACME endpoints must not appear in Iran-resident binary; move to ops/cert-forge.
+    pattern-either:
+      - pattern-regex: 'acme-v0[12]\.api\.letsencrypt\.org'
+      - pattern-regex: 'acme\.zerossl\.com'
+      - pattern-regex: 'api\.buypass\.com/acme'
+    paths:
+      exclude: ["ops/cert-forge/**", "docs/**"]
+
+  - id: iran-no-github-api-at-runtime
+    languages: [go, yaml, generic]
+    severity: WARNING
+    message: Build-time endpoints must be gated by !config.AirGap and never required at runtime.
+    pattern-regex: '(api\.github\.com|raw\.githubusercontent\.com|goproxy\.io|proxy\.golang\.org|registry\.npmjs\.org)'
+    paths:
+      include: ["**/*.go", "**/*.yaml", "**/*.yml", "**/*.toml"]
+      exclude: ["ci/**", ".github/**", "vendor/**", "docs/**"]
+
+  - id: iran-http-client-must-have-timeout-and-airgap-gate
+    languages: [go]
+    severity: ERROR
+    message: Every *http.Client must go through internal/httpx.NewClient with Timeout + AirGap gate.
+    pattern-either:
+      - pattern: '&http.Client{...}'
+      - pattern: 'http.DefaultClient'
+      - pattern: 'http.DefaultTransport'
+    pattern-not-inside: |
+      func NewClient(...) (*http.Client, error) { ... }
+    paths:
+      exclude: ["**/*_test.go", "vendor/**", "ci/**"]
+
+  - id: iran-require-airgap-guard-on-egress
+    languages: [go]
+    severity: ERROR
+    message: Egress call without `if !config.AirGap` guard or `// airgap-exception:` annotation.
+    pattern-either:
+      - pattern: $CLIENT.Get($URL)
+      - pattern: $CLIENT.Post($URL, ...)
+      - pattern: s3.New(...).PutObject(...)
+      - pattern: grpc.Dial($ADDR, ...)
+    pattern-not-inside: |
+      if !$CFG.AirGap { ... }
+    paths:
+      exclude: ["**/*_test.go", "vendor/**"]
+
+  - id: iran-license-verify-must-be-offline
+    languages: [go]
+    severity: ERROR
+    message: License verification must be offline Ed25519 local verify only.
+    pattern-either:
+      - pattern: net.Dial(...)
+      - pattern: http.Get(...)
+      - pattern: grpc.Dial(...)
+    paths:
+      include: ["internal/license/**", "pkg/license/**"]
+
+  - id: iran-no-hardcoded-non-iran-ntp
+    languages: [generic, yaml]
+    severity: WARNING
+    message: NTP must sync to Iranian sources; external NTP is blackout-unreachable.
+    pattern-regex: '(time\.google\.com|time\.cloudflare\.com|time\.apple\.com|time\.windows\.com|(^|[^.])pool\.ntp\.org)'
+    paths:
+      exclude: ["docs/**", "**/*_test.go"]
