@@ -180,7 +180,7 @@ func run() error {
 		BatchRows:     cfg.Ingest.BatchRows,
 		BatchInterval: cfg.Ingest.BatchInterval,
 		BatchMaxBytes: cfg.Ingest.BatchMaxBytes,
-	}, logger)
+	}, auditLog, logger)
 
 	registry := sites.New(store.Conn())
 
@@ -203,6 +203,11 @@ func run() error {
 	router.Group(func(r chi.Router) {
 		r.Use(ingest.FastRejectMiddleware(auditLog))
 		r.Use(rateLimitMW)
+		// Back-pressure gate sits AFTER rate-limit (abusive clients still
+		// hit 429 first) but BEFORE the handler (so a degraded WAL
+		// doesn't burn enrichment + fsync budget on events destined for
+		// 503). wal-durability-review item #6.
+		r.Use(ingest.BackpressureMiddleware(wal, ingest.BackpressureConfig{}))
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline:     pipeline,
 			WAL:          groupSyncer,
