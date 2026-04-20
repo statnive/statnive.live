@@ -1,0 +1,73 @@
+# ClickHouse operations CI gate
+#
+# Lift into `.github/workflows/ch-ops-gate.yml` in Phase 8 (Weeks 20–22). Body is
+# verbatim from doc 28 §Gap 3 lines 787–841.
+
+name: ch-ops-gate
+on:
+  pull_request:
+    paths:
+      - 'migrations/**'
+      - 'internal/ingest/**'
+      - 'internal/query/**'
+      - 'config/**'
+      - 'prometheus/**'
+  schedule:
+    - cron: '0 3 * * *'   # nightly 03:00 UTC
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: returntocorp/semgrep-action@v1
+        with:
+          config: .claude/skills/clickhouse-operations-review/semgrep/rules.yaml
+
+  backup-restore-drill:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'ops-drill')
+    services:
+      ch-prod:  { image: clickhouse/clickhouse-server:24.8, ports: ['9000:9000'] }
+      ch-drill: { image: clickhouse/clickhouse-server:24.8, ports: ['19000:9000'] }
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/seed.sh --target 127.0.0.1:9000 --rows 1000000
+      - run: |
+          wget -q https://github.com/Altinity/clickhouse-backup/releases/download/v2.5.20/clickhouse-backup.tar.gz
+          tar xzf clickhouse-backup.tar.gz
+          sudo mv build/linux/amd64/clickhouse-backup /usr/local/bin/
+      - name: create + upload + restore
+        run: |
+          clickhouse-backup --config deploy/backup/config.yml create ci-drill
+          clickhouse-backup --config deploy/backup/config.yml upload ci-drill
+          clickhouse-backup --config deploy/backup/config-drill.yml restore_remote ci-drill
+      - name: Row-count parity + rollup mergeability
+        run: |
+          P=$(clickhouse-client --port 9000  -q "SELECT sum(rows) FROM system.parts WHERE table='events' AND active")
+          D=$(clickhouse-client --port 19000 -q "SELECT sum(rows) FROM system.parts WHERE table='events' AND active")
+          test "$P" = "$D"
+          clickhouse-client --port 19000 -q \
+            "SELECT uniqCombined64Merge(uniq_state) FROM rollup_daily FINAL FORMAT Null"
+
+  parts-ceiling-after-7k-eps:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.labels.*.name, 'load-test')
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f deploy/ci/compose.yml up -d
+      - run: k6 run --vus 500 --duration 5m --rps 7000 -e TARGET=http://localhost:8080/ingest tests/k6/ingest.js
+      - name: Parts + delayed + rejected counters
+        run: |
+          MAX=$(docker exec ch clickhouse-client -q \
+            "SELECT max(c) FROM (SELECT count() c FROM system.parts WHERE active GROUP BY table)")
+          test "$MAX" -lt 100
+          REJ=$(docker exec ch clickhouse-client -q \
+            "SELECT count() FROM system.events WHERE event='RejectedInserts' AND value>0")
+          test "$REJ" = "0"
+          DEL=$(docker exec ch clickhouse-client -q \
+            "SELECT sum(value) FROM system.events WHERE event='DelayedInserts'")
+          test "$DEL" -lt 50
+      - name: p99 ingest < 500ms
+        run: |
+          k6 run --threshold 'http_req_duration{kind:ingest}=["p(99)<500"]' tests/k6/ingest.js
