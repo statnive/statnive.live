@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := ./...
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install
 
 all: lint test build
 
@@ -119,11 +119,32 @@ refresh-bot-patterns:
 		-o internal/enrich/crawler-user-agents.json
 	@echo "Refreshed internal/enrich/crawler-user-agents.json"
 
-## audit: Hardening gate — vendor + tenancy + go vet + hot-path benches
+## audit: Hardening gate — vendor + tenancy + go vet + hot-path benches + tracker bundle size
 ## Re-run before opening a PR. Slow tests + CH integration excluded.
-audit: vendor-check tenancy-grep
+audit: vendor-check tenancy-grep tracker-size
 	$(GO) vet -mod=vendor $(PKG)
 	$(GO) test -mod=vendor -bench=. -benchmem -run='^$$' -benchtime=2s -timeout 5m ./internal/enrich/ ./internal/ingest/
+
+## tracker-install: Install tracker devDeps once; consumed by tracker + tracker-test
+tracker-install:
+	cd tracker && npm ci
+
+## tracker: Build the IIFE tracker (Rollup + Terser → internal/tracker/dist/tracker.js)
+tracker: tracker-install
+	cd tracker && npm run build
+
+## tracker-test: Run Vitest against the tracker source
+tracker-test: tracker-install
+	cd tracker && npm test
+
+## tracker-size: CI gate — assert internal/tracker/dist/tracker.js stays inside the budget
+tracker-size:
+	@SIZE=$$(stat -f%z internal/tracker/dist/tracker.js 2>/dev/null || stat -c%s internal/tracker/dist/tracker.js); \
+	GZIP=$$(gzip -c -9 internal/tracker/dist/tracker.js | wc -c | tr -d ' '); \
+	echo "tracker.js: $$SIZE B min / $$GZIP B gz (budget: 1500 / 700)"; \
+	if [ $$SIZE -gt 1500 ] || [ $$GZIP -gt 700 ]; then \
+	  echo "FAIL: tracker bundle over budget (1500 B min / 700 B gz)"; exit 1; \
+	fi
 
 ## airgap-test: MANUAL — run the binary under iptables OUTPUT DROP and
 ## confirm ingest + dashboard still work (loopback whitelisted). Procedure

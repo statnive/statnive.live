@@ -1,0 +1,77 @@
+// statnive.live tracker — vanilla JS IIFE, ≤1.5 KB minified / ≤700 B gzipped.
+//
+// Privacy contract:
+//   - Short-circuits BEFORE any observable side effect on DNT, Sec-GPC,
+//     navigator.webdriver, _phantom (CLAUDE.md Privacy Rule 6 + doc 27 #9).
+//   - No cookies / localStorage / sessionStorage / IndexedDB.
+//   - No fingerprinting (canvas, WebGL, font enum, navigator.plugins,
+//     AudioContext, deviceMemory, hardwareConcurrency).
+//   - sendBeacon + fetch keepalive only — no XMLHttpRequest.
+//
+// Public surface (window.statnive):
+//   .track(name, props, value)  — custom event; pageview is fired automatically.
+//   .identify(uid)              — store raw uid; sent in user_id field; server
+//                                 hashes via identity.HexUserIDHash and clears
+//                                 the raw value before pipeline (Privacy Rule 4).
+(function (w, d) {
+  if (w.statnive) return;
+  if (w.navigator.doNotTrack === '1' ||
+      w.navigator.globalPrivacyControl === true ||
+      w.navigator.webdriver === true ||
+      w._phantom || w.callPhantom) {
+    w.statnive = { track: function () {}, identify: function () {} };
+    return;
+  }
+
+  var script = d.currentScript || d.querySelector('script[data-statnive-endpoint]');
+  var endpoint = (script && script.getAttribute('data-statnive-endpoint')) || '/api/event';
+  var userId = '';
+  // Cached UTM params — re-parsed on every history change since the
+  // query string can shift on SPA navigation. Reused across all events
+  // fired between navigations (typically 90% of all sends).
+  var q = new URLSearchParams(w.location.search);
+
+  function send(name, props, value) {
+    var body = JSON.stringify({
+      hostname: w.location.hostname,
+      pathname: w.location.pathname,
+      title: d.title,
+      referrer: d.referrer,
+      utm_source: q.get('utm_source') || '',
+      utm_medium: q.get('utm_medium') || '',
+      utm_campaign: q.get('utm_campaign') || '',
+      utm_content: q.get('utm_content') || '',
+      utm_term: q.get('utm_term') || '',
+      event_type: name === 'pageview' ? 'pageview' : 'custom',
+      event_name: name,
+      event_value: value || 0,
+      user_id: userId,
+      props: props || {},
+    });
+    if (w.navigator.sendBeacon) {
+      w.navigator.sendBeacon(endpoint, new Blob([body], { type: 'text/plain' }));
+    } else {
+      w.fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: body,
+        keepalive: true,
+      });
+    }
+  }
+
+  function refresh() { q = new URLSearchParams(w.location.search); pageview(); }
+  function pageview() { send('pageview'); }
+
+  var pushState = w.history.pushState;
+  var replaceState = w.history.replaceState;
+  w.history.pushState = function () { pushState.apply(this, arguments); refresh(); };
+  w.history.replaceState = function () { replaceState.apply(this, arguments); refresh(); };
+  w.addEventListener('popstate', refresh);
+
+  w.statnive = {
+    track: function (name, props, value) { send(name, props, value); },
+    identify: function (uid) { userId = String(uid || ''); },
+  };
+  pageview();
+})(window, document);

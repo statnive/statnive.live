@@ -34,6 +34,7 @@ import (
 	"github.com/statnive/statnive.live/internal/ratelimit"
 	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
+	"github.com/statnive/statnive.live/internal/tracker"
 )
 
 // dashboardCacheCapacity sizes the per-process query cache. 4096 entries
@@ -196,10 +197,11 @@ func run() error {
 		r.Use(ingest.FastRejectMiddleware(auditLog))
 		r.Use(rateLimitMW)
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
-			Pipeline: pipeline,
-			Sites:    registry,
-			Audit:    auditLog,
-			Logger:   logger,
+			Pipeline:     pipeline,
+			Sites:        registry,
+			MasterSecret: masterSecret,
+			Audit:        auditLog,
+			Logger:       logger,
 		}))
 	})
 
@@ -218,6 +220,11 @@ func run() error {
 		WAL:   wal,
 		Start: time.Now(),
 	}))
+
+	// First-party tracker — bytes embedded via go:embed in internal/tracker.
+	// Sits outside the dashboard auth + rate-limit groups; serves a static
+	// blob that's safe to hand back unauthenticated under any traffic.
+	router.Method(http.MethodGet, "/tracker.js", tracker.Handler())
 
 	tlsLoader, err := newTLSLoader(cfg, auditLog, logger)
 	if err != nil {

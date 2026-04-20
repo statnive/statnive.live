@@ -196,6 +196,88 @@ upstream files — only modified MPL-2.0 files would require source
 disclosure. Any new MPL dep needs the same justification documented
 inline.
 
+## Phase 4 — Tracker (install + verify)
+
+### Install
+
+Paste once into the host page's `<head>` (or before `</body>`):
+
+```html
+<script src="https://your-statnive-host/tracker.js" defer></script>
+```
+
+The tracker is served first-party from the analytics binary itself
+(`go:embed`). No external CDN, no third-party DNS hop, no SRI tag.
+
+### Public API
+
+```js
+statnive.track(name, props, value);   // custom event; props is an object, value is a number
+statnive.identify(uid);               // raw uid; server hashes via SHA-256 + master_secret
+```
+
+`pageview` fires automatically on initial load and on every
+`history.pushState` / `replaceState` / `popstate` (SPA route changes).
+
+### Privacy default-off conditions
+
+The tracker silently disables itself (both `track` + `identify` become
+no-ops) when **any** of these hold:
+
+- `navigator.doNotTrack === '1'` (DNT)
+- `navigator.globalPrivacyControl === true` (Sec-GPC)
+- `navigator.webdriver === true`
+- `window._phantom` / `window.callPhantom` is set
+
+No banner is required for users who've opted out — the opt-out is
+structural.
+
+### Verification recipe
+
+1. Spin the binary locally: `make build && ./bin/statnive-live`.
+2. Open `http://127.0.0.1:8080/tracker.js` — should return the embedded
+   JS with `Content-Type: application/javascript; charset=utf-8` and
+   `Cache-Control: public, max-age=3600`.
+3. Drop a tiny test page in `/tmp/index.html`:
+   ```html
+   <script src="http://127.0.0.1:8080/tracker.js" defer></script>
+   ```
+   Open in a browser; DevTools → Network → look for `POST /api/event` with
+   `Content-Type: text/plain`.
+4. Confirm the event reached ClickHouse:
+   ```bash
+   docker exec statnive-clickhouse-dev clickhouse-client \
+     -q "SELECT count() FROM statnive.events_raw WHERE hostname='127.0.0.1'"
+   ```
+5. **GPC test:** in DevTools Console, `navigator.globalPrivacyControl =
+   true`, reload the page, confirm **no** `POST /api/event` fires.
+6. **Custom event:** in Console, `statnive.track('test_event', {plan:
+   'pro'}, 99)`. Confirm a row appears with `event_type='custom'`,
+   `event_name='test_event'`, `event_value=99`.
+7. **identify() round-trip:** `statnive.identify('user_a83f');
+   statnive.track('purchase', {}, 100);` then
+   ```sql
+   SELECT user_id_hash FROM statnive.events_raw
+   WHERE event_name='purchase' ORDER BY time DESC LIMIT 1
+   ```
+   The result must be a 64-char hex string, **not** the literal
+   `user_a83f`. Privacy Rule 4 is enforced at the handler boundary —
+   the raw value never reaches the WAL or ClickHouse.
+
+### Bundle budget
+
+`make tracker-size` and `make audit` both gate the dist file:
+
+| Metric | Budget | Current |
+|---|---:|---:|
+| Minified | ≤ 1500 B | 1336 B |
+| Gzipped | ≤ 700 B | 677 B |
+
+A regression in either fails CI. The Go-side
+[`internal/tracker/tracker_test.go`](../internal/tracker/tracker_test.go)
+re-checks the embedded bytes inside `make test` so a manual edit can't
+slip past either gate.
+
 ## Future hardening (Phase 7b)
 
 - Backup + restore drill (`clickhouse-backup` + `age` + `zstd`)
@@ -204,9 +286,14 @@ inline.
 - Real-tracker correctness (queries match expected aggregations from
   Phase 4 tracker payloads)
 - WAL replay zero-loss after SIGKILL (currently ~80% loss tracked in
-  `crash_recovery_test.go`)
+  `crash_recovery_test.go`) — gated by the new
+  `wal-durability-review` skill (kill-9 CI gate, 50 runs per PR).
 - Consumer buffer-on-CH-outage (currently drops; should fill WAL)
+- Integration-level PII grep (audit log + WAL byte scan for raw
+  user_id strings) — the unit-level test in
+  `internal/ingest/handler_test.go` already enforces the contract at
+  the handler boundary.
 - Full deployment runbook (bare metal, air-gap install bundle)
 
-These wait for Phase 4 tracker + Phase 2c operational hardening to
-land first.
+These wait for Phase 2c operational hardening (and the new doc 27
+WAL hard gate) to land first.

@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/sites"
 )
 
@@ -46,9 +47,15 @@ type SiteResolver interface {
 type HandlerConfig struct {
 	Pipeline Pipeline
 	Sites    SiteResolver
-	Audit    *audit.Logger    // optional — nil silences audit emissions (test mode)
-	Now      func() time.Time // injectable for tests; defaults to time.Now
-	Logger   *slog.Logger
+	// MasterSecret is the same key material identity.NewSaltManager
+	// receives. The handler uses it to hash any raw user_id sent by the
+	// tracker into a per-tenant SHA-256 (identity.HexUserIDHash) before
+	// the event enters the pipeline. Empty MasterSecret skips hashing,
+	// which the test fakes rely on (handler_test.go injects nil here).
+	MasterSecret []byte
+	Audit        *audit.Logger    // optional — nil silences audit emissions (test mode)
+	Now          func() time.Time // injectable for tests; defaults to time.Now
+	Logger       *slog.Logger
 }
 
 // NewHandler returns the http.Handler wired for POST /api/event.
@@ -57,12 +64,14 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 		cfg.Now = time.Now
 	}
 
+	hashUserID := len(cfg.MasterSecret) > 0
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serve(w, r, cfg)
+		serve(w, r, cfg, hashUserID)
 	})
 }
 
-func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig) {
+func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID bool) {
 	// FastRejectMiddleware enforces POST-only + the prefetch/UA-shape
 	// fast-reject before any downstream middleware. By the time we get
 	// here the request has passed both checks and the rate limiter.
@@ -114,6 +123,19 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig) {
 		}
 
 		raw.SiteID = siteID
+
+		// Hash user_id with the per-tenant key material, then wipe the
+		// raw value before it can reach the pipeline / WAL / batch
+		// writer. Privacy Rule 4: only SHA-256(master_secret || site_id
+		// || user_id) ever lands in events_raw.user_id_hash. If
+		// hashUserID is false (no master_secret configured), the raw
+		// value is still cleared — silently dropping the uid is the
+		// stricter privacy stance.
+		if hashUserID && raw.UserID != "" {
+			raw.UserIDHash = identity.HexUserIDHash(cfg.MasterSecret, raw.SiteID, raw.UserID)
+		}
+
+		raw.UserID = ""
 
 		if !cfg.Pipeline.Enqueue(r.Context(), raw) {
 			// Pipeline saturated — return 503 so trackers retry rather
