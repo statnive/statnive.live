@@ -20,12 +20,18 @@ type Inserter interface {
 	InsertBatch(ctx context.Context, events []EnrichedEvent) error
 }
 
-// Consumer drains the enriched-event channel, persists each event to the WAL
-// for durability, batches rows, and flushes to the Inserter on the first
-// trigger to fire. After every successful flush it ack's the WAL so segments
-// can be reclaimed.
+// Consumer drains the GroupSyncer's downstream channel and batches
+// rows for ClickHouse. The WAL Append + Sync already happened in the
+// GroupSyncer (handler-side); the consumer only needs to insert into
+// CH and then ack the WAL. After every successful flush it ack's the
+// WAL through the latest envelope's index so segments can be reclaimed.
+//
+// Phase 7b1b changed the input type from `<-chan EnrichedEvent` to
+// `<-chan WALEnvelope` so the consumer can ack the right WAL index
+// (rather than re-querying CurrentIndex inside its own goroutine, which
+// would race with the GroupSyncer's writer).
 type Consumer struct {
-	in     <-chan EnrichedEvent
+	in     <-chan WALEnvelope
 	wal    *WALWriter
 	store  Inserter
 	cfg    ConsumerConfig
@@ -33,7 +39,7 @@ type Consumer struct {
 }
 
 // NewConsumer wires the consumer. cfg defaults: 1000 rows / 500 ms / 10 MB.
-func NewConsumer(in <-chan EnrichedEvent, wal *WALWriter, store Inserter, cfg ConsumerConfig, logger *slog.Logger) *Consumer {
+func NewConsumer(in <-chan WALEnvelope, wal *WALWriter, store Inserter, cfg ConsumerConfig, logger *slog.Logger) *Consumer {
 	if cfg.BatchRows <= 0 {
 		cfg.BatchRows = 1000
 	}
@@ -89,14 +95,13 @@ func (c *Consumer) Run(ctx context.Context) {
 		batchBytes = 0
 	}
 
-	add := func(ev EnrichedEvent) bool {
-		if walErr := c.wal.Append(ev); walErr != nil {
-			c.logger.Warn("wal append", "err", walErr)
-		}
-
-		lastWALIdx = c.wal.CurrentIndex()
-		batch = append(batch, ev)
-		batchBytes += approxRowBytes(&ev)
+	// Events arrive already WAL-fsynced (GroupSyncer owns the Append
+	// path). Consumer's job: batch and insert into CH, then ack the
+	// WAL. No Append here — doing so would double-write.
+	add := func(env WALEnvelope) bool {
+		lastWALIdx = env.Idx
+		batch = append(batch, env.Ev)
+		batchBytes += approxRowBytes(&env.Ev)
 
 		return len(batch) >= c.cfg.BatchRows || batchBytes >= c.cfg.BatchMaxBytes
 	}
@@ -108,7 +113,7 @@ func (c *Consumer) Run(ctx context.Context) {
 
 			return
 
-		case ev, ok := <-c.in:
+		case env, ok := <-c.in:
 			if !ok {
 				flush("channel-closed")
 				_ = c.wal.Sync()
@@ -116,7 +121,7 @@ func (c *Consumer) Run(ctx context.Context) {
 				return
 			}
 
-			if add(ev) {
+			if add(env) {
 				flush("size")
 				ticker.Reset(c.cfg.BatchInterval)
 			}
@@ -127,10 +132,10 @@ func (c *Consumer) Run(ctx context.Context) {
 	}
 }
 
-func (c *Consumer) drain(flush func(reason string), add func(EnrichedEvent) bool) {
+func (c *Consumer) drain(flush func(reason string), add func(WALEnvelope) bool) {
 	for {
 		select {
-		case ev, ok := <-c.in:
+		case env, ok := <-c.in:
 			if !ok {
 				flush("shutdown-drain")
 				_ = c.wal.Sync()
@@ -138,7 +143,7 @@ func (c *Consumer) drain(flush func(reason string), add func(EnrichedEvent) bool
 				return
 			}
 
-			if add(ev) {
+			if add(env) {
 				flush("shutdown-size")
 			}
 		default:

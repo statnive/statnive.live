@@ -169,7 +169,14 @@ func run() error {
 		Logger:  logger,
 	})
 
-	consumer := ingest.NewConsumer(pipeline.Out(), wal, store, ingest.ConsumerConfig{
+	// GroupSyncer sits between the handler and the consumer: handlers
+	// call AppendAndWait (blocks until fsync), consumer reads from Out()
+	// after the batch is durable. Sync errors terminate via os.Exit(1)
+	// — fsyncgate 2018; orchestrator restarts.
+	groupSyncer := ingest.NewGroupSyncer(wal, ingest.GroupConfig{}, auditLog, logger)
+	defer groupSyncer.Close()
+
+	consumer := ingest.NewConsumer(groupSyncer.Out(), wal, store, ingest.ConsumerConfig{
 		BatchRows:     cfg.Ingest.BatchRows,
 		BatchInterval: cfg.Ingest.BatchInterval,
 		BatchMaxBytes: cfg.Ingest.BatchMaxBytes,
@@ -198,6 +205,7 @@ func run() error {
 		r.Use(rateLimitMW)
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline:     pipeline,
+			WAL:          groupSyncer,
 			Sites:        registry,
 			MasterSecret: masterSecret,
 			Audit:        auditLog,
@@ -256,9 +264,10 @@ func run() error {
 
 	g, gctx := errgroup.WithContext(rootCtx)
 
-	g.Go(func() error {
-		return pipeline.Run(gctx)
-	})
+	// Pipeline is now a synchronous library — no goroutine to run.
+	// Enrichment happens inline on the handler goroutine; durability
+	// comes from groupSyncer (its loop runs internally, started by
+	// NewGroupSyncer above and stopped by the deferred groupSyncer.Close).
 
 	g.Go(func() error {
 		consumer.Run(gctx)

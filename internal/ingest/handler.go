@@ -19,15 +19,22 @@ import (
 	"github.com/statnive/statnive.live/internal/sites"
 )
 
-// Pipeline is the contract handler.serve uses. The real implementation
-// (enrich.Pipeline) owns the worker pool that runs the 6-stage enrichment
-// in order. Defined here so the enrich package can depend on ingest
-// without creating an import cycle.
-//
-// Enqueue returns false on backpressure — the in-channel is full. The
-// handler maps that to 503 so trackers retry rather than silently dropping.
-type Pipeline interface {
-	Enqueue(ctx context.Context, raw *RawEvent) bool
+// Enricher is the contract handler.serve calls for the synchronous
+// 6-stage enrichment. The real implementation (enrich.Pipeline) runs
+// inline on the handler goroutine — no worker pool, no in-memory
+// channel — so the handler can wait for the WAL fsync immediately
+// after enrichment.
+type Enricher interface {
+	Enrich(raw *RawEvent) (EnrichedEvent, bool)
+}
+
+// WALSyncer is the contract handler.serve calls to durably persist the
+// enriched event before responding 202. AppendAndWait blocks until the
+// containing batch has been fsynced (group commit). Sync errors return
+// the underlying error AND terminate the process via the GroupSyncer's
+// fatal path; the handler returns 503 if the ack ever surfaces an error.
+type WALSyncer interface {
+	AppendAndWait(ctx context.Context, ev EnrichedEvent) (uint64, error)
 }
 
 const (
@@ -45,8 +52,13 @@ type SiteResolver interface {
 
 // HandlerConfig groups the dependencies + tunables.
 type HandlerConfig struct {
-	Pipeline Pipeline
-	Sites    SiteResolver
+	// Pipeline runs the 6-stage enrichment inline. Required.
+	Pipeline Enricher
+	// WAL persists each enriched event before the handler responds 202.
+	// Required — the doc 27 §Gap 1 ack-after-fsync contract is what the
+	// handler is gating on.
+	WAL   WALSyncer
+	Sites SiteResolver
 	// MasterSecret is the same key material identity.NewSaltManager
 	// receives. The handler uses it to hash any raw user_id sent by the
 	// tracker into a per-tenant SHA-256 (identity.HexUserIDHash) before
@@ -137,10 +149,22 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 
 		raw.UserID = ""
 
-		if !cfg.Pipeline.Enqueue(r.Context(), raw) {
-			// Pipeline saturated — return 503 so trackers retry rather
-			// than silently dropping. Better to fail loudly than to lose
-			// events to backpressure.
+		// Synchronous 6-stage enrichment runs on the handler goroutine.
+		// Burst-dropped events skip the WAL silently — they're a known
+		// rejection class, not a server failure.
+		enriched, ok := cfg.Pipeline.Enrich(raw)
+		if !ok {
+			continue
+		}
+
+		// Block until the WAL has fsynced this event. The 202 below is
+		// the ack-after-fsync contract: client knows we have it durably.
+		// AppendAndWait surfaces ctx cancel + Sync errors + group-syncer
+		// shutdown — all map to 503 (client retries; on Sync error the
+		// process is also exiting).
+		if _, walErr := cfg.WAL.AppendAndWait(r.Context(), enriched); walErr != nil {
+			cfg.Logger.Warn("wal append-and-wait failed",
+				"err", walErr, "site_id", raw.SiteID)
 			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 
 			return

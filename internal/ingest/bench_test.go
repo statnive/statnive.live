@@ -2,7 +2,6 @@ package ingest_test
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,27 +13,37 @@ import (
 	"github.com/statnive/statnive.live/internal/ingest"
 )
 
-// stubPipeline records Enqueue calls without doing any real work.
+// stubEnricher records Enrich calls without doing real 6-stage work.
 // Lets the handler benchmark measure parsing + validation cost in
 // isolation from the enrichment pipeline.
-type stubPipeline struct{ calls atomic.Int64 }
+type stubEnricher struct{ calls atomic.Int64 }
 
-func (s *stubPipeline) Enqueue(_ context.Context, _ *ingest.RawEvent) bool {
+func (s *stubEnricher) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 	s.calls.Add(1)
 
-	return true
+	return ingest.EnrichedEvent{SiteID: raw.SiteID}, true
+}
+
+// stubWAL records AppendAndWait calls without fsyncing anything.
+type stubWAL struct{ calls atomic.Int64 }
+
+func (s *stubWAL) AppendAndWait(_ context.Context, _ ingest.EnrichedEvent) (uint64, error) {
+	//nolint:gosec // atomic.Int64 monotonic counter; never negative in this stub.
+	return uint64(s.calls.Add(1)), nil
 }
 
 // BenchmarkHandler_FullPath measures one POST /api/event roundtrip
-// through fastReject + parse + Enqueue with no pipeline work behind it.
-// At 7K EPS the per-request budget is ~140 µs — this benchmark shows
-// how much headroom the handler actually has.
+// through fastReject + parse + Enrich + AppendAndWait (both stubbed).
+// At 7K EPS the per-request budget is ~140 µs; this benchmark shows
+// handler-internal overhead, excluding the real enrichment + fsync.
 func BenchmarkHandler_FullPath(b *testing.B) {
-	fake := &stubPipeline{}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	enr := &stubEnricher{}
+	wal := &stubWAL{}
+	logger := slog.New(slog.DiscardHandler)
 
 	inner := ingest.NewHandler(ingest.HandlerConfig{
-		Pipeline: fake,
+		Pipeline: enr,
+		WAL:      wal,
 		Sites:    ingest.StaticSiteResolver{SiteID: 1},
 		Logger:   logger,
 	})

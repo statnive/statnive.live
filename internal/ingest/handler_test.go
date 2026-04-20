@@ -2,7 +2,6 @@ package ingest_test
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,22 +13,50 @@ import (
 	"github.com/statnive/statnive.live/internal/ingest"
 )
 
-// fakePipeline records every Enqueue call so the test can assert the
-// gate short-circuits before reaching the real worker pool. `last`
-// holds a copy of the most recent event so user_id assertions can
-// inspect what actually crossed the boundary.
+// fakePipeline records every Enrich call so the test can assert the
+// gate short-circuits before reaching enrichment. `last` holds a copy
+// of the most recent raw event so user_id assertions can inspect what
+// actually crossed the handler boundary (post hash-and-clear).
 type fakePipeline struct {
 	calls atomic.Int32
 	last  atomic.Pointer[ingest.RawEvent]
 }
 
-func (f *fakePipeline) Enqueue(_ context.Context, raw *ingest.RawEvent) bool {
+func (f *fakePipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 	f.calls.Add(1)
 
 	dup := *raw
 	f.last.Store(&dup)
 
-	return true
+	return ingest.EnrichedEvent{
+		SiteID:     raw.SiteID,
+		UserIDHash: raw.UserIDHash,
+		Hostname:   raw.Hostname,
+		Pathname:   raw.Pathname,
+	}, true
+}
+
+// fakeWAL satisfies WALSyncer for the handler tests. Records the
+// enriched event so tests can inspect what the handler handed to the
+// WAL path. Returns a monotonically increasing index like the real
+// GroupSyncer does.
+type fakeWAL struct {
+	calls atomic.Int32
+	last  atomic.Pointer[ingest.EnrichedEvent]
+	err   error
+}
+
+func (f *fakeWAL) AppendAndWait(_ context.Context, ev ingest.EnrichedEvent) (uint64, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+
+	n := f.calls.Add(1)
+	dup := ev
+	f.last.Store(&dup)
+
+	//nolint:gosec // atomic.Int32 monotonic counter; never negative.
+	return uint64(n), nil
 }
 
 // Fast-reject gate must return 204 with zero pipeline work for prefetch
@@ -132,15 +159,17 @@ func TestHandlerFastRejectGate(t *testing.T) {
 			t.Parallel()
 
 			fake := &fakePipeline{}
+			wal := &fakeWAL{}
 
 			// Production wires fast-reject as a chi middleware in front of
 			// NewHandler. The handler test composes them by hand so the
 			// 10-case fast-reject table still gates the right behavior.
 			inner := ingest.NewHandler(ingest.HandlerConfig{
 				Pipeline: fake,
+				WAL:      wal,
 				Sites:    ingest.StaticSiteResolver{SiteID: 1},
 				Now:      func() time.Time { return time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC) },
-				Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+				Logger:   slog.New(slog.DiscardHandler),
 			})
 			handler := ingest.FastRejectMiddleware(nil)(inner)
 
@@ -181,8 +210,10 @@ func mustHandle(t *testing.T, masterSecret []byte, body string) *ingest.RawEvent
 	t.Helper()
 
 	fake := &fakePipeline{}
+	wal := &fakeWAL{}
 	inner := ingest.NewHandler(ingest.HandlerConfig{
 		Pipeline:     fake,
+		WAL:          wal,
 		Sites:        ingest.StaticSiteResolver{SiteID: 1},
 		MasterSecret: masterSecret,
 		Now:          func() time.Time { return time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC) },
