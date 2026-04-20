@@ -11,7 +11,7 @@ All recommendations trace back to [`../../jaan-to/docs/research/23-ai-workflow-c
 | Collection | Source | License | Skills installed | Phase coverage |
 |---|---|---|---|---|
 | cc-skills-golang | [samber/cc-skills-golang](https://github.com/samber/cc-skills-golang) | MIT | 12 of 37 (curated) | 0, 1, 3, 6, 7 |
-| clickhouse-agent-skills | [ClickHouse/agent-skills](https://github.com/ClickHouse/agent-skills) | Apache-2.0 | 6 of 6 (all) | 0, 1, 3, 6 |
+| clickhouse-agent-skills | [ClickHouse/agent-skills](https://github.com/ClickHouse/agent-skills) | Apache-2.0 | 1 primary (`clickhouse-best-practices`, 28 rules/11 categories) + 4 auxiliary (`chdb-datastore`, `chdb-sql`, `clickhousectl-cloud-deploy`, `clickhousectl-local-dev`) | 0, 1, 3, 6 |
 | trailofbits-skills | [trailofbits/skills](https://github.com/trailofbits/skills) | CC-BY-SA-4.0 | 8 of 38 (curated) | 2 (security) |
 | marina-skill | [The-Focus-AI/marina-skill](https://github.com/The-Focus-AI/marina-skill) | MIT | 4 of 4 (all) | 8 (deploy) |
 
@@ -396,3 +396,67 @@ Four `.claude/skills/*` directories scaffolded; Semgrep rule bodies + test fixtu
 - Draft `docs/backup-retention.md` documenting backup rotation + erase propagation to next generation (Phase 11).
 - Author `FIELDS.md` documenting all 34 EnrichedEvent fields with {purpose, retention, Article-6 basis} (Phase 11).
 - Find a real PII-grep community skill to replace the missing `BehiSecc/sanitize` — check Snyk Feb 2026 curation, `BehiSecc/awesome-claude-skills` index, and `mshs01156/support-to-repro-pack` (closest match found; not adopted because it's scoped to bug-triage, not general PII grep).
+
+---
+
+## Doc 28 additions (close the final three gaps)
+
+**Summary.** [`jaan-to/docs/research/28-geoip-iranian-dc-clickhouse.md`](../../jaan-to/docs/research/28-geoip-iranian-dc-clickhouse.md) confirms **zero public Claude skill coverage** for three statnive-live surfaces (GeoIP pipeline correctness, Iranian DC deployment specifics, ClickHouse operational discipline). Builds four new custom skills, one material policy correction, and one roster correction.
+
+### Policy correction — CC-BY-SA-4.0 carve-out for non-linked data files
+
+Doc 28 §Gap 1 establishes that **every major free city-level GeoIP DB is CC-BY-SA-4.0** (IP2Location LITE DB23, IPinfo Lite, IPLocate free) and GeoLite2 additionally carries a MaxMind EULA that mandates auto-updates (air-gap-incompatible). The project's original strict `MIT/Apache/BSD/ISC` policy was **unsatisfiable** with any of these.
+
+**Resolution** (shipped in [CLAUDE.md § License Rules](../CLAUDE.md#license-rules-critical) — commit `4d26275`): carve-out amendment for *non-linked data files only*. GeoIP BIN databases are data, not linked code — the binary surface gate does not apply. Attribution is delivered in three surfaces (`LICENSE-third-party.md` + `/about` JSON + dashboard footer) enforced by the [`geoip-pipeline-review`](../.claude/skills/geoip-pipeline-review/README.md) skill's Semgrep rule `geoip-attribution-string-present`.
+
+**Alternative (Phase 10 Filimo):** budget for paid IP2Location DB23 Site License — attribution waived per commercial terms. Price is sales-gated; comparable DBs range $99–$980/yr.
+
+### Roster correction — ClickHouse/agent-skills is 1 skill, not 6
+
+The Install Summary table above previously listed `clickhouse-agent-skills` as "6 of 6 (all)". That misrepresents the repo:
+
+- **1 primary skill** — `clickhouse-best-practices` — ships 28 rules across 11 categories (Primary Key, Data Types, JOINs, Insert Batching, Mutation Avoidance, Partitioning, Skipping Indices, Materialized Views, Async Inserts, OPTIMIZE Avoidance, JSON).
+- **4 auxiliary artifacts** — `chdb-datastore`, `chdb-sql`, `clickhousectl-cloud-deploy`, `clickhousectl-local-dev` — related but separate. Useful for embedded-CH unit tests (Phase 7) + local-dev setup.
+
+All 5 directories stay installed. The summary row now reads "1 primary + 4 auxiliary" instead of "6 of 6 (all)".
+
+### Custom skills catalog (doc 28 §gap-analysis)
+
+Four `.claude/skills/*` directories scaffolded; Semgrep rule bodies + CI wiring fill in per phase.
+
+| Skill | Architecture touchpoint | Trigger | Required before |
+|---|---|---|---|
+| [`iranian-dc-deploy`](../.claude/skills/iranian-dc-deploy/README.md) | Isolation + Security #1 (TLS manual PEM) + OFAC 31 CFR 560.540(b)(3) | `deploy/**`, `ops/**`, `infra/**`, DNS zones, TLS/NTP/systemd, `*http.Client`, `internal/license/**` | **Weeks 21–24 Filimo cutover — HARD GATE.** Blocks every Filimo-destined PR after Week 20. |
+| [`geoip-pipeline-review`](../.claude/skills/geoip-pipeline-review/README.md) | Privacy Rule 1 (raw IP never persisted) + CC-BY-SA carve-out | `internal/enrich/geoip.go`, `**/*ip2location*`, `cmd/**/main.go`, `internal/about/**`, `LICENSE-third-party.md` | **Phase 10 Filimo paid-DB23 cutover.** CC-BY-SA policy call Week 19 Day 1. |
+| [`clickhouse-operations-review`](../.claude/skills/clickhouse-operations-review/README.md) | Architecture Rules 1, 2, 4, 5 + operational defaults | `migrations/*.sql`, `internal/ingest/**`, `internal/query/**`, `config/ch*`, `prometheus/*.rules.yml`, `deploy/backup/**` | **Week 23 load-rehearsal.** Backup-restore drill + parts-ceiling gate. |
+| [`clickhouse-upgrade-playbook`](../.claude/skills/clickhouse-upgrade-playbook/README.md) | `{{if .Cluster}}` scope (DDL only, NOT data migration) | `migrations/*.sql`, `migrations/**/*.tmpl` with `Engine=` or `{{if .Cluster}}` | **P5 cluster upgrade.** Advisory only — no Semgrep rules. Paired with `clickhouse-operations-review`. |
+
+### Anti-patterns (doc 28 §Anti-patterns) — also mirrored in CLAUDE.md
+
+Enforced by the custom-skill Semgrep rules above. Listed here for tooling review context:
+
+- **No Cloudflare for any IR-resident code path** (OFAC + no IR POP).
+- **No fsnotify for GeoIP reload** — overlayfs/NFS/kqueue silently lose events. SIGHUP only.
+- **No `OPTIMIZE FINAL` "with careful review"** — OOMs 8c/32GB under merge pressure. Sanctioned alternative: `OPTIMIZE ... PARTITION '...' FINAL DEDUPLICATE` off-peak.
+- **No phone-home license check "even for telemetry"** — OFAC interpretation of "services rendered" excludes commercial services to Iranian entities.
+- **No AGPL linked into the binary; no CC-BY-SA except the carve-out for non-linked data files**. OS daemons (chrony, acme.sh, knot, BIND) are operator-installed → outside the boundary.
+- **No ACME / Let's Encrypt from inside Iran** — issue outside, rsync PEM inward, SIGHUP swap.
+- **`{{if .Cluster}}` is DDL templating only, NOT cluster-upgrade automation.** Data migration is manual via hard-link `ATTACH PARTITION`.
+
+### 3-phase schedule (doc 28 §Full-optimization-roadmap)
+
+- **Weeks 17–18 — `iranian-dc-deploy` first.** Highest dependency chain: blocks every Filimo-destined PR after Week 20. DNS + TLS + blackout-sim CI must be green before any Filimo-specific feature work lands.
+- **Weeks 19–20 — `geoip-pipeline-review`.** Depends on `iranian-dc-deploy` (`airgap-update-geoip.sh` lives there). Block Phase 10 paid-DB23 cutover on green Semgrep + hot-reload integration + IP-leak log grep + attribution UI shipped. **CC-BY-SA policy resolution Week 19 Day 1.**
+- **Weeks 20–22 (overlaps Filimo rehearsal) — `clickhouse-operations-review` + `clickhouse-upgrade-playbook` paired.** Must be green before Week 23 load-rehearsal at 7K EPS. Backup-restore drill + parts-ceiling CI are the two gates Filimo operations will watch.
+- **Weeks 21–24 — Filimo cutover.** Skills act as merge-gates. No custom-skill work during this window; fix bugs only.
+
+### Follow-ups (out of scope for the doc-28 install PR)
+
+- Fill in full Semgrep rule bodies (already written in `semgrep/rules.yaml` per skill; wire into `.github/workflows/*.yml`).
+- Author `ops/cert-forge/` Hetzner box provisioning + ACME DNS-01 automation.
+- Register `statnive.ir` + `.ایران` IDN bundle at IRNIC (Pars.ir or Gandi; US persons excluded from Gandi per T&Cs).
+- Quote Asiatech IRR pricing across AT-VPS-B1 / AT-VPS-G2 / AT-VPS-A1 / dedicated 8c/32GB tiers.
+- Quote paid IP2Location DB23 Site License for Phase 10 (Filimo).
+- Verify Bunny DNS AXFR-out support (likely unsupported; ClouDNS as AXFR primary instead).
+- Place Ed25519 license-signing keypair on offline YubiKey in a non-US, non-Iran jurisdiction (operator decision).
+- Decide MiravaOrg/Mirava licence (UNCONFIRMED); wrap functionality in-house if not permissive.

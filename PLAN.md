@@ -2,7 +2,7 @@
 
 ## Context
 
-9 research documents (docs 14–22), 400+ sources, and 2,000+ lines of drop-in Go code are complete. All architecture, features, schema, and security decisions are finalized.
+Fifteen research documents (docs 14–28), 500+ sources, and 2,000+ lines of drop-in Go code are complete. All architecture, features, schema, security, and Iranian-DC operational decisions are finalized. Docs 24 (AGPL-safe Pirsch extraction), 25 (skill install matrix + 6 custom skills), 27 (three-gap closure: WAL / CGNAT / GDPR-on-HLL), and 28 (final-three-gap closure: GeoIP pipeline / Iranian DC deploy / ClickHouse ops) are the most recent and drive the Week 17+ schedule.
 
 **statnive-live** is the standalone analytics platform (separate from the WordPress plugin "statnive"). It targets Iranian high-traffic sites, with Filimo as first customer.
 
@@ -59,7 +59,15 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 │       ├── clickhouse-cluster-migration/      # {{if .Cluster}} templating guardrail                   [scaffolded]
 │       ├── preact-signals-bundle-budget/      # 50KB-min / 15KB-gz + 1.2KB / 600B tracker              [scaffolded]
 │       ├── blake3-hmac-identity-review/       # BLAKE3-128 + HMAC(salt) + constant-time compare       [scaffolded]
-│       └── …                           # 30 doc-23 foundation skills + 17 doc-25 community additions [installed]
+│       ├── wal-durability-review/             # fsync-before-ack + kill-9 CI gate (doc 27 §Gap 1)      [scaffolded]
+│       ├── ratelimit-tuning-review/           # CGNAT-aware ASN tiering (doc 27 §Gap 2)                [scaffolded]
+│       ├── gdpr-code-review/                  # HLL-anonymous + DSAR completeness (doc 27 §Gap 3)      [scaffolded]
+│       ├── dsar-completeness-checker/         # sink-matrix integration test (doc 27 §Gap 3)           [scaffolded]
+│       ├── iranian-dc-deploy/                 # NIN / OFAC / NSD / TLS-outside / chrony (doc 28 §Gap 2) [scaffolded]
+│       ├── geoip-pipeline-review/             # atomic.Pointer swap + CC-BY-SA attribution (doc 28 §Gap 1) [scaffolded]
+│       ├── clickhouse-operations-review/      # WAL-first + parts-ceiling + backup drill (doc 28 §Gap 3) [scaffolded]
+│       ├── clickhouse-upgrade-playbook/       # single-node → cluster runbook (doc 28 §Gap 3, advisory) [scaffolded]
+│       └── …                           # 30 doc-23 foundation skills + 17 doc-25/27 community additions [installed]
 ├── cmd/
 │   └── statnive-live/
 │       └── main.go                     # Entry point: wiring, SIGHUP fan-out, graceful shutdown         [shipped]
@@ -1091,3 +1099,6 @@ All existing architectural decisions in the plan (schema, identity, transport, p
 34. **Kill-9 WAL gate** (doc 27 §Gap 1): CI runs the binary, pushes 10 K events, `kill -9` at random 100 ms–2 s offset, restart, asserts `count() FROM events_raw == count of client-received 2xx` (within 0.05% event-loss SLO). 50 runs per PR. Phase 7b close gate. (skill: [`.claude/skills/wal-durability-review`](.claude/skills/wal-durability-review/README.md))
 35. **CGNAT rate-limit tiering** (doc 27 §Gap 2): k6 scenario `cgnat` sends 7 K EPS from 100 IPs simulating Irancell AS44244 — MUST NOT 429 when ASN tier wired. Scenario `ddos` sends 30 K EPS from 50 IPs — MUST 429 (`http_req_failed > 50%`). Scenario `normal` at 7 K EPS from 10 K IPs — `http_req_failed < 1%` p99 < 500 ms. Phase 10 cutover gate. (skill: [`.claude/skills/ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md))
 36. **DSAR completeness** (doc 27 §Gap 3): integration test creates synthetic `visitor_hash`, posts 100 events, calls `/api/privacy/erase`, waits for WAL drain, enumerates `system.tables` **dynamically** (no hardcoded list), asserts zero rows matching hash in every non-rollup table. New table added without erase.go entry fails this test by construction. Phase 11 signup gate. (skill: [`.claude/skills/dsar-completeness-checker`](.claude/skills/dsar-completeness-checker/README.md))
+37. **Blackout-sim green** (doc 28 §Gap 2): CI runs the vendored `-tags airgap` binary under `sudo iptables -P OUTPUT DROP` with loopback + Docker bridge whitelisted only. Asserts `/health/ready` within 30 s, dashboard loads, 50 `POST /t` ingest requests succeed, `/api/stats?range=1h` returns ≥50 pageviews (WAL → rollup works offline), S3 backup degrades gracefully (log matches `s3.*(unreachable|timeout).*continuing|degraded mode`), alerts file-sink only (no `slack|pagerduty|opsgenie` in logs). **HARD GATE** on every PR touching `cmd/**`, `internal/**`, `deploy/**`, `ops/**` after Week 18. (skill: [`.claude/skills/iranian-dc-deploy`](.claude/skills/iranian-dc-deploy/README.md))
+38. **GeoIP hot-reload under load** (doc 28 §Gap 1): integration test runs 100 concurrent lookup goroutines with `-race`; `syscall.Kill(os.Getpid(), syscall.SIGHUP)` fires 100 times in 1 s. Asserts p99 <500 ms, zero FD leak (FD count stable across 1 000 swaps), last swap wins (observe both v1 and v2 records across the cutover), zero lookup errors. Separately, 7 K EPS k6 run greps server log for IPv4/IPv6 regex — zero matches. Gates the Phase 10 Filimo paid-DB23 cutover. (skill: [`.claude/skills/geoip-pipeline-review`](.claude/skills/geoip-pipeline-review/README.md))
+39. **CH parts-ceiling + restore drill** (doc 28 §Gap 3): k6 5 min 7 K EPS against `/ingest` — max active parts per table <100, zero `RejectedInserts`, `DelayedInserts` <50, p99 `http_req_duration{kind:ingest}` <500 ms. Nightly (and every labeled PR) backup-restore drill uses `clickhouse-backup` to create+upload+restore to a parallel CH instance, asserts row-count parity for every active table AND `uniqCombined64Merge(uniq_state) FROM rollup_daily FINAL FORMAT Null` completes without error. Required before Week 23 load-rehearsal. (skill: [`.claude/skills/clickhouse-operations-review`](.claude/skills/clickhouse-operations-review/README.md))
