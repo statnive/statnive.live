@@ -181,12 +181,12 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 | **3a — Dashboard query foundation** | ✅ Complete | PR #9 merged. Filter + Store interface + 6 v1 queries (Overview/Sources/Pages/SEO/Campaigns/Realtime) + LRU with real per-entry TTL + tenancy-grep CI gate. Geo/Devices (v1.1 rollups) + Funnel (v2 windowFunnel) return ErrNotImplemented. |
 | **3b — Dashboard HTTP layer** | ✅ Complete | PR #12 merged. 8 stat handlers + realtime endpoint + IRST-aware Filter parsing + bearer-token middleware (stub until Phase 2b) + WITH FILL on SEO daily series + .gitignore fix that exposed cmd/statnive-live/main.go for the first time. |
 | **3c — Admin CRUD** | ⏳ Pending | `/api/admin/users`, `/api/admin/goals` (writes YAML + SIGHUP). Needs Phase 2b auth to gate the mutations. Sequenced after backend gate per user mandate. |
-| **4 — Tracker JS** | 🔜 Next | <2 KB IIFE, sendBeacon, SPA route tracking. Closes the loop — real browsers feed the backend that Phase 7a proved survives stress. |
+| **4 — Tracker JS** | ✅ Complete | PR #21 merged. Vanilla JS IIFE (1394 B min / 687 B gz) + Go embed handler at `/tracker.js`; `statnive.track()` + `statnive.identify(uid)` end-to-end with server-side SHA-256 hash via `identity.HexUserIDHash` (Privacy Rule 4 — raw uid cleared in handler before pipeline). Sec-GPC + DNT + webdriver + _phantom short-circuits BEFORE any observable side effect (doc 27 Privacy Rule #9). 15 Vitest specs + 6 Go handler sub-tests; tracker-size gate (Go in-process + Makefile shell) chained into `make audit`. Tracker contract is now LOCKED for Phase 9 dogfood install. |
 | **5 — Dashboard frontend** | ⛔ Blocked | Preact SPA + uPlot + Frappe Charts. **User-mandated gate: Phase 7b (real-traffic verification) must be green first.** |
 | **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, /healthz, env-var override (.→_) all done. Admin-user first-run + Goal/Funnel CRUD wait on Phase 2/3. |
 | **7a — Backend solidity gate** | ✅ Complete | PR #14 merged. Burst guard (~50 ns/op) + Go bench suite + crash / CH-outage / disk-full stress tests + k6 7K EPS load script + WAL replay wired at boot + viper env-var fix. Surfaced 3 Phase 1 contract gaps for Phase 7b backlog. |
 | **7c — Optimization & hardening pass** | ✅ Complete | PR #18 merged. Ran the full skill matrix (perf / security / CH cost / isolation) against the existing tree before Phase 4 locks the API contract. Channel hot path -13% (1 alloc/op down from 2); modern Go (`wg.Go`, `range over int`, `b.Loop()`); dead drift-check removed (`validTimestamp` was always true because TSUTC is `json:"-"`); CI gate fixes (vendor-check CRLF tolerance + license-check GOFLAGS + golangci-lint v2.5 + `--new-from-rev`). Audit evidence pack at `audit/{sec,ch,airgap}-findings.md`; `bench.out` baseline at repo root. Zero new endpoints / schema / deps. |
-| **7b — Backend cleanup + real-traffic verification** | ⏳ Pending | Fix the 3 gaps from 7a (WAL replay decode after SIGKILL; consumer drops events when CH unreachable; post-restart drain). Then real-tracker correctness (queries match expected aggregations from Phase 4 tracker payloads). Backup restore drill + manual TLS rotation. |
+| **7b — Backend cleanup + real-traffic verification** | 🔜 Next | Fix the 3 gaps from 7a (WAL replay decode after SIGKILL; consumer drops events when CH unreachable; post-restart drain). Then real-tracker correctness (queries match expected aggregations from Phase 4 tracker payloads — now possible since PR #21 shipped the tracker). Hard gate: `wal-durability-review` skill (kill-9 50-runs CI gate). Backup restore drill + manual TLS rotation. Integration-level PII grep (audit log + WAL byte scan for raw user_id) lands here too — the unit-level enforcement at `internal/ingest/handler_test.go:TestHandler_UserIDHashedAndCleared` already gates the contract boundary. |
 | **7d — Lint baseline cleanup** | ⏳ Pending | Zero out the ~40 pre-existing lint findings on main (errcheck on rows.Close, gosec G302/G304 on file modes, gofmt drift, intrange / goconst suggestions, gocyclo on `run`). 7c uses `--new-from-rev` so PRs don't regress; 7d removes the baseline so the gate runs on the full tree. Also: install + run `govulncheck` + CodeQL+Semgrep + `go-licenses` baselines. |
 | **8 — Deployment & launch** | ⏳ Pending | Hetzner CX32 staging, airgap-bundle, monitoring, runbook, v1 launch. |
 | **9 — Phase A dogfood** | ⏳ Pending | statnive.com → demo.statnive.live. |
@@ -270,14 +270,16 @@ All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they 
 
 **Guardrails active:** [`.claude/skills/preact-signals-bundle-budget`](.claude/skills/preact-signals-bundle-budget/README.md) enforces the ~1.2 KB-min / ~600 B-gz tracker budget from day 1 and rejects CDN URLs + XHR transport. [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md) cross-checks that no embedded asset references external hosts.
 
-- [ ] Build tracker from doc 20 source (~1.2KB minified / ~600B gzipped)
-- [ ] Rollup + Terser build config
-- [ ] Pageview + SPA (history API) + custom events + user_id + batching (outbound link tracking deferred to v1.1)
-- [ ] Client-side bot hints: `navigator.webdriver`, `_phantom`, `evt.isTrusted` (Clarity pattern, doc 21)
-- [ ] Server-side bot filtering: isbot + crawler-user-agents.json (primary; client is supplementary)
-- [ ] Root-domain cookie walking (Clarity pattern, doc 21) — required for Filimo CDN subdomains
-- [ ] Served via `go:embed` from the analytics host — first-party, no external CDN, no SRI needed
-- [ ] Integration test: tracker → Go server → ClickHouse → verify rollups
+- [x] Build tracker from doc 20 source — shipped in PR #21 at 1394 B min / 687 B gz (slightly over the 1.2 KB / 600 B aspirational target; chosen to leave room for Phase 7b regressions before the bundle gate fires).
+- [x] Rollup + Terser build config (`tracker/rollup.config.mjs`); Terser passes=3 + mangle.toplevel; output to `internal/tracker/dist/` so `go:embed` picks it up directly.
+- [x] Pageview + SPA (history API: pushState / replaceState / popstate) + custom events (`statnive.track(name, props, value)`) + user_id (`statnive.identify(uid)` with raw-cleared, hashed in handler — Privacy Rule 4). Batching, outbound link tracking deferred to v1.1.
+- [x] Client-side bot hints: `navigator.webdriver`, `_phantom`, `callPhantom` short-circuit before any send.
+- [x] **Sec-GPC short-circuit BEFORE the request even fires** (doc 27 Privacy Rule #9) + DNT short-circuit. Both make `track()` + `identify()` no-ops.
+- [x] Server-side bot filtering already shipped in Phase 1 (`internal/enrich/bot.go`); client-side hints are supplementary per Clarity pattern (doc 21).
+- [ ] Root-domain cookie walking — deferred; current `_statnive` cookie set on root path is sufficient for v1 (Filimo CDN subdomain test happens in Phase 10 and triggers this work).
+- [x] Served via `go:embed` from the analytics host (`internal/tracker/tracker.go`) — first-party, no external CDN, no SRI needed.
+- [x] **Cross-day returning visitors validated end-to-end via `_statnive` cookie round-trip** — the existing `readOrSetCookieID` path was never browser-tested before this slice.
+- [ ] Integration test (real tracker → Go server → ClickHouse → verify rollups) — deferred to Phase 7b real-traffic correctness sub-task. The Go-side handler test + Vitest specs gate the contract boundary; full round-trip verification against rollup aggregations needs the WAL fixes from 7b first.
 
 **Deferred to v1.1:** engagement ping (10s heartbeat), throttle-with-last-event, base36 date encoding, envelope+payload separation. These power v2 session/engagement features — safe to defer until we build them.
 
