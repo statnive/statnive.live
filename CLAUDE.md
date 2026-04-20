@@ -50,6 +50,8 @@ Iran allows cookies + `user_id` pass-through; the EU/SaaS tier does not. Both co
 5. **Iran = cookies + user_id allowed; SaaS (hosted outside Iran) = GDPR applies to EU visitors** — customer DPA, consent banner, and subject access / erasure rights are required on the SaaS tier.
 6. **DNT + GPC respected by default** on the SaaS tier; self-hosted operator decides per deployment.
 7. **First-party tracker via `go:embed`** — no external CDN, no fingerprinting (no canvas / WebGL / font probing, no `navigator.plugins` enumeration).
+8. **Salt rotation DELETES the previous salt file** — not overwrites. Overwriting leaves recoverable on-disk remnants and breaks the Recital 26 HLL-anonymous argument. Enforced by [`blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md) + [`gdpr-code-review`](.claude/skills/gdpr-code-review/README.md).
+9. **`Sec-GPC: 1` and consent-decline short-circuit BEFORE hash computation** — not after. Computing-then-discarding is a processing event under GDPR Art. 4(2). SaaS DPA language (Recital 26 + C-413/23 + weekly rollup rebuild as safety net) lives in `docs/dpa-draft.md` (Phase 11).
 
 ## Security (12 Features, All v1)
 
@@ -65,6 +67,7 @@ Iran allows cookies + `user_id` pass-through; the EU/SaaS tier does not. Both co
 10. Audit log (JSONL via `slog`, append-only, **file sink only** in v1). Local syslog / remote sinks = v1.1.
 11. User ID hashed before storage (SHA-256 of `master_secret || site_id || user_id`; never log raw user_id)
 12. systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, `CapabilityBoundingSet=`) + tracker served via `go:embed` from the analytics host (first-party, no external CDN, no SRI needed, ad-blocker-resistant)
+13. **CGNAT-aware rate-limit tiering** — Iranian ASN (AS44244 Irancell / AS197207 MCI / AS57218 RighTel) on compound `(ip, site_id)` key at 1 K req/s sustained / 2 K burst; default 100/s fallback everywhere else; per-`site_id` global cap at 25 K req/s. ASN DB is **`iptoasn.com`** public-domain TSV (MaxMind GeoLite2 + IPLocate are CC-BY-SA — rejected per § License Rules). Enforced by [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md); **hard gate on Phase 10 Filimo cutover**.
 
 ## Isolation / Air-Gapped Capability (Non-Negotiable)
 
@@ -208,6 +211,10 @@ Claude Code skills + MCP server setup for this project live in [`docs/tooling.md
 | Migration file | [`clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md) |
 | `web/**`, `tracker/**` | [`preact-signals-bundle-budget`](.claude/skills/preact-signals-bundle-budget/README.md) |
 | Crypto / identity code | [`blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md) |
+| `internal/ingest/wal.go` / `consumer.go` / `tidwall/wal` | [`wal-durability-review`](.claude/skills/wal-durability-review/README.md) |
+| `internal/ratelimit/**` / `httprate` / middleware chain | [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md) |
+| `internal/privacy/**` / `/api/privacy/*` / tracker JS / EnrichedEvent | [`gdpr-code-review`](.claude/skills/gdpr-code-review/README.md) |
+| New migration + erase.go + audit sink | [`dsar-completeness-checker`](.claude/skills/dsar-completeness-checker/README.md) |
 
 ### Routing for everything else
 
@@ -215,7 +222,7 @@ For community skills (Go / ClickHouse / security / frontend / methodology) and `
 
 ## Single Source of Truth
 
-`../statnive-workflow/jaan-to/docs/research/` (docs 14–25) is the canonical source for every architecture, feature, and threat-model decision in this project. Do **not** restate research conclusions in this `CLAUDE.md` or in skill prompts — reference by doc number and section only. When a decision changes, update the research doc; this file references it and never duplicates. Same rule applies to the feature matrix (doc 17, 18), the cost model (doc 19), the initial skill / MCP list (doc 23), the **AGPL-safe Pirsch pattern extraction (doc 24)** — reference only, never port — and the **Claude-skills install matrix + custom-skill catalog (doc 25)** — reference only, never restate the matrix in skill prompts.
+`../statnive-workflow/jaan-to/docs/research/` (docs 14–27) is the canonical source for every architecture, feature, and threat-model decision in this project. Do **not** restate research conclusions in this `CLAUDE.md` or in skill prompts — reference by doc number and section only. When a decision changes, update the research doc; this file references it and never duplicates. Same rule applies to the feature matrix (doc 17, 18), the cost model (doc 19), the initial skill / MCP list (doc 23), the **AGPL-safe Pirsch pattern extraction (doc 24)** — reference only, never port — the **Claude-skills install matrix + custom-skill catalog (doc 25)**, and the **three-gap closure (doc 27 — WAL durability / CGNAT rate limit / GDPR-on-HLL)** — reference only, never restate in skill prompts.
 
 ## Enforcement
 
@@ -235,4 +242,4 @@ These integration tests pin the invariants in this file. They are Phase 0 / Phas
 ## Research Documents
 
 All architecture decisions are backed by research at:
-`../statnive-workflow/jaan-to/docs/research/` (docs 14–25, 500+ sources). Doc 23 covers the initial Claude Code tooling recommendations (doc-23 foundation: 30 installed skills, 4 MCP servers). **Doc 24** is the AGPL-safe Pirsch pattern extraction (reference-only audit of `github.com/pirsch-analytics/pirsch` v6) — informs ingestion shape (pre-pipeline fast-reject, cross-day fingerprint grace, cheap-first bot ordering), ClickHouse schema (reject mutable-row engines, `DateTime` not `DateTime64`, templated DDL for Distributed upgrade), channel mapping (17-step decision tree, AI channel on day 1), and dashboard query architecture (`Filter → Store → queryBuilder` shape, `WITH FILL` gap-fill, central `whereTimeAndTenant` helper). **Zero Pirsch code ported.** **Doc 25** is the Claude-skills install matrix and custom-skill catalog — 8 community bundles to install, 6 custom `.claude/skills/` to author, and an explicit blacklist (`web-artifacts-builder`, `shajith003/awesome-claude-skills`, etc.). Reference-only; never restate the matrix in skill prompts.
+`../statnive-workflow/jaan-to/docs/research/` (docs 14–27, 500+ sources). Doc 23 covers the initial Claude Code tooling recommendations (doc-23 foundation: 30 installed skills, 4 MCP servers). **Doc 24** is the AGPL-safe Pirsch pattern extraction (reference-only audit of `github.com/pirsch-analytics/pirsch` v6) — informs ingestion shape (pre-pipeline fast-reject, cross-day fingerprint grace, cheap-first bot ordering), ClickHouse schema (reject mutable-row engines, `DateTime` not `DateTime64`, templated DDL for Distributed upgrade), channel mapping (17-step decision tree, AI channel on day 1), and dashboard query architecture (`Filter → Store → queryBuilder` shape, `WITH FILL` gap-fill, central `whereTimeAndTenant` helper). **Zero Pirsch code ported.** **Doc 25** is the Claude-skills install matrix and custom-skill catalog — 8 community bundles, 6 custom `.claude/skills/` to author, and an explicit blacklist (`web-artifacts-builder`, `shajith003/awesome-claude-skills`, etc.). **Doc 27** closes the three gaps doc 25 couldn't: **WAL durability** (tidwall/wal semantics, fsyncgate 2018, ack-after-fsync group commit), **CGNAT-aware rate limiting** (Iranian ASN compound key, `iptoasn.com` public-domain TSV — MaxMind / IPLocate rejected as CC-BY-SA), and **GDPR on append-only HyperLogLog** (Recital 26 + C-413/23 anonymity argument + weekly rollup rebuild as safety net). Reference-only; never restate the matrix in skill prompts.

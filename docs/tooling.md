@@ -335,3 +335,64 @@ Six `.claude/skills/*` directories scaffolded; bodies fill in per phase. Each ha
 - Fill in Semgrep rule bodies + test fixtures for the 6 custom skills (40–60 hrs total, scheduled per phase).
 - Wire `.claude/settings.json` hooks + `.githooks/pre-commit` to invoke custom skills via `claude-code` headless mode.
 - Install one of `qualixar/skillfortify` or `relaxcloud-cn/clawsafety` to vet future community installs (CycloneDX SBOM + `skill-lock.json`).
+
+---
+
+## Doc 27 additions (close the three gaps)
+
+**Summary.** [`jaan-to/docs/research/27-closing-three-skill-gaps-statnive-live.md`](../../jaan-to/docs/research/27-closing-three-skill-gaps-statnive-live.md) surveys ~2,000 skills across 10 aggregators and confirms that no community skill targets the three surfaces statnive-live most exposes: **WAL durability** (`tidwall/wal` binary format doesn't CRC individual records; fsyncgate 2018 data-loss class on Linux pre-4.13), **CGNAT-aware rate limiting** (Iranian AS44244 / AS197207 / AS57218 NAT444 makes 100 req/s per-IP catastrophic), and **GDPR on append-only HyperLogLog** (row-level erasure impossible by design; defensible legal position uses Recital 26 + C-413/23 + weekly rollup rebuild).
+
+### Three opinionated defaults (adopt)
+
+- **(a) WAL: ack-after-fsync with group commit.** One goroutine fsyncs every 100 ms; all waiting handlers return 200 together. ~50 ms p50 latency cost is within the 500 ms p99 SLO. Only config that honors the kill-9 guarantee as worded. Phase 7b gate.
+- **(b) Rate limit: Iranian-ASN-aware tiering.** Compound key `(ip, site_id)` at 1 K req/s sustained / 2 K burst for AS44244 / AS197207 / AS57218; 100/200 fallback elsewhere; per-`site_id` global ceiling 25 K req/s. ASN DB: **`iptoasn.com`** public-domain TSV. Phase 10 cutover gate.
+- **(c) GDPR: declare HLL rollups anonymous under Recital 26.** DPA language + weekly rollup rebuild as bounded-time (max 1 week) compliance safety net. Phase 11 signup gate.
+
+### ASN-DB licensing decision (rules out MaxMind + IPLocate)
+
+| Source | License | Verdict |
+|---|---|---|
+| MaxMind GeoLite2 (MMDB) | CC-BY-SA-4.0 | ❌ Rejected — share-alike contaminates binary, violates [CLAUDE.md § License Rules](../CLAUDE.md#license-rules-critical) |
+| IPLocate.io free DB | CC-BY-SA | ❌ Rejected — same issue |
+| **iptoasn.com `ip2asn-v4.tsv.gz`** | **Public domain** | ✅ **Adopted** — hourly-refreshed TSV, TSV loader, operator file-drop matches air-gap rule |
+
+### Adjacent community skills added by doc 27
+
+| Skill | Source repo | License | Install path | Role |
+|---|---|---|---|---|
+| `grc-gdpr` | [Sushegaad/Claude-Skills-Governance-Risk-and-Compliance](https://github.com/Sushegaad/Claude-Skills-Governance-Risk-and-Compliance) (GDPR module only) | MIT | `.claude/skills/grc-gdpr/` | Outer GDPR checklist, findings mapped to Articles |
+| `legal-compliance-check` | [anthropics/knowledge-work-plugins](https://github.com/anthropics/knowledge-work-plugins) → `legal/skills/compliance-check` | Apache-2.0 | `.claude/skills/legal-compliance-check/` | Regulatory-review template; seeds Article 28 DPA for SaaS |
+
+**Not installed** (doc 27's `BehiSecc/sanitize` reference — repo does not exist): doc 27 line 7 cites a `BehiSecc/sanitize` skill detecting "15 categories of PII"; `github.com/BehiSecc/sanitize` returns 404 and the org publishes `VibeSec-Skill` + `bugSkills` + `awesome-claude-skills` only. The functional role — last-mile PII grep over audit-log output — is covered by the custom `gdpr-code-review` skill's `semgrep/pii-rules.yml` (TODO, Phase 11) and by the existing [`vibesec`](../.claude/skills/vibesec/SKILL.md) install. Install a real substitute if/when one surfaces.
+
+### Custom skills catalog (doc 27 §gap-analysis)
+
+Four `.claude/skills/*` directories scaffolded; Semgrep rule bodies + test fixtures fill in per phase. Each has `SKILL.md` (frontmatter + 10-/12-item checklist) and `README.md` (full spec + CI wiring + research anchors).
+
+| Skill | Architecture touchpoint | Trigger | Required before |
+|---|---|---|---|
+| [`wal-durability-review`](../.claude/skills/wal-durability-review/README.md) | Architecture Rule 4 + kill-9 contract | `internal/ingest/{wal,consumer}.go`; `.Sync()` / `.TruncateFront()` call-sites | Phase 7b — fix the 3 WAL gaps from PR #14 |
+| [`ratelimit-tuning-review`](../.claude/skills/ratelimit-tuning-review/README.md) | Security #5 + CGNAT SLO | `internal/ratelimit/**`, `httprate` / `x/time/rate` imports, middleware chain | **Phase 10 Filimo cutover — HARD GATE** |
+| [`gdpr-code-review`](../.claude/skills/gdpr-code-review/README.md) | Privacy Rules 1–9 + GDPR Art. 4(2), 17, 21 | `internal/identity/**`, `internal/audit/**`, `/api/privacy/*`, tracker JS | **Phase 11 public signup — HARD GATE** |
+| [`dsar-completeness-checker`](../.claude/skills/dsar-completeness-checker/README.md) | GDPR Art. 17 sink matrix | New migration + `erase.go` + audit sinks | **Phase 11 public signup — HARD GATE** (pair) |
+
+### CGNAT reality (what the rate-limit skill enforces)
+
+- **AS44244 Irancell** — ~1.3 M IPv4 for tens of millions of subscribers. A single public IPv4 fronts 5 000–10 000 concurrent subscribers at peak.
+- **AS197207 MCI** — 828 IPv4 prefixes, no IPv6, entire mobile base.
+- **AS57218 RighTel** — smaller but same NAT444 pattern.
+- **100 req/s per-IP** throttles an entire apartment block the moment two neighbors load the homepage. Compound `(ip, site_id)` + ASN tier is the only viable shape.
+
+### 3-phase schedule
+
+- **Phase 7b (now)** — author Semgrep body for `wal-durability-review`; wire the kill-9 CI gate; fix the 3 WAL gaps surfaced in PR #14 against this skill's 10-item checklist.
+- **Phase 10 (Filimo cutover)** — author ASN-tiered limiter in `internal/ratelimit/tier.go`; wire `iptoasn.com` TSV loader; ship k6 scenarios `normal` / `burst` / `ddos` / `cgnat`; pass this skill's 10-item checklist.
+- **Phase 11 (SaaS public signup)** — author `gdpr-code-review` + `dsar-completeness-checker` Semgrep bodies; integration test enumerates `system.tables` dynamically; DPA draft committed at `docs/dpa-draft.md`; weekly rollup rebuild cron scheduled.
+
+### Follow-ups (out of scope for the doc-27 install PR)
+
+- Author `iptoasn.com` TSV loader in `internal/ratelimit/asn.go` (Phase 10).
+- Draft DPA §X.Y at `docs/dpa-draft.md` using doc 27 §line 77-79 verbatim (Phase 11).
+- Draft `docs/backup-retention.md` documenting backup rotation + erase propagation to next generation (Phase 11).
+- Author `FIELDS.md` documenting all 34 EnrichedEvent fields with {purpose, retention, Article-6 basis} (Phase 11).
+- Find a real PII-grep community skill to replace the missing `BehiSecc/sanitize` — check Snyk Feb 2026 curation, `BehiSecc/awesome-claude-skills` index, and `mshs01156/support-to-repro-pack` (closest match found; not adopted because it's scoped to bug-triage, not general PII grep).
