@@ -1,0 +1,145 @@
+# Semgrep rules for the wal-durability-review skill.
+#
+# Each rule maps to one of doc 27 §Gap 1's 4 anti-patterns. Test
+# fixtures live next door under test/fixtures/{should-trigger,
+# should-not-trigger}/ so a regression in the rule (false positive or
+# false negative) is caught by `semgrep --test` against the fixture
+# corpus.
+#
+# Run locally:
+#   semgrep --config=.claude/skills/wal-durability-review/semgrep \
+#           internal/ingest/
+#
+# Run rule self-tests:
+#   semgrep --test \
+#           --config=.claude/skills/wal-durability-review/semgrep \
+#           .claude/skills/wal-durability-review/test/fixtures/
+
+rules:
+  # Item #1: every 2xx handler response is gated on a completed Sync().
+  # Catches the pre-7b1b regression where the handler called
+  # Pipeline.Enqueue (in-memory) and immediately responded 202 — fsync
+  # had not happened, so kill -9 between the response and the next
+  # ticker tick lost up to 100ms of events.
+  - id: ack-before-fsync
+    message: |
+      HTTP 2xx response written without an fsync barrier on the WAL
+      entry. The handler MUST wait for AppendAndWait (or equivalent
+      Sync gate) before WriteHeader(2xx) — see doc 27 §Gap 1 item #1.
+    severity: ERROR
+    languages: [go]
+    pattern-either:
+      - patterns:
+          - pattern: |
+              $WAL.Write($IDX, $DATA)
+              ...
+              $W.WriteHeader(http.StatusAccepted)
+          - pattern-not-inside: |
+              $WAL.Write($IDX, $DATA)
+              ...
+              $WAL.Sync()
+              ...
+              $W.WriteHeader(http.StatusAccepted)
+      - patterns:
+          - pattern: |
+              $WAL.Write($IDX, $DATA)
+              ...
+              $W.WriteHeader(http.StatusOK)
+          - pattern-not-inside: |
+              $WAL.Write($IDX, $DATA)
+              ...
+              $WAL.Sync()
+              ...
+              $W.WriteHeader(http.StatusOK)
+
+  # Item #2: Sync() errors are terminal. Pre-4.13 Linux marks failed
+  # pages clean on EIO and forgets the error; retrying after a Sync
+  # error silently loses data (LWN 752063, fsyncgate 2018). Postgres
+  # made fsync failures PANIC for the same reason.
+  - id: sync-error-swallowed
+    message: |
+      WAL Sync() error is logged-and-continued. fsync failures are
+      terminal — the failed pages are marked clean by Linux pre-4.13
+      and the next Sync() returns success but the data is gone. Use
+      os.Exit(1) (orchestrator restarts; restart re-opens the WAL
+      fresh) — never log-and-continue on a Sync error.
+    severity: ERROR
+    languages: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if err := $LOG.Sync(); err != nil {
+                $SLOG.Warn(...)
+              }
+          - pattern: |
+              if err := $LOG.Sync(); err != nil {
+                $SLOG.Error(...)
+              }
+          - pattern: |
+              if err := $LOG.Sync(); err != nil {
+                $SLOG.Info(...)
+              }
+      - pattern-not-inside: |
+          if err := $LOG.Sync(); err != nil {
+            ...
+            os.Exit(...)
+          }
+      - pattern-not-inside: |
+          if err := $LOG.Sync(); err != nil {
+            ...
+            panic(...)
+          }
+
+  # Item #3: TruncateFront only AFTER ClickHouse commits the batch.
+  # The current consumer.go violates this pre-7b1b: Ack runs even when
+  # InsertBatch returns an error, losing the batch permanently.
+  - id: truncate-before-commit
+    message: |
+      WAL TruncateFront called before the matching ClickHouse insert
+      committed. Truncate-then-commit drops the batch from the WAL
+      irretrievably if the insert fails. Order MUST be: try insert →
+      on success, ack the WAL — never the reverse.
+    severity: ERROR
+    languages: [go]
+    patterns:
+      - pattern: |
+          $WAL.TruncateFront(...)
+          ...
+          $STORE.InsertBatch(...)
+
+  # Item #4 (process control): panic / os.Exit in the WAL write path
+  # outside of Sync error handling. Catch the accidental "added a
+  # debug panic" that would crash the binary on every event rather
+  # than only on the unrecoverable EIO case.
+  - id: panic-in-write-path
+    message: |
+      panic() / os.Exit() called inside the WAL Append path outside
+      of Sync error handling. WAL writes are on the hot path; any
+      panic here crashes the binary on every event. Reserve panic /
+      os.Exit for the Sync error path (where it's mandated by item #2).
+    severity: WARNING
+    languages: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              func ($X $T) Append(...) ... {
+                ...
+                panic(...)
+                ...
+              }
+          - pattern: |
+              func ($X $T) Append(...) ... {
+                ...
+                os.Exit(...)
+                ...
+              }
+      - pattern-not-inside: |
+          func ($X $T) Append(...) ... {
+            ...
+            if $ERR := $LOG.Sync(); $ERR != nil {
+              ...
+              os.Exit(...)
+              ...
+            }
+            ...
+          }
