@@ -25,6 +25,7 @@ type fakePipeline struct {
 
 func (f *fakePipeline) Enqueue(_ context.Context, raw *ingest.RawEvent) bool {
 	f.calls.Add(1)
+
 	dup := *raw
 	f.last.Store(&dup)
 
@@ -185,7 +186,7 @@ func mustHandle(t *testing.T, masterSecret []byte, body string) *ingest.RawEvent
 		Sites:        ingest.StaticSiteResolver{SiteID: 1},
 		MasterSecret: masterSecret,
 		Now:          func() time.Time { return time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC) },
-		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:       slog.New(slog.DiscardHandler),
 	})
 	handler := ingest.FastRejectMiddleware(nil)(inner)
 

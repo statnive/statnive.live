@@ -22,6 +22,8 @@ const (
 )
 
 func TestHandler_ServesEmbeddedTracker(t *testing.T) {
+	t.Parallel()
+
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/tracker.js", nil)
 
@@ -50,6 +52,8 @@ func TestHandler_ServesEmbeddedTracker(t *testing.T) {
 }
 
 func TestBundleSize_MinifiedWithinBudget(t *testing.T) {
+	t.Parallel()
+
 	size := len(tracker.Bytes())
 	if size > maxMinifiedBytes {
 		t.Fatalf("tracker.js minified = %d B; budget = %d B (CLAUDE.md tracker spec)", size, maxMinifiedBytes)
@@ -59,6 +63,8 @@ func TestBundleSize_MinifiedWithinBudget(t *testing.T) {
 }
 
 func TestBundleSize_GzippedWithinBudget(t *testing.T) {
+	t.Parallel()
+
 	var buf bytes.Buffer
 
 	gw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
@@ -82,6 +88,8 @@ func TestBundleSize_GzippedWithinBudget(t *testing.T) {
 // the embedded tracker must not contain any string that would cause a
 // browser to dial out to a non-loopback host.
 func TestNoExternalReferences(t *testing.T) {
+	t.Parallel()
+
 	source := string(tracker.Bytes())
 
 	forbidden := []string{
@@ -89,13 +97,13 @@ func TestNoExternalReferences(t *testing.T) {
 		"https://unpkg.com",
 		"https://cdnjs.",
 		"https://googleapis.com",
-		"http://",                  // any plaintext URL
-		"XMLHttpRequest",           // sendBeacon + fetch keepalive only
-		"new XMLHttpRequest",       // belt + suspenders
-		"localStorage",             // Privacy Rule — no client-side storage
+		"http://",            // any plaintext URL
+		"XMLHttpRequest",     // sendBeacon + fetch keepalive only
+		"new XMLHttpRequest", // belt + suspenders
+		"localStorage",       // Privacy Rule — no client-side storage
 		"sessionStorage",
 		"indexedDB",
-		"document.cookie",          // tracker doesn't read or write cookies
+		"document.cookie", // tracker doesn't read or write cookies
 	}
 
 	for _, needle := range forbidden {
@@ -108,6 +116,8 @@ func TestNoExternalReferences(t *testing.T) {
 // TestHandlerCompiles is a smoke check that the Bytes / Handler exports
 // stay non-empty even after a `go mod vendor` / fresh checkout.
 func TestHandlerCompiles(t *testing.T) {
+	t.Parallel()
+
 	if len(tracker.Bytes()) == 0 {
 		t.Fatal("tracker.Bytes() returned empty — go:embed broken or build never ran")
 	}

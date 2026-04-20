@@ -33,8 +33,8 @@ import (
 	"github.com/statnive/statnive.live/internal/ingest"
 	"github.com/statnive/statnive.live/internal/ratelimit"
 	"github.com/statnive/statnive.live/internal/sites"
-	"github.com/statnive/statnive.live/internal/tracker"
 	"github.com/statnive/statnive.live/internal/storage"
+	"github.com/statnive/statnive.live/internal/tracker"
 )
 
 // dashboardCacheCapacity sizes the per-process query cache. 4096 entries
