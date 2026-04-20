@@ -1,0 +1,91 @@
+# Blackout simulation CI job
+#
+# Lift into `.github/workflows/blackout-sim.yml` in Phase 8. Body is verbatim from
+# doc 28 §Gap 2 lines 512–565.
+#
+# The job builds the vendored airgap binary, starts ClickHouse, drops OUTPUT to DROP
+# whitelisting only loopback + Docker bridge, and asserts the binary boots, serves
+# dashboard, ingests events, and degrades S3 / alerts gracefully.
+
+name: blackout-sim
+on:
+  pull_request:
+    paths: ['cmd/**', 'internal/**', 'deploy/**', 'ops/**']
+  push:
+    branches: [main]
+
+jobs:
+  blackout:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+
+      - name: Build vendored airgap binary
+        run: |
+          GOFLAGS=-mod=vendor go build \
+            -tags airgap \
+            -trimpath \
+            -ldflags '-s -w' \
+            -o /tmp/statnive ./cmd/statnive
+
+      - name: Start ClickHouse
+        run: docker run -d --name ch --network host clickhouse/clickhouse-server:24.8
+
+      - name: Apply migrations
+        run: ls migrations/*.sql | xargs -I{} curl -fsS 'http://127.0.0.1:8123/' --data-binary @{}
+
+      - name: Install blackout iptables rules
+        run: |
+          sudo iptables -P OUTPUT DROP
+          sudo iptables -A OUTPUT -o lo -j ACCEPT
+          sudo iptables -A OUTPUT -d 172.17.0.0/16 -j ACCEPT  # Docker bridge
+          # sanity: CF must fail
+          ! curl -fsS --max-time 3 https://api.cloudflare.com/ \
+            || (echo "blackout broken — egress still works"; exit 1)
+
+      - name: Start statnive under blackout
+        run: |
+          STATNIVE_AIRGAP=true \
+          STATNIVE_CLICKHOUSE_ADDR=127.0.0.1:8123 \
+          STATNIVE_LICENSE_FILE=$PWD/test/fixtures/license-test.jwt \
+            /tmp/statnive &
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:8080/health/ready && break
+            sleep 1
+          done
+
+      - name: Dashboard loads
+        run: curl -fsS http://127.0.0.1:8080/ | grep -q '<title>Statnive'
+
+      - name: Tracker POSTs succeed + rollup materializes
+        run: |
+          for i in {1..50}; do
+            curl -fsS -XPOST http://127.0.0.1:8080/t -d '{"e":"pageview"}'
+          done
+          sleep 2
+          curl -fsS 'http://127.0.0.1:8080/api/stats?range=1h' | jq -e '.pageviews >= 50'
+
+      - name: S3 backup fails gracefully
+        run: |
+          tail -500 /var/log/statnive.log \
+            | grep -E 's3.*(unreachable|timeout).*continuing|degraded mode'
+
+      - name: Alerts file-sink only
+        run: |
+          test -s /var/log/statnive/alerts.ndjson
+          ! grep -Ei 'slack|pagerduty|opsgenie' /var/log/statnive.log
+
+      - if: always()
+        name: Restore firewall
+        run: sudo iptables -P OUTPUT ACCEPT && sudo iptables -F
+
+  semgrep:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: returntocorp/semgrep-action@v1
+        with:
+          config: .claude/skills/iranian-dc-deploy/semgrep/rules.yaml
