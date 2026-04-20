@@ -54,9 +54,9 @@ The full repo ships 37 atomic skills. We install only the ones that map to statn
 
 **Skipped (no active phase yet):** grpc, samber-do/hot/lo/mo/ro/slog/oops, dependency-injection, dependency-management, design-patterns, documentation, data-structures, benchmark (covered by performance), modernize, naming (covered by code-style), popular-libraries, testing (pending testing framework selection in Phase 7), continuous-integration (our pre-commit hook + Makefile handle it).
 
-### clickhouse-agent-skills (6 of 6)
+### clickhouse-agent-skills (1 primary + 4 auxiliary)
 
-All installed — small set, all useful. Maps to [CLAUDE.md § Architecture Rules](../CLAUDE.md#architecture-rules-non-negotiable) 1–8.
+All 5 directories installed. Maps to [CLAUDE.md § Architecture Rules](../CLAUDE.md#architecture-rules-non-negotiable) 1–8. Note: the upstream repo ships **one** skill (`clickhouse-best-practices`, 28 rules/11 categories) — the other 4 entries are related but separate artifacts. See § Doc 28 additions for the full roster correction.
 
 | Skill | Purpose |
 |---|---|
