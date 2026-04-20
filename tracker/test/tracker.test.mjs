@@ -1,0 +1,209 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SRC = readFileSync(resolve(__dirname, '../src/tracker.js'), 'utf8');
+
+// Capture originals once so each loadTracker() can restore them.
+const ORIG_PUSH = window.history.pushState.bind(window.history);
+const ORIG_REPLACE = window.history.replaceState.bind(window.history);
+
+// popstate listeners accumulate across IIFE evaluations; track them so
+// we can detach before re-running the IIFE.
+const popstateListeners = new Set();
+const origAdd = window.addEventListener.bind(window);
+window.addEventListener = function (type, fn, opts) {
+  if (type === 'popstate') popstateListeners.add(fn);
+
+  return origAdd(type, fn, opts);
+};
+
+function loadTracker(opts = {}) {
+  delete window.statnive;
+  delete window._phantom;
+  delete window.callPhantom;
+
+  // Restore originals so nested wrappers from prior tests don't stack.
+  window.history.pushState = ORIG_PUSH;
+  window.history.replaceState = ORIG_REPLACE;
+
+  // Detach any popstate listener the IIFE registered in a prior test.
+  for (const fn of popstateListeners) window.removeEventListener('popstate', fn);
+  popstateListeners.clear();
+
+  // Clear any <script> from a previous endpointAttr test.
+  document.head.innerHTML = '';
+
+  // Apply per-test navigator overrides.
+  if (opts.dnt !== undefined) {
+    Object.defineProperty(window.navigator, 'doNotTrack', { value: opts.dnt, configurable: true });
+  }
+  if (opts.gpc !== undefined) {
+    Object.defineProperty(window.navigator, 'globalPrivacyControl', { value: opts.gpc, configurable: true });
+  }
+  if (opts.webdriver !== undefined) {
+    Object.defineProperty(window.navigator, 'webdriver', { value: opts.webdriver, configurable: true });
+  }
+  if (opts.phantom) window._phantom = {};
+
+  if (opts.endpointAttr) {
+    document.head.innerHTML = `<script data-statnive-endpoint="${opts.endpointAttr}"></script>`;
+  }
+
+  // Mock sendBeacon so we can inspect the payload.
+  const beaconCalls = [];
+  window.navigator.sendBeacon = (url, blob) => {
+    beaconCalls.push({ url, body: blob });
+
+    return true;
+  };
+
+  // Evaluate the tracker source in this window.
+  // eslint-disable-next-line no-new-func
+  new Function('window', 'document', SRC)(window, document);
+
+  return beaconCalls;
+}
+
+async function blobText(blob) {
+  if (typeof blob.text === 'function') return blob.text();
+
+  return new Promise((res) => {
+    const reader = new FileReader();
+    reader.onload = () => res(reader.result);
+    reader.readAsText(blob);
+  });
+}
+
+// Reset navigator privacy flags to neutral defaults before every spec.
+// Tests that need a non-default value pass it via loadTracker(opts) below.
+beforeEach(() => {
+  Object.defineProperty(window.navigator, 'doNotTrack', { value: '0', configurable: true });
+  Object.defineProperty(window.navigator, 'globalPrivacyControl', { value: false, configurable: true });
+  Object.defineProperty(window.navigator, 'webdriver', { value: false, configurable: true });
+});
+
+describe('privacy short-circuit', () => {
+  it('fires nothing when DNT=1', () => {
+    const calls = loadTracker({ dnt: '1' });
+    expect(calls).toHaveLength(0);
+    expect(typeof window.statnive.track).toBe('function');
+    expect(typeof window.statnive.identify).toBe('function');
+  });
+
+  it('fires nothing when Sec-GPC=true', () => {
+    const calls = loadTracker({ gpc: true });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('fires nothing when navigator.webdriver=true', () => {
+    const calls = loadTracker({ webdriver: true });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('fires nothing when window._phantom is set', () => {
+    const calls = loadTracker({ phantom: true });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('subsequent track() calls are no-ops after short-circuit', () => {
+    const calls = loadTracker({ gpc: true });
+    window.statnive.track('would-not-fire');
+    window.statnive.identify('user-x');
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('happy path', () => {
+  it('fires a pageview on initial load with hostname/pathname', async () => {
+    const calls = loadTracker();
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(await blobText(calls[0].body));
+    expect(body.event_type).toBe('pageview');
+    expect(body.event_name).toBe('pageview');
+    expect(body.hostname).toBe(window.location.hostname);
+    expect(body.pathname).toBe(window.location.pathname);
+    expect(body.user_id).toBe('');
+  });
+
+  it('track() emits a custom event with props + value', async () => {
+    const calls = loadTracker();
+    window.statnive.track('signup', { plan: 'pro' }, 99);
+    expect(calls).toHaveLength(2);
+    const body = JSON.parse(await blobText(calls[1].body));
+    expect(body.event_type).toBe('custom');
+    expect(body.event_name).toBe('signup');
+    expect(body.event_value).toBe(99);
+    expect(body.props).toEqual({ plan: 'pro' });
+  });
+
+  it('history.pushState fires a pageview', async () => {
+    const calls = loadTracker();
+    window.history.pushState({}, '', '/new-route');
+    expect(calls).toHaveLength(2);
+    const body = JSON.parse(await blobText(calls[1].body));
+    expect(body.event_type).toBe('pageview');
+    expect(body.pathname).toBe('/new-route');
+  });
+
+  it('history.replaceState fires a pageview', async () => {
+    const calls = loadTracker();
+    window.history.replaceState({}, '', '/replaced');
+    expect(calls).toHaveLength(2);
+    const body = JSON.parse(await blobText(calls[1].body));
+    expect(body.pathname).toBe('/replaced');
+  });
+
+  it('popstate fires a pageview', () => {
+    const calls = loadTracker();
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(calls).toHaveLength(2);
+  });
+
+  it('uses the data-statnive-endpoint attribute when present', () => {
+    const calls = loadTracker({ endpointAttr: '/custom/api/event' });
+    expect(calls[0].url).toBe('/custom/api/event');
+  });
+
+  it('defaults to /api/event without the attribute', () => {
+    const calls = loadTracker();
+    expect(calls[0].url).toBe('/api/event');
+  });
+});
+
+describe('identify (user_id)', () => {
+  it('passes raw uid through to subsequent payloads', async () => {
+    const calls = loadTracker();
+    window.statnive.identify('user_a83f');
+    window.statnive.track('purchase', {}, 100);
+    expect(calls).toHaveLength(2);
+    const body = JSON.parse(await blobText(calls[1].body));
+    expect(body.user_id).toBe('user_a83f');
+  });
+
+  it('identify(null) clears the previous uid', async () => {
+    const calls = loadTracker();
+    window.statnive.identify('user_a83f');
+    window.statnive.track('a', {}, 0);
+    window.statnive.identify(null);
+    window.statnive.track('b', {}, 0);
+    const bodyA = JSON.parse(await blobText(calls[1].body));
+    const bodyB = JSON.parse(await blobText(calls[2].body));
+    expect(bodyA.user_id).toBe('user_a83f');
+    expect(bodyB.user_id).toBe('');
+  });
+
+  it('uid is the raw value (not a hash) — server hashes it', async () => {
+    const calls = loadTracker();
+    window.statnive.identify('plain_uid_42');
+    window.statnive.track('test', {}, 0);
+    const body = JSON.parse(await blobText(calls[1].body));
+    // The tracker MUST NOT hash client-side. Server hashes via
+    // identity.HexUserIDHash with the master_secret, which the tracker
+    // doesn't have — so any client-side hashing would be insecure too.
+    expect(body.user_id).toBe('plain_uid_42');
+    expect(body.user_id).not.toMatch(/^[a-f0-9]{64}$/);
+  });
+});
