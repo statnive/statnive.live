@@ -1,0 +1,74 @@
+# GeoIP gate CI
+#
+# Lift into `.github/workflows/geoip-gate.yml` in Phase 8 (Weeks 19–20). Body is
+# verbatim from doc 28 §Gap 1 lines 267–319.
+
+name: geoip-gate
+on:
+  pull_request:
+    paths:
+      - 'internal/enrich/**'
+      - 'cmd/**'
+      - 'go.mod'
+      - 'LICENSE-third-party.md'
+      - '.claude/skills/geoip-pipeline-review/**'
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: returntocorp/semgrep-action@v1
+        with:
+          config: .claude/skills/geoip-pipeline-review/semgrep/rules.yaml
+
+  attribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: LICENSE-third-party.md has exact attribution string
+        run: grep -q 'This site or product includes IP2Location LITE data' LICENSE-third-party.md
+      - name: internal/about/ has IP2Location LITE reference
+        run: grep -rq 'IP2Location LITE' internal/about/
+
+  hot-reload-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+      - run: go test -race -tags=integration -timeout=5m ./internal/enrich/...
+
+  ip-leak-grep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+      - run: go build -o /tmp/app ./cmd/statnive
+      - name: Run under 7K EPS, grep server log for any IPv4/IPv6 pattern
+        run: |
+          /tmp/app --config test/k6.yaml > /tmp/srv.log 2>&1 &
+          sleep 2
+          k6 run --vus 100 --duration 60s --rps 7000 test/k6/script.js
+          kill %1 || true
+          if grep -E '([0-9]{1,3}\.){3}[0-9]{1,3}' /tmp/srv.log; then
+            echo "IPv4 leaked in server log"
+            exit 1
+          fi
+          if grep -E '([0-9a-fA-F:]+:+)+[0-9a-fA-F]+' /tmp/srv.log; then
+            echo "IPv6 leaked in server log"
+            exit 1
+          fi
+
+  license-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+      - name: go-licenses binary-surface gate (MIT/Apache/BSD/ISC only)
+        run: |
+          go install github.com/google/go-licenses@latest
+          go-licenses report ./... > licenses.csv
+          awk -F, '$3 !~ /^(MIT|Apache-2.0|BSD-2-Clause|BSD-3-Clause|ISC)$/ {print "forbidden: "$0; f=1} END {exit f}' licenses.csv

@@ -1,0 +1,100 @@
+# Semgrep rules for geoip-pipeline-review
+#
+# Authored per doc 28 §Gap 1 (lines 68–150). Bodies ship here; `.github/workflows/
+# geoip-gate.yml` registers this file as its semgrep `config:` path.
+#
+# License: MIT
+# Research anchor: jaan-to/docs/research/28-geoip-iranian-dc-clickhouse.md §Gap 1
+
+rules:
+  - id: geoip-ip-in-log
+    message: Raw IP in structured log key outside GeoIP wrapper.
+    severity: ERROR
+    languages: [go]
+    paths:
+      exclude: ["internal/enrich/geoip.go", "internal/http/middleware/*.go"]
+    pattern-either:
+      - pattern: slog.$METH(..., "ip", $X, ...)
+      - pattern: slog.$METH(..., "remote_addr", $X, ...)
+      - pattern: slog.$METH(..., "client_ip", $X, ...)
+      - pattern: zap.String("ip", $X)
+      - pattern: zap.String("remote_addr", $X)
+
+  - id: geoip-ip-field-in-persisted-struct
+    message: IP-adjacent field in persistence layer. Raw IPs must not be persisted.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include:
+        - "internal/store/**"
+        - "internal/clickhouse/**"
+        - "internal/ingest/persist*.go"
+    pattern-either:
+      - pattern: |
+          type $T struct { ... IP $X ... }
+      - pattern: |
+          type $T struct { ... RemoteAddr $X ... }
+      - pattern: |
+          type $T struct { ... ClientIP $X ... }
+
+  - id: geoip-get-all-banned
+    message: Get_all is expensive; use Get_city or Get_country_short on hot paths.
+    severity: WARNING
+    languages: [go]
+    paths:
+      include: ["internal/enrich/**", "internal/ingest/**"]
+    pattern: $DB.Get_all($IP)
+
+  - id: geoip-must-use-atomic-pointer
+    message: GeoIP DB handle must be sync/atomic.Pointer[T]; sync.RWMutex is rejected.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include: ["internal/enrich/geoip.go"]
+    pattern-either:
+      - pattern: |
+          type $T struct { ... mu sync.RWMutex ... db *ip2location.DB ... }
+      - pattern: |
+          type $T struct { ... mu sync.Mutex ... db *ip2location.DB ... }
+
+  - id: geoip-sighup-handler-required
+    message: Service must register a SIGHUP handler that calls GeoIP Reload.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include: ["cmd/**/main.go"]
+    patterns:
+      - pattern: func main() { ... }
+      - pattern-not-inside: |
+          signal.Notify($CH, ..., syscall.SIGHUP, ...)
+
+  - id: geoip-attribution-string-present
+    message: CC-BY-SA-4.0 attribution for IP2Location LITE must be embedded.
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include:
+        - "LICENSE-third-party.md"
+        - "internal/about/about.go"
+        - "web/dashboard/footer.*"
+    pattern-regex: "IP2Location LITE"
+
+  - id: geoip-no-fsnotify-on-bin
+    message: fsnotify unreliable on overlayfs/NFS. Use SIGHUP for GeoIP reload.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include: ["internal/enrich/**"]
+    pattern-either:
+      - pattern: fsnotify.NewWatcher()
+      - pattern: $W.Add($PATH)
+
+  - id: geoip-no-ip-key-cache
+    message: Do not cache lookups keyed by raw IP. Use /24 prefix or coarser.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include: ["internal/enrich/**"]
+    pattern-either:
+      - pattern: $CACHE[$IP.String()] = $V
+      - pattern: $CACHE.Store($IP.String(), $V)
