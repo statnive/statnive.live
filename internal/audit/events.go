@@ -36,6 +36,27 @@ const (
 	EventBurstDropped    EventName = "ingest.burst_dropped"
 )
 
+// WAL durability events. Emitted by internal/ingest/wal.go +
+// internal/ingest/walgroup.go + internal/ingest/consumer.go. Phase 7b1
+// per doc 27 §Gap 1; gated by .claude/skills/wal-durability-review/.
+const (
+	// EventWALSyncFailed is emitted immediately before os.Exit(1) when
+	// fsync returns EIO/ENOSPC. Pre-4.13 Linux fsync marks failed pages
+	// clean on EIO and forgets the error; retrying after a Sync error
+	// silently loses data (LWN 752063, fsyncgate 2018).
+	EventWALSyncFailed EventName = "wal.sync_failed"
+
+	// EventWALCorruptSkipped fires once per gap range during replay
+	// when tidwall's binary log returns ErrNotFound for indices that
+	// should exist (typically a torn segment after SIGKILL).
+	EventWALCorruptSkipped EventName = "wal.corrupt_skipped"
+
+	// EventCHInsertFailed fires when ClickHouse rejects a batch.
+	// Consumer does NOT ack the WAL when this fires — the batch stays
+	// durable and will retry on the next flush cycle.
+	EventCHInsertFailed EventName = "ch.insert_failed"
+)
+
 // Audit-log internal events — emitted by the audit package itself when the
 // file sink is re-opened (e.g., after a SIGHUP from logrotate).
 const (
