@@ -37,8 +37,8 @@ const (
 )
 
 // WAL durability events. Emitted by internal/ingest/wal.go +
-// internal/ingest/walgroup.go + internal/ingest/consumer.go. Phase 7b1
-// per doc 27 §Gap 1; gated by .claude/skills/wal-durability-review/.
+// internal/ingest/walgroup.go + internal/ingest/consumer.go. Gated by
+// .claude/skills/wal-durability-review/SKILL.md (Architecture Rule 4).
 const (
 	// EventWALSyncFailed is emitted immediately before os.Exit(1) when
 	// fsync returns EIO/ENOSPC. Pre-4.13 Linux fsync marks failed pages

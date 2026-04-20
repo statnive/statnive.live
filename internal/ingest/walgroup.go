@@ -20,9 +20,12 @@ type WALAppender interface {
 	CurrentIndex() uint64
 }
 
+// ErrGroupSyncerStopped is returned from AppendAndWait after Close.
+var ErrGroupSyncerStopped = errors.New("wal group syncer stopped")
+
 // GroupSyncer batches concurrent AppendAndWait calls into a single fsync
-// (group commit). Honors the doc 27 §Gap 1 "ack-after-fsync" mandate:
-// no caller's ack returns until the durable Sync has completed.
+// (group commit). No caller's ack returns until the durable Sync has
+// completed — honors CLAUDE.md Architecture Rule 4.
 //
 // Single internal goroutine drains the request channel, calls Append for
 // each event, calls Sync once for the whole batch, then signals every
@@ -49,8 +52,10 @@ type GroupSyncer struct {
 	stopWG sync.WaitGroup
 }
 
-// GroupConfig tunes the batch behavior. Defaults match doc 27 §Gap 1
-// recommendation (group-commit interval ≤ 100ms; batch ≤ 256 events).
+// GroupConfig tunes the batch behavior. Defaults match the
+// group-commit recommendation in
+// .claude/skills/wal-durability-review/SKILL.md (interval ≤ 100ms;
+// batch ≤ 256 events).
 type GroupConfig struct {
 	// BatchMax is the count flush trigger. Default 256.
 	BatchMax int
@@ -115,6 +120,9 @@ func NewGroupSyncer(w WALAppender, cfg GroupConfig, auditLog *audit.Logger, logg
 // Higher layers MUST treat ctx.Err() as a possibly-already-persisted
 // signal and not double-process.
 func (g *GroupSyncer) AppendAndWait(ctx context.Context, ev EnrichedEvent) (uint64, error) {
+	// TODO(perf): pool the per-event ack channel via sync.Pool. At
+	// 7K EPS this is 7K alloc/sec; bench-driven optimization deserves
+	// its own PR with before/after numbers.
 	ack := make(chan walAck, 1)
 
 	select {
@@ -122,7 +130,7 @@ func (g *GroupSyncer) AppendAndWait(ctx context.Context, ev EnrichedEvent) (uint
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	case <-g.stopCh:
-		return 0, errors.New("wal group syncer stopped")
+		return 0, ErrGroupSyncerStopped
 	}
 
 	select {
@@ -171,8 +179,16 @@ func (g *GroupSyncer) loop() {
 
 			if len(pending) >= g.batchMax {
 				if timerActive {
-					if !flushTimer.Stop() {
-						<-flushTimer.C
+					// Go 1.23+ pattern: Stop + non-blocking drain.
+					// Stop returns false when the timer already fired
+					// AND was drained, OR when it was never armed; the
+					// select-with-default avoids the hang the older
+					// "if !Stop() { <-C }" pattern can hit on re-entry.
+					flushTimer.Stop()
+
+					select {
+					case <-flushTimer.C:
+					default:
 					}
 
 					timerActive = false
@@ -204,6 +220,9 @@ func (g *GroupSyncer) flush(batch []walReq) {
 		return
 	}
 
+	// TODO(perf): hoist these slices to GroupSyncer fields and reuse
+	// across flushes (single goroutine, no sync needed). At BatchMax=256
+	// × 30 fsyncs/sec = 7680 alloc/sec for the two slices alone.
 	appendErrs := make([]error, len(batch))
 	indices := make([]uint64, len(batch))
 
@@ -245,10 +264,8 @@ func (g *GroupSyncer) fatal(err error) {
 	g.logger.Error("wal fsync failed; terminating to preserve data integrity",
 		"err", err.Error())
 
-	if g.auditLog != nil {
-		g.auditLog.Event(context.Background(), audit.EventWALSyncFailed,
-			slog.String("err", err.Error()))
-	}
+	emitAudit(context.Background(), g.auditLog, audit.EventWALSyncFailed,
+		slog.String("err", err.Error()))
 
 	g.exitFn(1)
 }
