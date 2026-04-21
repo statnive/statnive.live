@@ -126,6 +126,19 @@ Configured in [`.mcp.json`](../.mcp.json). Dev host only — never bundled into 
 - **Env:** `GRAFANA_URL`, `GRAFANA_API_KEY`
 - **Capabilities:** dashboard queries, Prometheus/Loki/Pyroscope, alerts, incident response
 
+### Tool-poisoning defense (F8 — advisory)
+
+Invariant Labs (April 2025) documented the "MCP tool poisoning" class: a compromised or rogue MCP server silently amends its tool descriptions — injecting `<IMPORTANT>`, `<system>`, or hidden-Unicode instructions that the client treats as higher-priority than its own system prompt. Research doc 78 §"MCP integration multiplies the attack surface by 20×" puts this in the top-three attack vectors for any multi-MCP operator environment. All four MCP servers above are dev-host only (never bundled into the statnive-live binary), so the exposure is operator-side, not customer-side — but dev-host is where the keys live (Hetzner token, Grafana API key, ClickHouse credentials, GitHub write scopes), so the blast radius is real.
+
+Operator-side checklist (advisory, CI-optional):
+
+1. **Pin tool descriptions at registration.** On first `.mcp.json` install, record `sha256(toolListJSON)` per server in `.mcp.json.hashes` (tracked in the repo, not gitignored). A short script compares current tool-list hash on every connect; any drift halts and prompts the operator to re-approve.
+2. **Strip injection markers at the client boundary.** Before MCP tool descriptions or tool-call results enter the model context, run a sanitizer that (a) strips Unicode Tag Block (`U+E0000`–`U+E007F`), zero-width chars (`U+200B`/`C`/`D`/`FEFF`/`2060`), bidi overrides (`U+202A`–`U+202E`, `U+2066`–`U+2069`); (b) strips HTML comments and `<!-- -->`-style markers; (c) replaces `<IMPORTANT>`, `<system>`, `<instructions>` with their HTML-escaped equivalents (`&lt;IMPORTANT&gt;` etc.) so they render as data, not structure. Same sanitizer as `air-gap-validator` rule 8 (skill-content sanitizer).
+3. **Minimum-privilege credentials per MCP.** `clickhouse` MCP uses a read-only CH user scoped to schema queries; `hetzner` MCP uses an HCLOUD_TOKEN scoped to the statnive-live project only; `grafana` MCP uses a read-only Grafana API key against a specific organization.
+4. **CI diff-check on `.mcp.json` PRs.** Any change to `.mcp.json` or `.mcp.json.hashes` requires a human reviewer — Semgrep auto-approval is banned for this file pair. The PR body must cite the upstream MCP-server release notes or commit diff being adopted.
+
+Not a hard gate. Out of scope for the binary. Revisit if statnive-live ever bundles or re-exports MCP servers to operators.
+
 ## Phase → tooling map
 
 Lifted from doc 23 §Skills-to-Phase Mapping:
