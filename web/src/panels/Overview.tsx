@@ -23,27 +23,23 @@ export function Overview() {
   useEffect(() => {
     err.value = null;
 
-    // Cancelled flag guards against a fetch completing after unmount —
-    // without it, a re-mount would see stale data written by the prior
-    // instance's in-flight request.
-    let cancelled = false;
+    const ac = new AbortController();
 
     (async () => {
       try {
         const r = rangeSignal.value;
-        const resp = await apiGet<OverviewResponse>('/api/stats/overview', {
+        data.value = await apiGet<OverviewResponse>('/api/stats/overview', {
           from: r.from,
           to: r.to,
-        });
-        if (!cancelled) data.value = resp;
+        }, ac.signal);
       } catch (e: unknown) {
-        if (!cancelled) err.value = e instanceof Error ? e.message : String(e);
+        // AbortError is the unmount path, not a real failure.
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+        err.value = e instanceof Error ? e.message : String(e);
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

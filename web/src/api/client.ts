@@ -6,7 +6,11 @@ import { authSignal } from '../state/auth';
 // authSignal. Plain fetch — no TanStack Query: the bundle budget can't
 // absorb ~10 KB gz of TQ machinery, and signals + per-panel re-fetch
 // covers the same 90% of the use case.
-export async function apiGet<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+export async function apiGet<T>(
+  path: string,
+  params: Record<string, string> = {},
+  signal?: AbortSignal,
+): Promise<T> {
   const url = new URL(path, window.location.origin);
   url.searchParams.set('site', String(siteSignal.value));
   for (const [k, v] of Object.entries(params)) {
@@ -19,7 +23,7 @@ export async function apiGet<T>(path: string, params: Record<string, string> = {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url.toString(), { headers });
+  const res = await fetch(url.toString(), { headers, signal });
   if (!res.ok) {
     throw new Error(`apiGet ${path}: HTTP ${res.status}`);
   }
