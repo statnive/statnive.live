@@ -132,9 +132,13 @@ for iter in $(seq 1 "$ITERATIONS"); do
     MASTER_KEY="$(mktemp)"
     head -c 32 /dev/urandom | xxd -p -c 64 > "$MASTER_KEY"
 
-    # Wipe prior events for this test's site.
+    # Wipe prior events for this test's site. mutations_sync=2 makes the
+    # DELETE block until the merge completes — without it the async mutation
+    # races the consumer's inserts and silently wipes the very rows we're
+    # about to assert exist (showed up as landed=0 in CI, while local was
+    # green because slower CH timing hid the race).
     docker exec "$CH_CONTAINER" clickhouse-client --port 9000 -q \
-        "ALTER TABLE statnive.events_raw DELETE WHERE site_id = ${SITE_ID}" >/dev/null 2>&1 || true
+        "ALTER TABLE statnive.events_raw DELETE WHERE site_id = ${SITE_ID} SETTINGS mutations_sync = 2" >/dev/null 2>&1 || true
 
     # Start binary.
     STATNIVE_SERVER_LISTEN="127.0.0.1:${PORT}" \
