@@ -58,6 +58,17 @@ func TestMultitenantVisitorHashSeparation(t *testing.T) {
 		)
 	}
 
+	// Clean BY HOSTNAME before seeding — TestDashboard_MultitenantIsolation
+	// seeds the same hostnames under different site_ids (401/402) and runs
+	// alphabetically before this test. Without this cleanup both rows stay
+	// active and LookupSiteIDByHostname returns a nondeterministic site_id
+	// so events land under the wrong tenant. See storagetest/seed.go for
+	// the same class of fix in the shared helper.
+	_ = store.Conn().Exec(ctx,
+		`ALTER TABLE statnive.sites DELETE WHERE hostname IN (?, ?) SETTINGS mutations_sync = 2`,
+		hostA, hostB,
+	)
+
 	if err := store.Conn().Exec(ctx,
 		`INSERT INTO statnive.sites (site_id, hostname, slug, enabled) VALUES (?, ?, ?, 1), (?, ?, ?, 1)`,
 		tenantA, hostA, "tenant-a",

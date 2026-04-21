@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      statnive-bearer is rewritten by internal/dashboard/spa/dashboard.go at
+      request time from cfg.Dashboard.BearerToken. Empty content means dev
+      mode (no auth). Phase 2b replaces this whole mechanism with sessions.
+    -->
+    <meta name="statnive-bearer" content="STATNIVE_BEARER_PLACEHOLDER" />
+    <title>statnive — analytics</title>
+  </head>
+  <body>
+    <div id="statnive-app"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

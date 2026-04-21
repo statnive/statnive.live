@@ -11,6 +11,11 @@ web/node_modules/
 tracker/dist/
 tracker/node_modules/
 
+# SPA embed target — vite.config.ts writes hashed bundles here, and
+# internal/dashboard/spa/dashboard.go embeds them via //go:embed. Must
+# be rebuilt fresh on every checkout (make build depends on make web-build).
+internal/dashboard/spa/dist/
+
 # Runtime data (not source)
 wal/
 data/

@@ -75,7 +75,7 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 | **3b — Dashboard HTTP layer** | ✅ Complete | PR #12. 8 stat handlers + realtime + IRST Filter + bearer-token stub + WITH FILL. |
 | **3c — Admin CRUD** | ⏳ Pending | `/api/admin/users`, `/api/admin/goals`. Every write handler uses `dec.DisallowUnknownFields()` + per-endpoint `AllowedFields` whitelist; sensitive fields (`site_id`, `role`, `is_admin`) sourced from session context, never request body (F4, Verification §52 — Go-adapted mass-assignment guard). Needs Phase 2b. |
 | **4 — Tracker JS** | ✅ Complete | PR #21. 1394 B min / 687 B gz + Go embed at `/tracker.js`; `statnive.track()` + `statnive.identify(uid)` end-to-end (raw uid cleared). Sec-GPC + DNT + webdriver + _phantom short-circuits BEFORE send. 15 Vitest + 6 Go handler tests; size gate in `make audit`. |
-| **5 — Dashboard frontend** | 🔜 Next | Preact SPA + uPlot + Frappe. Unblocked: every Phase 7b2 deliverable now actually executing in CI per PR (PR #28 wired `make test-integration` + `npm --prefix tracker test` and fixed 2 latent bugs the wiring exposed — `user_id` → `user_id_hash` schema reference, missing `HandlerConfig.MasterSecret` in test harness). Phase 5a (scaffold + Overview panel) is the next slice per the plan file. |
+| **5 — Dashboard frontend** | 🟡 Partial | Phase 5a ✅ (PR #29): Preact + signals + TypeScript scaffold, brand tokens CSS, bundle gate ≤10 KB JS gz / ≤3 KB CSS gz (current 9 KB / 784 B), CSP / nosniff / Referrer-Policy on `/app/*`, `make build → make web-build` dep so `//go:embed all:dist/*` always has fresh assets, Overview panel with 2-tier KPIs (Visitors / Conversion% / Revenue / RPV primary; Pageviews / Goals demoted per "Reject vanity metrics"), bearer token injected via `<meta>` at Handler() construction, `cfg.Dashboard.SPAEnabled` defaults false (production gate-off until Phase 2b), dashboard-vitest CI job + `brand-grep` + `web-airgap-grep` Makefile gates. Phase 5b (Sources / Pages / SEO / Campaigns / Realtime panels + uPlot + filter + date picker) next. |
 | **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, `/healthz`, env override done. Admin-user + Goal/Funnel CRUD wait on Phase 2/3. |
 | **7a — Backend solidity gate** | ✅ Complete | PR #14. Burst guard (~50 ns/op) + bench suite + crash/CH-outage/disk-full tests + k6 7K EPS + WAL replay + viper env fix. |
 | **7c — Optimization & hardening** | ✅ Complete | PR #18. Channel hot path -13% (1 alloc/op); modern Go (`wg.Go`, range-over-int, `b.Loop()`); dead drift-check removed; CI fixes (vendor-check CRLF, license-check GOFLAGS, golangci-lint v2.5 `--new-from-rev`). Audit evidence at `audit/{sec,ch,airgap}-findings.md`; `bench.out` baseline. |
@@ -171,11 +171,11 @@ Flat `internal/storage/queries.go` (one Go function per endpoint) — we do NOT 
 
 Brand tokens from [`docs/brand.md`](docs/brand.md) — `web/src/tokens.css` imports at SPA entry; hand-rolled hex in components is a PR-review reject.
 
-- [ ] Preact SPA scaffold (Vite + TypeScript + @preact/signals)
-- [ ] Overview panel; Visitors trend (uPlot, hourly/daily); Sources table (sortable, RPV); Pages table (goals + revenue); Funnel (Frappe Charts); Geo; Devices; SEO (organic trend only — richer = v1.1); Campaigns
-- [ ] Gregorian date picker (Jalali = v1.1); real-time widget (10s refresh); Admin pages (users/goals/funnels)
-- [ ] WCAG 2.2 AA (contrast, focus rings, aria, keyboard)
-- [ ] Embed via go:embed, verify binary <20MB
+- [x] Preact SPA scaffold (Vite + TypeScript + @preact/signals) — Phase 5a / PR #29.
+- [partial] Overview panel done (Phase 5a); Sources / Pages / SEO / Campaigns / Realtime panels + uPlot Visitors trend pending Phase 5b; Funnel (Frappe) / Geo / Devices pending v1.1 or v2 per rollup availability.
+- [ ] Gregorian date picker (Jalali = v1.1); real-time widget (10s refresh); Admin pages (users/goals/funnels) — Phase 5b (non-admin) + Phase 2b+3c (admin pages).
+- [ ] WCAG 2.2 AA (contrast, focus rings, aria, keyboard) — Phase 5c.
+- [x] Embed via go:embed — Phase 5a. Binary-size verification deferred until Phase 5b panels land.
 
 **Deferred to v1.1:** Jalali, comparison-period toggle, CSV export, command palette.
 

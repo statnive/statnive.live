@@ -14,12 +14,20 @@ import (
 
 // SeedSite inserts a site row so handler.LookupSiteIDByHostname can
 // resolve the hostname during test ingest.
+//
+// Cleans by BOTH site_id AND hostname so two tests using the same
+// hostname under different site_ids don't end up with multiple active
+// rows for the same hostname. handler.LookupSiteIDByHostname does
+// `SELECT site_id FROM sites WHERE hostname = ? AND enabled = 1 LIMIT 1`,
+// which returns a NONDETERMINISTIC row when multiple match — that
+// silently routed multitenant's events to the wrong site_id and was
+// the root cause of the PR #29 CI flake (see commit cca29f3 debug log).
 func SeedSite(t *testing.T, ctx context.Context, conn driver.Conn, siteID uint32, hostname string) {
 	t.Helper()
 
 	if err := conn.Exec(ctx,
-		`ALTER TABLE statnive.sites DELETE WHERE site_id = ? SETTINGS mutations_sync = 2`,
-		siteID,
+		`ALTER TABLE statnive.sites DELETE WHERE site_id = ? OR hostname = ? SETTINGS mutations_sync = 2`,
+		siteID, hostname,
 	); err != nil {
 		t.Logf("clean sites (ok on first run): %v", err)
 	}
