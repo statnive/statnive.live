@@ -16,10 +16,11 @@ All recommendations trace back to [`../../jaan-to/docs/research/23-ai-workflow-c
 | clickhouse-agent-skills | [ClickHouse/agent-skills](https://github.com/ClickHouse/agent-skills) | Apache-2.0 | 1 primary (`clickhouse-best-practices`, 28 rules/11 categories) + 4 auxiliary (`chdb-datastore`, `chdb-sql`, `clickhousectl-cloud-deploy`, `clickhousectl-local-dev`) | 0, 1, 3, 6 |
 | trailofbits-skills | [trailofbits/skills](https://github.com/trailofbits/skills) | CC-BY-SA-4.0 | 8 of 38 (curated) | 2 (security) |
 | marina-skill | [The-Focus-AI/marina-skill](https://github.com/The-Focus-AI/marina-skill) | MIT | 4 of 4 (all) | 8 (deploy) |
+| load-gate tooling (doc 29) | Locust, Vegeta, wrk2, Pyroscope, Vector.dev, Parca, Falco, xt_tls | Mixed (all verified Apr 2026) | Install on observability VPS + generator nodes only — never linked into statnive-live binary | 7e, 10 |
 
 **4 MCP servers** in [`.mcp.json`](../.mcp.json): `clickhouse` (Altinity), `gopls`, `hetzner`, `grafana`.
 
-Plus 17 doc-25/27 community additions + 14 project-local custom skills — full list in [`history/skill-roster-evolution.md`](history/skill-roster-evolution.md).
+Plus 17 doc-25/27 community additions + 14 project-local custom skills — full list in [`history/skill-roster-evolution.md`](history/skill-roster-evolution.md). Doc 29 adds the **load-simulation gate** tool stack (row above) + a new custom skill `load-gate-harness` scheduled for Phase 7e scaffolding.
 
 ## Licensing decisions
 
@@ -32,6 +33,11 @@ CLAUDE.md § License Rules mandates MIT/Apache/BSD/ISC for anything **in the bin
 | marina-skill | MIT (declared; no LICENSE file) | ✅ Install | Dev-time. |
 | trailofbits-skills | CC-BY-SA-4.0 | ⚠️ Install unmodified | Share-alike applies to modifications; ship verbatim. Fork under CC-BY-SA if modifying. |
 | darrenoakey/claude-skill-golang | **CC-BY-NC-4.0** | ❌ Rejected | Non-commercial only; statnive-live is sold commercially. CI gate functionality covered by `.githooks/pre-commit` + `make lint`. |
+| Locust / Vegeta / wrk2 / Vector.dev / Falco | MIT / MIT / Apache-2.0 / Apache-2.0 / Apache-2.0 | ✅ Install (doc 29) | Dev-time load-gate tooling; never linked into binary. Vector.dev + VRL drives the live PII wire-scan (doc 29 §3.4). |
+| Grafana Pyroscope | Server **AGPL-3.0-only**, SDK **Apache-2.0** | ✅ Install (dev-time only) | Observability VPS only. Distributed binary never links the server. Pyroscope SDK is Apache-2.0 and scoped to `deploy/observability/`-triggered profiling builds only (not default in ship). |
+| Parca / Parca-agent | Apache-2.0 user-space, GPL-2 eBPF | ✅ Install | eBPF kernel module is OS-installed (outside binary boundary per CLAUDE.md anti-pattern rule); user-space agent is Apache-2.0. Runs under `--debuginfod-upstream-servers=""` and `--profile-share-server=""` for air-gap. |
+| xt_tls (Lochnair/xt_tls) | GPL-2 | ✅ Install (chaos scenario only) | Kernel module for DPI-SNI chaos test (doc 29 §5.3); never in production. Loaded on test-bed only; unloaded after chaos window closes. |
+| k6 OSS | AGPL-3.0-only | ✅ Install (dev-time only) | Kept for CI smoke cross-check against Locust-primary gate (doc 29 §3.1). Set `K6_NO_USAGE_REPORT=true` in job env; on air-gapped runners the anonymous-usage POST otherwise fails silently and pollutes iptables logs. |
 
 ## Curated skill list
 
@@ -134,6 +140,7 @@ Lifted from doc 23 §Skills-to-Phase Mapping:
 | 5: Frontend | — (use [`tech-docs/`](tech-docs/) for Preact/uPlot/Frappe/Jalali refs) | — |
 | 6: Config | `golang-cli`, `clickhouse-best-practices` | `clickhouse` |
 | 7: Testing | `golang-performance`, `golang-linter`, `differential-review`, `second-opinion` | `gopls`, `clickhouse` |
+| 7e: Load-gate scaffolding (doc 29) | Locust (primary), k6 OSS (CI cross-check), Vegeta + wrk2 (breakpoint), Pyroscope, Vector.dev, Parca, Falco, xt_tls | `clickhouse`, `grafana` |
 | 8: Deploy | `server-management`, `server-bootstrap`, `dns-management`, `app-deployment` | `hetzner`, `grafana` |
 
 ## Skills Decision Tree (full form)
@@ -232,6 +239,7 @@ Per doc 23 §Gap Analysis — no community skill coverage. Author when the corre
 | WAL durability | 1 | `tidwall/wal` directly; cc-skills-golang covers surrounding patterns |
 | BLAKE3-128 identity | 1 | `lukechampine.com/blake3` (MIT) directly |
 | Iranian DC deploy | 8 | No community skill — fork marina-skill or plain shell against Iranian DC API |
+| Production load-simulation gate (doc 29) | 7e / 10 | Author `.claude/skills/load-gate-harness/` per doc 29 §4 + §5 + §6; scaffold `test/perf/gate/` (Locust harness), `test/perf/chaos/` (6 tc/netem/iptables/xt_tls scripts), `test/perf/generator/` (Go synthesizer emitting generator_seq quadruple); migration `003_load_gate_columns.sql` for the 4 DEFAULT-sentinel oracle columns + `proj_oracle` projection. |
 
 ## Maintenance
 
@@ -287,6 +295,7 @@ Custom skills in this project are authored **ahead of** their enforcement phase.
 | `geoip-pipeline-review` | 8 W19–20 | advisory |
 | `clickhouse-operations-review` | 8 W20–22 | advisory |
 | `clickhouse-upgrade-playbook` | 8+ / P5 | **advisory-only by design** (no Semgrep rules) |
+| `load-gate-harness` (doc 29) | 7e scaffold → 10 cutover | **scheduled** — scaffold in Phase 7e, HARD GATE on each Phase 10 sub-phase cutover |
 
 ## Historical accretion
 

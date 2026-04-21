@@ -26,7 +26,7 @@
 2. **All dashboard reads from rollups** — 3 materialized views in v1 (<100 KB/day/site), up to 6 by v1.1.
 3. **1-hour delay, NOT real-time** — saves 98% query cost. Never build 5-min real-time.
 4. **Client-side batching in Go** — WAL for durability, batch 500ms / 1000 rows. Async inserts are safety valve only.
-5. **No Nullable columns** — use `DEFAULT ''` or `DEFAULT 0`. Nullable costs 10–200% on aggregations (doc 20 measured 2× on `Nullable(Int8)`).
+5. **No Nullable columns** — use `DEFAULT ''` or `DEFAULT 0`. Nullable costs 10–200% on aggregations (doc 20 measured 2× on `Nullable(Int8)`). **Carve-out for test-instrumentation columns** (`test_run_id`, `test_generator_seq`, `generator_node_id`, `send_ts`): use typed `DEFAULT` sentinels (UUID zero / UInt64 0 / UInt16 0 / DateTime64(3) 0) to preserve the sparse-serialization path at >93.75% defaults, which doc 29 §6.1 proves is ~zero-cost in production. Never ship `Nullable(` for analytics columns.
 6. **Enrichment order is locked** — per event: identity → bloom → GeoIP → UA → bot → channel (doc 22 §GAP 1, asserted in integration tests). **Pre-pipeline fast-reject gate** (doc 24 §Sec 1 item 6): UA length 16–500, non-ASCII UA, IP-as-UA, UUID-as-UA, `X-Purpose`/`X-Moz` prefetch → `204`. In-pipeline bot layering is cheap-first (prefetch → UA shape → referrer spam → browser-version floor → UA keyword/regex blacklist).
 7. **Defer before building** — if a feature isn't required for the 5 Project Goals or Filimo's first 90 days, it ships in v1.1 or v2. Applies to multi-sink alerts, DLQ tooling, subdomain-per-tenant routing, Polar customer portal, and anything else not load-bearing.
 8. **Central tenancy choke point** — every dashboard SQL path goes through `internal/storage/queries.go:whereTimeAndTenant()` (doc 24 §Sec 4 pattern 6). `WHERE site_id = ?` is the first clause. `ORDER BY` / `PARTITION BY` lead with `site_id`. Any new query skipping this helper is a CI failure.
@@ -114,6 +114,8 @@ npm --prefix web run lint   # eslint
 
 Pre-commit hook runs `make test && make lint` + `npm --prefix web run test` on staged frontend files. Release gate (`make release`) additionally runs `make test-integration` + the air-gap test.
 
+The `make test` / `make test-integration` / `make lint` / `npm run test` suite is the **per-PR CI tier**. The **graduation gate** (Locust + k6 + Vegeta + wrk2 + observability VPS, 72h soak + 6-scenario chaos + breakpoint per doc 29 §4) is a separate **pre-Phase-cutover** process invoked at `make load-gate PHASE=Px` (Phase 7e deliverable — scaffold + skill `load-gate-harness` land together). The graduation gate runs once per phase, not continuously; passing is a Phase 10 hard gate per PLAN.md Verification §41.
+
 ## Feature Scope
 
 Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across 20 weeks (docs 17/18/24). v1 = Filimo first 90 days + 5 Project Goals; polish → v1.1; product expansion → v2.
@@ -143,8 +145,9 @@ Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across
 |---|---|---|
 | Unit | Go testing | `*_test.go` alongside source |
 | Integration (incl. security) | Go testing | `test/integration_test.go` |
-| Load smoke | k6 | `test/k6/load-test.js` |
+| Load smoke | k6 | `test/perf/load.js` (`make load-test`, 7K EPS × 5min) |
 | Frontend | Vitest | `web/src/**/*.test.tsx` |
+| Graduation gate | Locust (primary) + k6 (cross-check) + Vegeta + wrk2 | `test/perf/gate/` + `test/perf/chaos/` + `test/perf/generator/` (doc 29 §4, Phase 7e) |
 
 **ClickHouse-Oracle Assertion Hierarchy.** Always use the highest applicable tier; lower tiers are diagnostic, not acceptance evidence.
 
@@ -155,10 +158,14 @@ Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across
 | 3 | **DOM / locator** — Playwright or Vitest RTL | Dashboard UI state |
 | 4 | **Screenshot** — `only-on-failure` | Debug artifact only |
 
+**For load-gate correlation (Phase 7e onward), `generator_seq` is the reference Tier-1 primitive:** every synthesized event carries `(test_run_id, generator_node_id, test_generator_seq, send_ts)`, and one ClickHouse query per run (loss / duplicates / ordering / latency) derives from it. Doc 29 §6.2 lists the canonical queries; projection `proj_oracle` makes them sub-second on 200M-row runs.
+
 **Analytics Invariant Thresholds (release-blocking, CI-asserted on every v1/v1.1 RC):**
 
 - Event loss server ≤ 0.05%, client ≤ 0.5%; Duplicates ≤ 0.1%
 - Attribution correctness ≥ 99.5%; Consent / PII leaks = 0; TTFB overhead ≤ +10% / +25 ms
+
+Thresholds apply to both per-PR CI runs and the per-phase graduation gate (doc 29 §4); any breach during a 72h soak or within the 6-scenario chaos matrix halts the gate and blocks the corresponding Phase 10 sub-phase cutover.
 
 ## Dev Tooling
 
@@ -184,6 +191,7 @@ Full inventory in [`docs/tooling.md`](docs/tooling.md): 4 original skill collect
 | `internal/enrich/geoip.go` / ip2location-go / SIGHUP wiring / attribution surfaces | [`geoip-pipeline-review`](.claude/skills/geoip-pipeline-review/README.md) |
 | `migrations/*.sql` / `internal/ingest/**` / `internal/query/**` / `prometheus/*.rules.yml` | [`clickhouse-operations-review`](.claude/skills/clickhouse-operations-review/README.md) |
 | `Engine=` or `{{if .Cluster}}` in migrations (advisory runbook) | [`clickhouse-upgrade-playbook`](.claude/skills/clickhouse-upgrade-playbook/README.md) |
+| `test/perf/gate/**` / `test/perf/chaos/**` / `test/perf/generator/**` / `deploy/observability/**` (scheduled Phase 7e) | `load-gate-harness` (to scaffold in Phase 7e; advisory until Phase 10 P1 cutover — HARD GATE thereafter) |
 
 ### Anti-patterns (doc 28 §Anti-patterns) — absolute bans
 
@@ -200,7 +208,7 @@ Enforced by custom-skill Semgrep rules. Human-facing mirror so PR review can rej
 
 ## Single Source of Truth
 
-`../statnive-workflow/jaan-to/docs/research/` (docs 14–28) is canonical for every architecture, feature, and threat-model decision. Do **not** restate research conclusions here or in skill prompts — reference by doc number and section. When a decision changes, update the research doc; this file references and never duplicates.
+`../statnive-workflow/jaan-to/docs/research/` (docs 14–29) is canonical for every architecture, feature, and threat-model decision. Do **not** restate research conclusions here or in skill prompts — reference by doc number and section. When a decision changes, update the research doc; this file references and never duplicates.
 
 ## Enforcement
 
@@ -208,10 +216,11 @@ Integration tests that pin the invariants in this file — full 6-test matrix + 
 
 ## Research Documents
 
-Canonical source: `../statnive-workflow/jaan-to/docs/research/` (docs 14–28, 500+ sources).
+Canonical source: `../statnive-workflow/jaan-to/docs/research/` (docs 14–29, 500+ sources).
 
 - **Doc 23** — initial Claude Code tooling (30 skills + 4 MCP servers).
 - **Doc 24** — AGPL-safe Pirsch extraction (pre-pipeline fast-reject, cross-day grace, cheap-first bot ordering, reject mutable-row engines, `DateTime` not `DateTime64`, templated DDL, 17-step channel tree, `Filter → Store → queryBuilder`, `whereTimeAndTenant`). Zero Pirsch code ported.
 - **Doc 25** — Claude-skills install matrix + custom-skill catalog + explicit blacklist.
 - **Doc 27** — three-gap closure: WAL durability (fsyncgate, ack-after-fsync), CGNAT rate limit (Iranian ASN, iptoasn.com), GDPR-on-HLL (Recital 26 + C-413/23).
 - **Doc 28** — final-three-gap closure: GeoIP pipeline / Iranian DC deploy / ClickHouse ops + upgrade playbook.
+- **Doc 29** — production load-simulation gate on Asiatech Tehran: generator_seq oracle, 6-scenario chaos matrix (BGP cut / mobile curfew / DPI RST / Tehran-IX degrade / Asiatech DC outage / clock skew), 5-phase pre-cutover graduation matrix, Locust (primary) + k6 (CI cross-check) + Vegeta + wrk2 tool stack, Prometheus + Grafana + Pyroscope + Vector.dev + Parca + Falco observability stack, ≤40% cost envelope, Filimo anonymized-replay protocol.
