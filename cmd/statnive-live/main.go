@@ -27,6 +27,7 @@ import (
 	"github.com/statnive/statnive.live/internal/cert"
 	"github.com/statnive/statnive.live/internal/config"
 	"github.com/statnive/statnive.live/internal/dashboard"
+	"github.com/statnive/statnive.live/internal/dashboard/spa"
 	"github.com/statnive/statnive.live/internal/enrich"
 	"github.com/statnive/statnive.live/internal/health"
 	"github.com/statnive/statnive.live/internal/identity"
@@ -240,6 +241,27 @@ func run() error {
 	// Sits outside the dashboard auth + rate-limit groups; serves a static
 	// blob that's safe to hand back unauthenticated under any traffic.
 	router.Method(http.MethodGet, "/tracker.js", tracker.Handler())
+
+	// Embedded Preact dashboard SPA at /app/*. Gated by SPAEnabled
+	// because the only thing keeping /api/stats/* from being world-
+	// readable in dev configs is BearerToken — empty token = open. Phase
+	// 2b replaces this gate with bcrypt sessions + RBAC.
+	//
+	// TODO(phase-10): /app/* must be on the bypass list for the
+	// IR-country 302 redirect (research doc 26 §5.3) so the dashboard
+	// is reachable from outside Iran without geo-rerouting.
+	if cfg.Dashboard.SPAEnabled {
+		spaHandler, spaErr := spa.Handler(spa.Config{BearerToken: cfg.Dashboard.BearerToken})
+		if spaErr != nil {
+			return fmt.Errorf("spa: %w", spaErr)
+		}
+
+		router.Method(http.MethodGet, "/app", http.RedirectHandler("/app/", http.StatusFound))
+		router.Mount("/app/", http.StripPrefix("/app", spaHandler))
+		router.Method(http.MethodGet, "/", http.RedirectHandler("/app/", http.StatusFound))
+
+		logger.Info("spa enabled", "mount", "/app/", "bearer_set", cfg.Dashboard.BearerToken != "")
+	}
 
 	tlsLoader, err := newTLSLoader(cfg, auditLog, logger)
 	if err != nil {
@@ -486,6 +508,11 @@ type appConfig struct {
 		// dashboard request when set. Empty = no auth (dev only).
 		// Replaced by Phase 2b's bcrypt + sessions + RBAC.
 		BearerToken string
+		// SPAEnabled gates the embedded Preact dashboard at /app/*.
+		// Defaults false — production builds MUST stay off until Phase
+		// 2b lands sessions + RBAC, otherwise an empty BearerToken
+		// would expose stats world-readable. Local dev sets true.
+		SPAEnabled bool
 	}
 }
 
@@ -563,6 +590,7 @@ func loadConfig() (appConfig, error) {
 	cfg.RateLimit.RequestsPerMinute = v.GetInt("ratelimit.requests_per_minute")
 
 	cfg.Dashboard.BearerToken = v.GetString("dashboard.bearer_token")
+	cfg.Dashboard.SPAEnabled = v.GetBool("dashboard.spa_enabled")
 
 	return cfg, nil
 }
