@@ -508,3 +508,33 @@ Enforced by the custom-skill Semgrep rules above. Listed here for tooling review
 - Verify Bunny DNS AXFR-out support (likely unsupported; ClouDNS as AXFR primary instead).
 - Place Ed25519 license-signing keypair on offline YubiKey in a non-US, non-Iran jurisdiction (operator decision).
 - Decide MiravaOrg/Mirava licence (UNCONFIRMED); wrap functionality in-house if not permissive.
+- **Phase 8 skill-roster review** — mid-Phase-8 checkpoint: re-validate each custom skill's trigger globs against real code before its Semgrep body lands. Triggers designed 8 weeks in advance often fire on the wrong globs once real code exists. Scope: all 14 custom skills, cross-check `globs:` in frontmatter vs actual file layout, remove the activation-preamble from any skill whose CI gate went green in the interim. Owner: TBD; blocks Weeks 19–22 body-authoring PRs.
+
+---
+
+## GeoIP licensing — three-tier posture
+
+Doc 28 §Gap 1 surfaced the CC-BY-SA-4.0 carve-out as a single policy decision. It's really three, one per deployment tier. Each tier has a different legal posture (operator-registered LITE vs paid commercial vs processor-under-GDPR redistribution question). Cross-referenced from [`CLAUDE.md` § License Rules](../CLAUDE.md#license-rules-critical).
+
+| Tier | DB version | License | Attribution surfaces | LITE account owner | Status |
+|---|---|---|---|---|---|
+| **Dev / staging** (Hetzner, all operators) | IP2Location LITE DB23 | CC-BY-SA-4.0 (carve-out) | LICENSE-third-party.md + `/about` JSON + dashboard footer (all three mandatory, verbatim string) | **Each operator registers own** at [lite.ip2location.com](https://lite.ip2location.com) — third-party redistribution forbidden by LITE ToS | ✅ Decided (doc 28 §Gap 1) |
+| **Filimo production** (Phase 10 cutover) | IP2Location **paid DB23 Site License** | Commercial | **Waived** per commercial terms | statnive-live org (sales contract) | ✅ Decided — budget for `$99–$980/yr`; Semgrep rule skipped via build tag `licensed_db23` |
+| **SaaS tier** (Phase 11+ public signup) | **Decision required** | **Decision required** | **Decision required** | **Decision required** | ⚠️ **Open** — resolve pre-Phase-11 design |
+
+### The SaaS decision — why it's genuinely ambiguous
+
+LITE's ToS explicitly forbids third-party redistribution. For self-hosted customers (current dev/staging tier), that's fine — each operator registers their own LITE account and SCPs their own BIN. For SaaS, we're hosting dashboards on behalf of EU customers and looking up their visitors' IPs against *our* LITE BIN. Two defensible readings:
+
+- **Reading A: we are the data processor, LITE is input data.** No redistribution — we don't ship LITE to the customer; we use it internally, the customer never sees the BIN. This is analogous to how any SaaS uses a proprietary dataset. Processor-DPA language covers the usage.
+- **Reading B: serving geo-data in dashboards *is* redistribution.** The API response (`country`, `city`, `region`) is derived from LITE under our license. If a customer's visitor data includes a geo-lookup result, we've effectively redistributed LITE's mapping.
+
+Reading B is the more conservative interpretation. If adopted, SaaS tier must go paid-DB23 from launch, budget accordingly.
+
+**Required before Phase 11 design work starts:**
+1. Legal call on Reading A vs Reading B interpretation of LITE ToS.
+2. If Reading A holds: processor-DPA draft language explicitly claiming LITE as input data, not redistribution.
+3. If Reading B holds: paid DB23 Site License quote for SaaS-tier usage (likely different SKU than Filimo's single-site license).
+4. Decide attribution-surface policy for SaaS — even with paid license, the dashboard footer is visible to EU end-users; some operators may want attribution voluntarily retained for transparency.
+
+**Do not** ship the SaaS tier with LITE-and-no-DPA-language. That's the ambiguous middle ground that generates the worst-case legal exposure.
