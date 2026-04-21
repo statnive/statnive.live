@@ -131,9 +131,13 @@ refresh-bot-patterns:
 
 ## audit: Hardening gate — vendor + tenancy + go vet + hot-path benches + tracker bundle size
 ## Re-run before opening a PR. Slow tests + CH integration excluded.
-audit: vendor-check tenancy-grep tracker-size
+audit: vendor-check tenancy-grep tracker-size token-budget
 	$(GO) vet -mod=vendor $(PKG)
 	$(GO) test -mod=vendor -bench=. -benchmem -run='^$$' -benchtime=2s -timeout 5m ./internal/enrich/ ./internal/ingest/
+
+## token-budget: AI-surface line-count + skill-description caps (CLAUDE.md/PLAN.md/tooling.md/14 SKILL.md)
+token-budget:
+	@bash ops/token-budget.sh
 
 ## tracker-install: Install tracker devDeps once; consumed by tracker + tracker-test
 tracker-install:

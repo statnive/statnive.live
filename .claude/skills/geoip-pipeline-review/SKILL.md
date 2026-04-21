@@ -1,6 +1,6 @@
 ---
 name: geoip-pipeline-review
-description: MUST USE when writing or reviewing code that touches `internal/enrich/geoip.go`, ip2location-go library usage, SIGHUP wiring in `cmd/**/main.go`, or attribution/license surfaces (`LICENSE-third-party.md`, `/about`, dashboard footer). Enforces `atomic.Pointer[DBHandle]` hot-swap (not `sync.RWMutex`), SIGHUP-only reload with pre-swap validation (probe `8.8.8.8 → US` and `185.143.232.1 → IR`, size floor 50MB, version monotonicity), 1s grace-period close of the old handle, `Get_city` on the hot path (`Get_all` banned), `netip.Addr`-in / `Record`-out (no IP field downstream, no IP in logs), fsnotify forbidden on BIN files (unreliable on overlayfs/NFS/kqueue), and CC-BY-SA attribution present in three surfaces (LICENSE-third-party.md + `/about` JSON + dashboard footer). Blocks any GeoIP PR that would fail the `blackout-sim` + `ip-leak-grep` CI gates.
+description: MUST USE when editing `internal/enrich/geoip.go`, ip2location-go usage, SIGHUP wiring in `cmd/**/main.go`, or attribution surfaces (`LICENSE-third-party.md`, `/about`, dashboard footer). Enforces `atomic.Pointer[DBHandle]` hot-swap (not `sync.RWMutex`), SIGHUP-only reload with pre-swap validation, `Get_city` only (`Get_all` banned), netip.Addr in / Record out (no IP downstream), fsnotify forbidden, CC-BY-SA attribution in all three surfaces. Full 14-item body.
 license: MIT
 metadata:
   author: statnive-live

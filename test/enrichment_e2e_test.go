@@ -251,12 +251,15 @@ func newTestPipelineServer(t *testing.T, ctx context.Context, store *storage.Cli
 		Logger:  logger,
 	})
 
-	consumer := ingest.NewConsumer(pipeline.Out(), wal, store, ingest.ConsumerConfig{
+	groupSyncer := ingest.NewGroupSyncer(wal, ingest.GroupConfig{}, nil, logger)
+	t.Cleanup(groupSyncer.Close)
+
+	consumer := ingest.NewConsumer(groupSyncer.Out(), wal, store, ingest.ConsumerConfig{
 		BatchRows:     50,
 		BatchInterval: 100 * time.Millisecond,
-	}, logger)
+		DrainSettle:   100 * time.Millisecond,
+	}, nil, logger)
 
-	go func() { _ = pipeline.Run(ctx) }()
 	go consumer.Run(ctx)
 
 	router := chi.NewRouter()
@@ -264,6 +267,7 @@ func newTestPipelineServer(t *testing.T, ctx context.Context, store *storage.Cli
 		r.Use(ingest.FastRejectMiddleware(nil))
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline: pipeline,
+			WAL:      groupSyncer,
 			Sites:    sites.New(store.Conn()),
 			Logger:   logger,
 		}))

@@ -1,6 +1,6 @@
 ---
 name: iranian-dc-deploy
-description: MUST USE when reviewing or writing code that touches `deploy/**`, `ops/**`, `infra/**`, DNS zones, TLS cert loading, NTP config, `*http.Client` construction, `internal/license/**`, or systemd unit files. Enforces the Iranian-DC operational contract — no Cloudflare on any IR-resident path (OFAC + no IR POP), no ACME/Let's Encrypt from inside Iran (issue outside, rsync PEM inward, SIGHUP swap), NTP synced to Iranian sources only with >60s skew alert, vendored deps only (`GOFLAGS=-mod=vendor`), Ed25519 offline license verify with zero `net.Dial`, file-sink NDJSON alerts during blackout, `.ir` + `.ایران` IDN bundle registered alongside `.live`. Blocks the first Filimo-destined PR that would fail a `blackout-sim` CI run under `iptables OUTPUT DROP`.
+description: MUST USE when editing `deploy/**`, `ops/**`, `infra/**`, DNS zones, TLS/NTP config, `*http.Client` construction, `internal/license/**`, or systemd units. Enforces Iranian-DC air-gap contract (no Cloudflare, no ACME-from-Iran, Iranian NTP only, vendored deps, offline Ed25519 license, `.ir`/`.ایران` IDN bundle). Blocks Filimo-destined PRs that would fail `blackout-sim` under `iptables OUTPUT DROP`. Full 17-item checklist in body.
 license: proprietary
 metadata:
   author: statnive-live

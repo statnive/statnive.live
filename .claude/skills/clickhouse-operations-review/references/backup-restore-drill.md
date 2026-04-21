@@ -1,5 +1,10 @@
 # Backup / restore drill — `clickhouse-backup` + age + zstd
 
+> **Operator-facing copy lives in `docs/runbook.md` § Backup & restore.**
+> This file is the skill source of record (drives `clickhouse-operations-review`
+> reviews); the runbook is the SOP an on-call operator reads. When you
+> change one, port the delta to the other.
+
 Canonical drill procedure + CI wiring per doc 28 §Gap 3 lines 594 + 799–822.
 
 ## Stack

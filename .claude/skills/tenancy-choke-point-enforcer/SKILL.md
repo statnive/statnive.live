@@ -1,6 +1,6 @@
 ---
 name: tenancy-choke-point-enforcer
-description: MUST USE when generating, modifying, or reviewing SQL queries against ClickHouse tables in internal/storage/. Enforces Architecture Rule 8 — every dashboard query routes through internal/storage/queries.go:whereTimeAndTenant() with `WHERE site_id = ?` as the first predicate, and every rollup's ORDER BY / PARTITION BY leads with site_id. Rejects raw queries that bypass the helper or place the site_id filter anywhere but first.
+description: MUST USE when generating or reviewing SQL in `internal/storage/**`. Enforces Architecture Rule 8 — every dashboard query routes through `queries.go:whereTimeAndTenant()`; `WHERE site_id = ?` is the first predicate; rollup `ORDER BY` / `PARTITION BY` lead with site_id. Rejects raw queries that bypass the helper or misorder the filter. Full body checklist.
 license: MIT
 metadata:
   author: statnive-live

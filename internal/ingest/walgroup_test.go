@@ -332,6 +332,115 @@ func TestGroupSyncer_CloseIdempotent(t *testing.T) {
 	g.Close() // second close MUST NOT panic
 }
 
+// Stats reports zero values when no flush has run yet.
+func TestGroupSyncer_StatsEmptyBeforeAnyFlush(t *testing.T) {
+	t.Parallel()
+
+	w := &fakeWAL{}
+	g, _ := newGroupSyncerForTest(t, w, GroupConfig{Interval: 5 * time.Millisecond})
+
+	stats := g.Stats()
+	if stats.FsyncSampleCount != 0 {
+		t.Errorf("FsyncSampleCount = %d; want 0", stats.FsyncSampleCount)
+	}
+
+	if stats.FsyncP99 != 0 {
+		t.Errorf("FsyncP99 = %v; want 0", stats.FsyncP99)
+	}
+}
+
+// Stats() reports a plausible p99 after observed fsync activity. The
+// fakeWAL injects a known syncDelay, so the recorded duration must be
+// ≥ that delay (some overhead is expected from the time.Now bracketing
+// + sleep granularity). We bound it loosely to keep the test fast and
+// non-flaky; the exact value isn't load-bearing.
+func TestGroupSyncer_StatsReportsP99AfterFlushes(t *testing.T) {
+	t.Parallel()
+
+	const syncDelay = 5 * time.Millisecond
+
+	w := &fakeWAL{syncDelay: syncDelay}
+	g, _ := newGroupSyncerForTest(t, w, GroupConfig{
+		BatchMax: 1, // one event per flush ⇒ one Sync per AppendAndWait
+		Interval: time.Hour,
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	const flushes = 10
+
+	for range flushes {
+		_, err := g.AppendAndWait(ctx, EnrichedEvent{SiteID: 1})
+		if err != nil {
+			t.Fatalf("AppendAndWait: %v", err)
+		}
+	}
+
+	stats := g.Stats()
+	if stats.FsyncSampleCount != flushes {
+		t.Errorf("FsyncSampleCount = %d; want %d", stats.FsyncSampleCount, flushes)
+	}
+
+	if stats.FsyncP99 < syncDelay {
+		t.Errorf("FsyncP99 = %v; want >= %v (the injected sync delay)", stats.FsyncP99, syncDelay)
+	}
+
+	if stats.FsyncP99 > syncDelay+50*time.Millisecond {
+		t.Errorf("FsyncP99 = %v; suspiciously slow (delay was %v)", stats.FsyncP99, syncDelay)
+	}
+}
+
+// Sync errors do NOT contribute to the success-only sample ring.
+func TestGroupSyncer_StatsExcludesSyncErrors(t *testing.T) {
+	t.Parallel()
+
+	w := &fakeWAL{syncErr: errors.New("simulated EIO")}
+	g, _ := newGroupSyncerForTest(t, w, GroupConfig{Interval: 5 * time.Millisecond})
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	_, _ = g.AppendAndWait(ctx, EnrichedEvent{SiteID: 1})
+
+	// Allow the loop a moment to complete the flush and (in production)
+	// call exit; we injected the exit shim via newGroupSyncerForTest so
+	// it just bumps a counter.
+	time.Sleep(20 * time.Millisecond)
+
+	stats := g.Stats()
+	if stats.FsyncSampleCount != 0 {
+		t.Errorf("FsyncSampleCount = %d; want 0 (error syncs must not record)", stats.FsyncSampleCount)
+	}
+}
+
+// Ring buffer wraps cleanly past fsyncSampleCap; the sample count caps
+// at the ring size and reflects the most recent N successful syncs.
+func TestGroupSyncer_StatsRingWrapsAtCap(t *testing.T) {
+	t.Parallel()
+
+	w := &fakeWAL{}
+	g, _ := newGroupSyncerForTest(t, w, GroupConfig{
+		BatchMax: 1,
+		Interval: time.Hour,
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	// Fire more events than the ring holds; the ring must cap at fsyncSampleCap.
+	for range fsyncSampleCap + 50 {
+		if _, err := g.AppendAndWait(ctx, EnrichedEvent{SiteID: 1}); err != nil {
+			t.Fatalf("AppendAndWait: %v", err)
+		}
+	}
+
+	stats := g.Stats()
+	if stats.FsyncSampleCount != fsyncSampleCap {
+		t.Errorf("FsyncSampleCount = %d; want %d (ring should cap)", stats.FsyncSampleCount, fsyncSampleCap)
+	}
+}
+
 // Close flushes any in-flight batch.
 func TestGroupSyncer_CloseFlushesPending(t *testing.T) {
 	t.Parallel()

@@ -2,178 +2,61 @@
 
 ## Context
 
-Fifteen research documents (docs 14–28), 500+ sources, and 2,000+ lines of drop-in Go code are complete. All architecture, features, schema, security, and Iranian-DC operational decisions are finalized. Docs 24 (AGPL-safe Pirsch extraction), 25 (skill install matrix + 6 custom skills), 27 (three-gap closure: WAL / CGNAT / GDPR-on-HLL), and 28 (final-three-gap closure: GeoIP pipeline / Iranian DC deploy / ClickHouse ops) are the most recent and drive the Week 17+ schedule.
+Fifteen research documents (docs 14–28), 500+ sources, 2,000+ lines of drop-in Go code. Architecture, features, schema, security, and Iranian-DC operational decisions are finalized. Docs 24 (AGPL-safe Pirsch extraction), 25 (skill install matrix), 27 (three-gap closure — WAL / CGNAT / GDPR-on-HLL), 28 (final-three-gap closure — GeoIP pipeline / Iranian DC deploy / ClickHouse ops) drive the Week 17+ schedule.
 
-**statnive-live** is the standalone analytics platform (separate from the WordPress plugin "statnive"). It targets Iranian high-traffic sites, with Filimo as first customer.
+**statnive-live** is the standalone analytics platform (separate from the WordPress plugin "statnive"). Targets Iranian high-traffic sites; Filimo is first customer.
 
-**Reference streaming workload (StreamCo, confirmed 2026-04-19).** Two endpoints frame the capacity envelope — we ship the minimum first and ramp to the maximum app-by-app.
+**Reference streaming workload (StreamCo, confirmed 2026-04-19).** Two endpoints frame capacity; we ship the minimum first and ramp app-by-app.
 
 | Envelope | Scope | Peak day events | Monthly events | Bandwidth/mo | Disk/year | EPS peak |
 |---|---|---|---|---|---|---|
-| **MINIMUM — P1 cutover** | Web app, required events (views) only | 3M | 75M | ~22 GB | ~36 GB | ~140 |
-| **MAXIMUM — P5 full build** | All apps (web + iOS + Android + TV), all optional events | 200M | 4B | ~1.2 TB | ~1.9 TB | ~9,000 (spike ~18K) |
+| **MINIMUM — P1 cutover** | Web, required events only | 3M | 75M | ~22 GB | ~36 GB | ~140 |
+| **MAXIMUM — P5 full build** | All apps (web + iOS + Android + TV) | 200M | 4B | ~1.2 TB | ~1.9 TB | ~9,000 (spike ~18K) |
 
-Minimum fits the cheapest Asiatech VPS (G1/G2 standard plan, ~15–28M Rial/mo). Maximum requires a 2–3 node Iranian-DC cluster with HA and unmetered bandwidth (~800M–1.5B Rial/mo). 5-phase app-by-app roadmap between them (P1 web views → P2 web+interactions → P3 +iOS → P4 +Android → P5 +TV/HA) in [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md).
+Minimum fits the cheapest Asiatech VPS (~15–28M Rial/mo). Maximum requires a 2–3 node Iranian-DC cluster (~800M–1.5B Rial/mo). 5-phase roadmap P1→P5 in [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md).
 
 - **Repo:** https://github.com/statnive/statnive.live.git
 - **Folder:** `statnive-live/`
 - **Domain:** statnive.live
 
----
-
 ## Product Definition
 
-**statnive-live** = Go single binary + ClickHouse analytics platform
+**statnive-live** = Go single binary + ClickHouse analytics platform.
 
 **Decisions locked:**
-- **Greenfield build** — 100% original code. Do NOT copy Pirsch source (AGPL). Use doc 22's 2,000 LOC as starting point. Study Pirsch fork at `~/Projects/pirsch/` for patterns and architecture reference only.
-- **License: ALL dependencies must be MIT/Apache/BSD** — no AGPL in the binary. statnive-live will be sold as SaaS outside Iran where AGPL Section 13 applies.
-- **Multi-tenant from v1** — `site_id` in schema from day 1. Filimo = site_id=1. SaaS-ready.
-- **Dual hosting** — Hetzner (€46/mo) for dev/staging, Iranian DC (~€180/mo) for Filimo production.
-- **Pirsch as reference only** — study `~/Projects/pirsch/` for ClickHouse schema patterns, session logic, channel mapping approach. Never import or copy code.
+- **Greenfield build** — 100% original code. Study Pirsch fork at `~/Projects/pirsch/` for patterns; never copy AGPL source.
+- **License: ALL deps MIT/Apache/BSD** — no AGPL. Sold as SaaS outside Iran where AGPL §13 applies.
+- **Multi-tenant from v1** — `site_id` in schema from day 1. Filimo = site_id=1.
+- **Dual hosting** — Hetzner (€46/mo) dev/staging, Iranian DC (~€180/mo) Filimo production.
 
-Two distribution models from day 1:
+Two distribution models from day 1 — same binary, multi-tenant via `site_id` + `WHERE site_id = ?`:
 
 | Model | Description | Revenue |
 |-------|-------------|---------|
-| **Self-hosted** | Customer runs statnive-live on their own server | License fee (paid, not open-source). Manual activation for now — no payment system yet. Need license management system. |
+| **Self-hosted** | Customer runs statnive-live on their own server | License fee; manual activation |
 | **SaaS (managed)** | We host on Hetzner (outside Iran only) | Monthly subscription by pageviews |
-
-Both models use the **exact same Go binary**. Multi-tenant via `site_id` column on all tables + `WHERE site_id = ?` on all queries. SaaS adds billing metering on top.
-
----
 
 ## Repository Structure
 
-Items marked **[shipped]** exist in the working tree as of the most recent
-merged PR. Items marked **[planned]** are scheduled for a later phase.
+Top-level tree:
 
 ```
-statnive-live/                          # https://github.com/statnive/statnive.live.git
-├── CLAUDE.md                           # Project rules                                                  [shipped]
-├── .claude/
-│   └── skills/                         # Project-local Claude skills (custom + community copies)
-│       ├── tenancy-choke-point-enforcer/      # Architecture Rule 8 guardrail                          [scaffolded]
-│       ├── air-gap-validator/                 # Isolation rule guardrail                               [scaffolded]
-│       ├── clickhouse-rollup-correctness/     # AggregatingMergeTree / combinator discipline          [scaffolded]
-│       ├── clickhouse-cluster-migration/      # {{if .Cluster}} templating guardrail                   [scaffolded]
-│       ├── preact-signals-bundle-budget/      # 50KB-min / 15KB-gz + 1.2KB / 600B tracker              [scaffolded]
-│       ├── blake3-hmac-identity-review/       # BLAKE3-128 + HMAC(salt) + constant-time compare       [scaffolded]
-│       ├── wal-durability-review/             # fsync-before-ack + kill-9 CI gate (doc 27 §Gap 1)      [scaffolded]
-│       ├── ratelimit-tuning-review/           # CGNAT-aware ASN tiering (doc 27 §Gap 2)                [scaffolded]
-│       ├── gdpr-code-review/                  # HLL-anonymous + DSAR completeness (doc 27 §Gap 3)      [scaffolded]
-│       ├── dsar-completeness-checker/         # sink-matrix integration test (doc 27 §Gap 3)           [scaffolded]
-│       ├── iranian-dc-deploy/                 # NIN / OFAC / NSD / TLS-outside / chrony (doc 28 §Gap 2) [scaffolded]
-│       ├── geoip-pipeline-review/             # atomic.Pointer swap + CC-BY-SA attribution (doc 28 §Gap 1) [scaffolded]
-│       ├── clickhouse-operations-review/      # WAL-first + parts-ceiling + backup drill (doc 28 §Gap 3) [scaffolded]
-│       ├── clickhouse-upgrade-playbook/       # single-node → cluster runbook (doc 28 §Gap 3, advisory) [scaffolded]
-│       └── …                           # 30 doc-23 foundation skills + 17 doc-25/27 community additions [installed]
-├── cmd/
-│   └── statnive-live/
-│       └── main.go                     # Entry point: wiring, SIGHUP fan-out, graceful shutdown         [shipped]
-├── internal/
-│   ├── config/
-│   │   ├── secret.go                   # Master-secret loader (env → file → fail-closed)                [shipped]
-│   │   └── secret_test.go                                                                                [shipped]
-│   ├── audit/                          # JSONL append-only file sink (Phase 2a)                          [shipped]
-│   │   ├── events.go                   # Typed EventName constants (TLS / ratelimit / ingest events)
-│   │   ├── log.go                      # Logger with O_APPEND + SIGHUP-aware Reopen()
-│   │   ├── log_test.go
-│   │   └── audittest/
-│   │       └── audittest.go            # Test-only ReadEventNames helper (substring scan)
-│   ├── cert/                           # TLS lifecycle (Phase 2a)                                        [shipped]
-│   │   ├── loader.go                   # atomic.Pointer hot-reload, fail-closed, keep-old-on-fail
-│   │   ├── expiry.go                   # 6h ticker, <30d warn / <7d critical, crossing-dedup
-│   │   ├── loader_test.go
-│   │   └── expiry_test.go
-│   ├── ratelimit/                      # NAT-aware go-chi/httprate wrapper (Phase 2a)                    [shipped]
-│   │   ├── ratelimit.go                # Keys via ingest.ClientIP; 429 emits audit event
-│   │   └── ratelimit_test.go
-│   ├── ingest/
-│   │   ├── event.go                    # RawEvent + EnrichedEvent (34 fields incl. site_id)             [shipped]
-│   │   ├── fastreject.go               # POST-only + prefetch/UA-shape gate as chi middleware           [shipped]
-│   │   ├── handler.go                  # POST /api/event; ClientIP exported; Audit nil-safe field       [shipped]
-│   │   ├── handler_test.go             # 10-case fast-reject table                                       [shipped]
-│   │   ├── wal.go                      # tidwall/wal, 100ms fsync, 10GB cap                              [shipped]
-│   │   └── consumer.go                 # Dual-trigger batch writer (1000 rows / 500ms / 10MB)            [shipped]
-│   ├── enrich/
-│   │   ├── pipeline.go                 # 6-worker pipeline (identity→bloom→geo→ua→bot→channel)          [shipped]
-│   │   ├── channel.go                  # 17-step decision tree; reload via main.go's runSIGHUP          [shipped]
-│   │   ├── geoip.go                    # IP2Location wrapper (no-op fallback when no BIN configured)    [shipped]
-│   │   ├── ua.go                       # medama-io/go-useragent singleton                                [shipped]
-│   │   ├── bot.go                      # Cheap-first matcher + embedded crawler-user-agents.json        [shipped]
-│   │   ├── newvisitor.go               # Bloom filter (18MB / 10M / 0.1% FPR) + cross-day grace         [shipped]
-│   │   ├── crawler-user-agents.json    # Embedded bot patterns (refresh via make refresh-bot-patterns)  [shipped]
-│   │   └── *_test.go                   # Per-component unit tests                                        [shipped]
-│   ├── identity/
-│   │   ├── hash.go                     # BLAKE3-128 visitor hash + SHA-256 user_id hash                 [shipped]
-│   │   ├── salt.go                     # IRST daily salt (HMAC-SHA256), 5-min overlap, in-mem cache    [shipped]
-│   │   └── identity_test.go                                                                              [shipped]
-│   ├── storage/
-│   │   ├── clickhouse.go               # 34-col batch insert (incl. site_id) + 1 retry                  [shipped]
-│   │   ├── migrate.go                  # Templated migrations, schema_migrations bookkeeping            [shipped]
-│   │   ├── migrations/                 # SQL embedded via go:embed (lives here, not under clickhouse/)
-│   │   │   ├── 001_initial.sql         # events_raw + sites + schema_migrations                          [shipped]
-│   │   │   └── 002_rollups.sql         # hourly_visitors + daily_pages + daily_sources + MVs            [shipped]
-│   │   ├── store.go                    # Typed Store interface + ErrNotImplemented                     [shipped]
-│   │   ├── queries.go                  # whereTimeAndTenant + 6 v1 query implementations               [shipped]
-│   │   ├── filter.go                   # Filter struct + Validate + BLAKE3 Hash                         [shipped]
-│   │   ├── result.go                   # Typed per-endpoint result structs                              [shipped]
-│   │   ├── cached_store.go             # LRU decorator with per-endpoint TTL                            [shipped]
-│   │   └── storagetest/                # SeedEvents + CleanSiteEvents helpers (test-only)               [shipped]
-│   ├── sites/
-│   │   └── sites.go                    # Hostname → site_id lookup; slug/create/disable in Phase 11    [shipped]
-│   ├── health/
-│   │   └── check.go                    # /healthz (CH ping + WAL fill + uptime)                         [shipped]
-│   ├── cache/                          # LRU (realtime=10s / today=60s / historical=∞) + ResolveTTL    [shipped]
-│   │   ├── lru.go                      # Thread-safe cache with per-entry expiresAt TTL
-│   │   └── policy.go                   # TTL tier constants + ResolveTTL pure function
-│   ├── dashboard/                      # 8 GET /api/stats/* + /api/realtime/visitors + bearer-token mw [shipped]
-│   │   ├── filter.go                   # ?site / ?from / ?to (IRST→UTC) → storage.Filter
-│   │   ├── stats.go                    # 8 handlers (3 return 501 until v1.1/v2)
-│   │   ├── realtime.go                 # GET /api/realtime/visitors (10s cache via CachedStore)
-│   │   ├── errors.go                   # writeError + classifyError (400 / 501 / 500 + audit)
-│   │   ├── auth.go                     # BearerTokenMiddleware (stub — Phase 2b replaces wholesale)
-│   │   └── router.go                   # Mount(chi.Router, Deps) — caller decides middleware stack
-│   │   # admin/* + signup/* + billing/* routes wait on                                   [planned: Phase 3c + 11]
-│   └── auth/                           # bcrypt sessions + RBAC (admin / viewer / api)                 [planned: Phase 2b]
-├── web/                                # Preact SPA (Vite + TypeScript + @preact/signals)              [planned: Phase 5]
-├── tracker/                            # <2KB IIFE tracker (sendBeacon + history API)                  [planned: Phase 4]
-├── clickhouse/
-│   └── schema.sql                      # Reference DDL pointer to internal/storage/migrations/         [shipped]
-├── config/
-│   ├── statnive-live.yaml              # Defaults: server, clickhouse, ingest, enrich, tls, audit,     [shipped]
-│   │                                   # ratelimit, license. master.key path.
-│   └── sources.yaml                    # 60+ Iranian + AI referrer entries                              [shipped]
-├── deploy/
-│   ├── docker-compose.dev.yml          # Local dev ClickHouse (named volumes, 127.0.0.1 only)          [shipped]
-│   ├── statnive-live.service           # systemd unit (NoNewPrivileges, ProtectSystem)                 [planned: Phase 2c]
-│   ├── iptables.sh                     # Firewall rules (80/443/22; CH never exposed)                  [planned: Phase 2c]
-│   ├── backup.sh                       # clickhouse-backup + age + zstd                                 [planned: Phase 2c]
-│   ├── airgap-install.sh               # One-shot offline installer                                    [planned: Phase 8]
-│   └── airgap-update-geoip.sh          # Offline GeoIP DB rotation                                     [planned: Phase 8]
-├── vendor/                             # Vendored Go deps — checked in for offline builds              [shipped]
-├── offline-bundle/                     # Release artifact (binary + DB23 + SHA256SUMS + signature)     [planned: Phase 8]
-├── docs/
-│   ├── tech-docs/                      # Context7-cached library refs (16 libs)                         [shipped]
-│   └── tooling.md                      # Claude Code skills + MCP setup                                 [shipped]
-├── test/
-│   ├── integration_test.go             # 100-event smoke (handler → WAL → CH)                          [shipped]
-│   ├── enrichment_e2e_test.go          # All 6 stages produce expected events_raw columns              [shipped]
-│   ├── multitenant_isolation_test.go   # Privacy Rule 2: per-tenant visitor_hash separation            [shipped]
-│   ├── security_test.go                # Rate limit short-circuits before events reach ClickHouse      [shipped]
-│   ├── dashboard_isolation_test.go     # Architecture Rule 8: every Store query scoped by site_id     [shipped]
-│   ├── tls_keys/                       # Self-signed cert+key (make tls-test-keys)                     [shipped]
-│   └── k6/load-test.js                 # 7K EPS smoke                                                  [planned: Phase 7]
-├── Makefile                            # build, test, test-integration, lint, fmt, vendor-check,       [shipped]
-│                                       # licenses, tenancy-grep, dev-secret, tls-test-keys,
-│                                       # refresh-bot-patterns. airgap-bundle / release stubs.
-├── go.mod
-├── go.sum
-└── README.md                           # Operator quick-start                                          [planned]
+statnive-live/
+├── CLAUDE.md           # Project rules
+├── .claude/skills/     # 14 custom + 49 community skills
+├── cmd/statnive-live/  # Entry point
+├── internal/           # config, audit, cert, ratelimit, ingest, enrich, identity, storage, sites, health, cache, dashboard, auth
+├── web/                # Preact SPA (Phase 5)
+├── tracker/            # <2KB IIFE tracker (Phase 4)
+├── config/             # YAML defaults + sources.yaml (60+ Iranian referrers)
+├── deploy/             # systemd, iptables, backup, airgap scripts
+├── vendor/             # Vendored Go deps (offline builds)
+├── docs/               # rules/, history/, tech-docs/, tooling.md, brand.md, cli-operator-surface.md, deployment.md, tech-docs-index.md, repo-structure.md
+├── test/               # integration, enrichment, multitenant, security, dashboard tests
+└── Makefile            # build, test, lint, audit, airgap-bundle
 ```
 
----
+Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs/repo-structure.md`](docs/repo-structure.md).
 
 ## Development Phases
 
@@ -181,924 +64,334 @@ statnive-live/                          # https://github.com/statnive/statnive.l
 
 | Phase | Status | Notes |
 |---|---|---|
-| **0 — Project setup** | ✅ Complete | PR #1 merged. Repo, Makefile, CI, schema, vendoring all live. |
-| **1 — Ingestion pipeline** | ✅ Complete | PR #2 merged. Real 6-stage enrichment, BLAKE3 + IRST salt, 18 MB bloom + cross-day grace, 17-step channel tree, 503 back-pressure. Burst guard shipped in PR #14. Deferred: advisory locks. |
-| **2a — Surface hardening** | ✅ Complete | PR #6 merged. TLS 1.3 with manual PEM + SIGHUP reload + expiry watcher; httprate rate limit (NAT-aware, audit-instrumented); JSONL audit log file sink with logrotate-aware reopen; FastRejectMiddleware so prefetches don't burn rate-limit budget. |
-| **2b — Auth + RBAC** | ⏳ Pending | bcrypt + crypto/rand sessions + SameSite=Lax cookies + admin/viewer/api roles. Can land in parallel with Phase 3b. |
-| **2c — Operational hardening** | ⏳ Pending | systemd unit (NoNewPrivileges + ProtectSystem), iptables, LUKS docs, backup script (clickhouse-backup + age + zstd). Pairs with Phase 8 deploy. |
-| **3a — Dashboard query foundation** | ✅ Complete | PR #9 merged. Filter + Store interface + 6 v1 queries (Overview/Sources/Pages/SEO/Campaigns/Realtime) + LRU with real per-entry TTL + tenancy-grep CI gate. Geo/Devices (v1.1 rollups) + Funnel (v2 windowFunnel) return ErrNotImplemented. |
-| **3b — Dashboard HTTP layer** | ✅ Complete | PR #12 merged. 8 stat handlers + realtime endpoint + IRST-aware Filter parsing + bearer-token middleware (stub until Phase 2b) + WITH FILL on SEO daily series + .gitignore fix that exposed cmd/statnive-live/main.go for the first time. |
-| **3c — Admin CRUD** | ⏳ Pending | `/api/admin/users`, `/api/admin/goals` (writes YAML + SIGHUP). Needs Phase 2b auth to gate the mutations. Sequenced after backend gate per user mandate. |
-| **4 — Tracker JS** | ✅ Complete | PR #21 merged. Vanilla JS IIFE (1394 B min / 687 B gz) + Go embed handler at `/tracker.js`; `statnive.track()` + `statnive.identify(uid)` end-to-end with server-side SHA-256 hash via `identity.HexUserIDHash` (Privacy Rule 4 — raw uid cleared in handler before pipeline). Sec-GPC + DNT + webdriver + _phantom short-circuits BEFORE any observable side effect (doc 27 Privacy Rule #9). 15 Vitest specs + 6 Go handler sub-tests; tracker-size gate (Go in-process + Makefile shell) chained into `make audit`. Tracker contract is now LOCKED for Phase 9 dogfood install. |
-| **5 — Dashboard frontend** | ⛔ Blocked | Preact SPA + uPlot + Frappe Charts. **User-mandated gate: Phase 7b2 (real-traffic verification) must be green first** (7b1b WAL integration landed in PR #25). |
-| **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, /healthz, env-var override (.→_) all done. Admin-user first-run + Goal/Funnel CRUD wait on Phase 2/3. |
-| **7a — Backend solidity gate** | ✅ Complete | PR #14 merged. Burst guard (~50 ns/op) + Go bench suite + crash / CH-outage / disk-full stress tests + k6 7K EPS load script + WAL replay wired at boot + viper env-var fix. Surfaced 3 Phase 1 contract gaps for Phase 7b backlog. |
-| **7c — Optimization & hardening pass** | ✅ Complete | PR #18 merged. Ran the full skill matrix (perf / security / CH cost / isolation) against the existing tree before Phase 4 locks the API contract. Channel hot path -13% (1 alloc/op down from 2); modern Go (`wg.Go`, `range over int`, `b.Loop()`); dead drift-check removed (`validTimestamp` was always true because TSUTC is `json:"-"`); CI gate fixes (vendor-check CRLF tolerance + license-check GOFLAGS + golangci-lint v2.5 + `--new-from-rev`). Audit evidence pack at `audit/{sec,ch,airgap}-findings.md`; `bench.out` baseline at repo root. Zero new endpoints / schema / deps. |
-| **7b1a — WAL group-commit foundation** | ✅ Complete | PR #23 merged. `internal/ingest/walgroup.go` ships the `GroupSyncer` building block: ack-after-fsync via group commit (256-event batch / 100ms timer), `Sync` errors terminate the process via injectable `exitFn` (fsyncgate 2018, LWN 752063), 9 unit tests green under race detector. `wal.sync_failed` / `wal.corrupt_skipped` / `ch.insert_failed` audit events reserved for the rest of the slice. Foundation only — not yet wired into hot path. |
-| **7b1b — WAL integration + perf-test tightening** | ✅ Complete | PR #25 merged. Pipeline is now a synchronous library (dropped worker-pool + in/out channels); handler calls `Pipeline.Enrich` + `GroupSyncer.AppendAndWait` (blocks until fsync) before responding 202. Consumer acks WAL only after CH commit, retries transient errors with 100/500/2000ms backoff, drain bounded by 30s settle. New `BackpressureMiddleware` returns 503 + `Retry-After: 5` at `wal_fill_ratio ≥ 0.80`. WAL replay emits structured `wal_replay` / `wal_replay_done` records + `EventWALCorruptSkipped` audit for torn segments; same-filesystem invariant checked at boot; LastIndex monotonic guard. `wal-durability-review` skill body shipped: 4 Semgrep rules + 8 test fixtures + 50-iter kill-9 harness (`make wal-killtest-full`). Perf-test assertions tightened to the 0.05% loss SLO. Closes wal-durability-review items #1, #3, #4, #8, #9, #10 (items #2 and #5 closed by PR #23). |
-| **7b2 — Real-traffic verification + drills** | 🔜 Next | Real-tracker correctness (queries match expected aggregations from Phase 4 tracker payloads — possible since PR #21 shipped the tracker). Backup restore drill (manual procedure; `clickhouse-backup` script lands in Phase 2c). Manual TLS rotation drill (cert A → SIGHUP → cert B served). Integration-level PII grep (audit log + WAL byte scan for raw user_id) — the unit-level enforcement at `internal/ingest/handler_test.go:TestHandler_UserIDHashedAndCleared` already gates the contract boundary. Plus follow-ups from 7b1b: CI wiring for `make wal-killtest` (needs Docker+CH in the runner), `wal_fsync_duration_seconds` p99 on `/healthz` (item #7 of the wal-durability-review skill, last of the 10). |
-| **7d — Lint baseline cleanup** | ⏳ Pending | Zero out the ~40 pre-existing lint findings on main (errcheck on rows.Close, gosec G302/G304 on file modes, gofmt drift, intrange / goconst suggestions, gocyclo on `run`). 7c uses `--new-from-rev` so PRs don't regress; 7d removes the baseline so the gate runs on the full tree. Also: install + run `govulncheck` + CodeQL+Semgrep + `go-licenses` baselines. |
+| **0 — Project setup** | ✅ Complete | PR #1. Repo, Makefile, CI, schema, vendoring live. |
+| **1 — Ingestion pipeline** | ✅ Complete | PR #2. Real 6-stage enrichment, BLAKE3 + IRST salt, 18 MB bloom + cross-day grace, 17-step channel tree, 503 back-pressure. Burst guard PR #14. |
+| **2a — Surface hardening** | ✅ Complete | PR #6. TLS 1.3 manual PEM + SIGHUP reload + expiry watcher; httprate rate limit (NAT-aware, audit-instrumented); JSONL audit file sink; FastRejectMiddleware. |
+| **2b — Auth + RBAC** | ⏳ Pending | bcrypt + crypto/rand sessions + SameSite=Lax + admin/viewer/api. Parallel with Phase 3b. |
+| **2c — Operational hardening** | ⏳ Pending | systemd unit, iptables, LUKS docs, backup script. Pairs with Phase 8. |
+| **3a — Dashboard query foundation** | ✅ Complete | PR #9. Filter + Store + 6 v1 queries + LRU + tenancy-grep gate. Geo/Devices/Funnel return ErrNotImplemented. |
+| **3b — Dashboard HTTP layer** | ✅ Complete | PR #12. 8 stat handlers + realtime + IRST Filter + bearer-token stub + WITH FILL. |
+| **3c — Admin CRUD** | ⏳ Pending | `/api/admin/users`, `/api/admin/goals`. Needs Phase 2b. |
+| **4 — Tracker JS** | ✅ Complete | PR #21. 1394 B min / 687 B gz + Go embed at `/tracker.js`; `statnive.track()` + `statnive.identify(uid)` end-to-end (raw uid cleared). Sec-GPC + DNT + webdriver + _phantom short-circuits BEFORE send. 15 Vitest + 6 Go handler tests; size gate in `make audit`. |
+| **5 — Dashboard frontend** | 🔜 Next | Preact SPA + uPlot + Frappe. Unblocked by Phase 7b2 (real-tracker correctness + PII grep + TLS rotation drill + fsync p99 metric all green). |
+| **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, `/healthz`, env override done. Admin-user + Goal/Funnel CRUD wait on Phase 2/3. |
+| **7a — Backend solidity gate** | ✅ Complete | PR #14. Burst guard (~50 ns/op) + bench suite + crash/CH-outage/disk-full tests + k6 7K EPS + WAL replay + viper env fix. |
+| **7c — Optimization & hardening** | ✅ Complete | PR #18. Channel hot path -13% (1 alloc/op); modern Go (`wg.Go`, range-over-int, `b.Loop()`); dead drift-check removed; CI fixes (vendor-check CRLF, license-check GOFLAGS, golangci-lint v2.5 `--new-from-rev`). Audit evidence at `audit/{sec,ch,airgap}-findings.md`; `bench.out` baseline. |
+| **7b1a — WAL group-commit foundation** | ✅ Complete | PR #23. `internal/ingest/walgroup.go` GroupSyncer: ack-after-fsync, 256-event batch / 100ms timer, Sync errors terminate via injectable `exitFn` (fsyncgate). |
+| **7b1b — WAL integration + perf-test** | ✅ Complete | PR #25. Pipeline synchronous; handler calls `Pipeline.Enrich` + `GroupSyncer.AppendAndWait` before 202. Consumer acks only after CH commit, 100/500/2000ms backoff, 30s drain. `BackpressureMiddleware` → 503 + `Retry-After: 5` at `wal_fill_ratio ≥ 0.80`. WAL replay emits `wal_replay` / `wal_replay_done` + `EventWALCorruptSkipped`. Same-filesystem boot check; LastIndex monotonic guard. `wal-durability-review` body: 4 Semgrep rules + 8 fixtures + 50-iter kill-9 harness. 0.05% loss SLO tightened. Closes items #1,#3,#4,#8,#9,#10 (#2,#5 in PR #23). |
+| **7b2 — Real-traffic verification + drills** | 🔜 Next | Real-tracker correctness; backup restore drill; manual TLS rotation drill; integration-level PII grep. Plus 7b1b follow-ups: `make wal-killtest` CI wiring, `wal_fsync_duration_seconds` p99 on `/healthz`. |
+| **7d — Lint baseline cleanup** | ⏳ Pending | ~40 pre-existing findings on main (errcheck, gosec G302/G304, gofmt, intrange/goconst, gocyclo). Install + baselines: govulncheck, CodeQL+Semgrep, go-licenses. |
 | **8 — Deployment & launch** | ⏳ Pending | Hetzner CX32 staging, airgap-bundle, monitoring, runbook, v1 launch. |
 | **9 — Phase A dogfood** | ⏳ Pending | statnive.com → demo.statnive.live. |
 | **10 — Phase B Filimo** | ⏳ Pending | Iranian DC bare metal, paid DB23 GeoIP. |
 | **11 — Phase C SaaS** | ⏳ Pending | Polar.sh checkout + webhooks, signup, path-based tenancy. |
-| **CLI** (operator surface) | 🔮 v1.1 | `statnive` subcommands: serve, migrate, license, sites, users, backup, doctor, secret, stats. ~1 week. |
-| **MCP server** (agent surface) | 🔮 v2 | Read-only analytics tools over stdio (air-gap-safe) or HTTP. Maps 1:1 to dashboard endpoints. ~2 weeks. |
-| **Brand & design tokens** | 📐 Reference ready | Wordmark + summit logo, cream/ink/Persian-Teal palette, Fraunces + IBM Plex type ramp. Applies to statnive.live website + demo + tenant dashboards. See [§ Brand & Design](#brand--design--statnivelive-visual-identity). |
+| **CLI** (operator surface) | 🔮 v1.1 | Subcommands: serve, migrate, license, sites, users, backup, doctor, secret, stats. Details in [`docs/cli-operator-surface.md`](docs/cli-operator-surface.md). |
+| **MCP server** (agent surface) | 🔮 v2 | Read-only analytics tools over stdio (air-gap-safe) or HTTP. See [`docs/cli-operator-surface.md § MCP`](docs/cli-operator-surface.md). |
+| **Brand & design tokens** | 📐 Reference ready | Wordmark + summit logo, cream/ink/Persian-Teal palette, Fraunces + IBM Plex ramp. Full spec in [`docs/brand.md`](docs/brand.md). |
 
 ### Phase 0: Project Setup (Week 1)
 
-**Guardrails active:** [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md) — fires on the first `go.mod` addition and on any init-time network call. Scaffolded; Semgrep rule body fills in during this phase.
+**Guardrail:** [`air-gap-validator`](.claude/skills/air-gap-validator/README.md).
 
-- [x] Create `github.com/statnive/statnive-live` repository
-- [x] Initialize Go module, copy go.mod from doc 22
-- [x] Set up Makefile (build, test, lint, release, **airgap-bundle** targets) — `airgap-bundle` is a placeholder; lands in Phase 8
-- [x] Create ClickHouse schema SQL (events_raw + **3 v1 rollups**: `hourly_visitors`, `daily_pages`, `daily_sources`; additional 3 deferred to v1.1)
-- [x] Copy all Go files from doc 22 into project structure
-- [x] Set up CI (GitHub Actions: build + lint + test + **`go mod vendor` check**) — actions SHA-pinned per security rule
-- [x] **Vendor all Go deps** (`go mod vendor`, commit to repo) — enables fully offline builds
-- [x] Create config/sources.yaml (50+ Iranian sources from doc 22) — 60 entries incl. AI bucket
-- [x] Create config/statnive-live.yaml (default config from doc 20)
+- [x] Repo, Go module, Makefile (build/test/lint/release/`airgap-bundle`), CI (SHA-pinned actions)
+- [x] ClickHouse schema SQL (`events_raw` + 3 v1 rollups)
+- [x] Copy Go files from doc 22; vendor all deps
+- [x] `config/sources.yaml` (60 entries); `config/statnive-live.yaml`
 
 ### Phase 1: Ingestion Pipeline (Weeks 2–4)
 
-**Guardrails active:** [`.claude/skills/tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md), [`.claude/skills/blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md), [`.claude/skills/clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md), [`.claude/skills/clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md), [`.claude/skills/wal-durability-review`](.claude/skills/wal-durability-review/README.md) — must exist before `internal/identity/`, `internal/storage/`, `internal/ingest/{wal,consumer}.go`, or any MV DDL merges. Five scaffolded.
+**Guardrails:** [`tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md), [`blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md), [`clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md), [`clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md), [`wal-durability-review`](.claude/skills/wal-durability-review/README.md).
 
-- [x] Wire main.go (from doc 22 bonus code)
-- [x] Add `SiteID` field to EnrichedEvent + populate in pipeline.processEvent() — required for multi-tenant from v1
-- [x] Implement ingest/handler.go (JSON array parsing; site_id resolved from hostname) — **pre-pipeline fast-reject gate** (doc 24 §Sec 1.6): reject `X-Purpose`/`Purpose`/`X-Moz` prefetch headers, UA length < 16 or > 500, UA that parses as IP or UUID, non-ASCII UA → `204 No Content` before the event enters the pipeline channel. Parse `True-Client-IP` + `CF-Connecting-IP` alongside `X-Forwarded-For` (rightmost) for Iranian sites behind ArvanCloud / Cloudflare.
-- [x] Implement ingest/pipeline.go (6-worker enrichment; order **locked**: identity → burst → bloom → geo → ua → bot → channel). Bot detection is cheap-first *inside* the pipeline (doc 24 §Sec 1.3): UA literal substring → UA regex → optional datacenter CIDR. **Max-pageviews-per-visitor burst guard** shipped in PR #14 (`internal/ingest/burstguard.go`, ~50 ns/op). v1.1 still owes referrer-spam + browser-version-floor + datacenter-CIDR list.
-- [x] Implement ingest/consumer.go (dual-trigger batch writer — size OR time OR ctx.Done per doc 24 §Sec 1.5: 1000 rows OR 500ms OR 10 MB payload. **No `log.Panicf` on retry exhaustion** — WAL + graceful failure.) (Single 250 ms retry instead of exponential backoff; DLQ deferred to first prod failure pattern.)
-- [x] Implement ingest/wal.go (WAL + 100ms fsync + 10GB size cap). (>80% threshold surfaced via `/healthz` `wal_fill_ratio` rather than per-request 503; size-cap enforcer drops oldest segments when over.)
-- [x] Implement storage/clickhouse.go (**34-column** batch insert incl. site_id; `DateTime('UTC')` time column — not `DateTime64(3)` per doc 24 §Sec 2 Migration 0012)
-- [x] Implement storage/migrate.go — numbered migrations, applied versions tracked in a `schema_migrations(version, dirty, sequence)` table. Migrations authored with `{{if .Cluster}}` Go-template placeholders from day 1 (doc 24 §Sec 2 Migration 0029) so single-node → Distributed upgrade at SaaS scale is a config flip, not a migration rewrite. (Deferred: advisory locks for concurrent-start safety — single-binary deploys don't race on startup.)
-- [x] Implement enrich/ (GeoIP with IP2Location **LITE DB23** in v1, medama-io UA, channel mapper, isbot + crawler-user-agents.json, bloom 18MB/10M visitors/0.1% FPR). Channel mapper implements the **17-step decision tree** per doc 24 §Sec 3.1 (paid-first ordering). Hostname lookups use `map[string]struct{}` not `slices.Contains` (~100× hot-path savings at 10–20M DAU per doc 24 §Sec 3.5). (GeoIP is a no-op enricher when no BIN file is configured — operator drops in DB23 separately; never blocks boot.)
-- [x] Implement identity/ (BLAKE3-128 hash, deterministic daily salt `HMAC(master_secret, site_id || YYYY-MM-DD IRST)` — single master secret, site_id baked into HMAC input). **Cross-day fingerprint grace lookup** (doc 24 §Sec 1.1) — when the bloom filter misses, retry with yesterday's salt before declaring a new visitor. Closes the `user-enters-site-at-23:59` ghost-session bug.
-- [ ] k6 load test: prove peak EPS targets with zero event loss — Phase 7. StreamCo P1/P2 envelope (web only) targets ~1,300 peak EPS; P3+ ramps to ~9K peak EPS / ~18K spike at the MAXIMUM envelope (see capacity-planning doc). 7K EPS is a mid-phase (P3–P4) checkpoint.
-- [ ] Crash recovery test: kill -9 → WAL replay → verify zero loss — Phase 7
-- [x] Integration test: emit bot event → verify visitor_hash populated AND is_bot=1 (enrichment order assertion) — `test/enrichment_e2e_test.go` covers Googlebot UA → is_bot=1 + non-zero visitor_hash
-- [x] Integration test: prefetch header + oversized UA + UUID-as-UA + IP-as-UA → handler returns `204` with zero pipeline work (pre-pipeline fast-reject assertion) — `internal/ingest/handler_test.go` 10-case table
-- [x] Integration test: visitor seen at 23:58 IRST returns at 00:02 IRST → identified as returning (cross-day fingerprint grace assertion) — `internal/identity/identity_test.go` salt rotation + `internal/enrich/newvisitor_test.go` cross-day grace
+- [x] Wire main.go; SiteID on EnrichedEvent
+- [x] `ingest/handler.go` — JSON array parsing; pre-pipeline fast-reject (prefetch headers, UA shape, IP-as-UA, UUID-as-UA, non-ASCII → 204). Parse `True-Client-IP` + `CF-Connecting-IP` alongside XFF rightmost.
+- [x] `ingest/pipeline.go` — 6-worker enrichment; order locked: identity → burst → bloom → geo → ua → bot → channel. Cheap-first bot detection. Burst guard in PR #14. v1.1 owes referrer-spam + browser-version-floor + datacenter-CIDR.
+- [x] `ingest/consumer.go` — dual-trigger batch writer (1000 rows / 500ms / 10MB). Single 250ms retry; DLQ deferred.
+- [x] `ingest/wal.go` — 100ms fsync + 10GB cap; `/healthz` `wal_fill_ratio`.
+- [x] `storage/clickhouse.go` — 34-column batch insert + site_id; `DateTime('UTC')` not `DateTime64(3)`.
+- [x] `storage/migrate.go` — numbered migrations, `schema_migrations(version, dirty, sequence)`, `{{if .Cluster}}` templates from day 1. Advisory locks deferred.
+- [x] `enrich/` — GeoIP (LITE DB23 no-op fallback), medama-io UA, 17-step channel tree, isbot + `crawler-user-agents.json`, 18MB bloom. Hostnames via `map[string]struct{}` (~100× speedup).
+- [x] `identity/` — BLAKE3-128 + `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`. Cross-day fingerprint grace lookup.
+- [ ] k6 load test (Phase 7): P1/P2 ~1,300 peak EPS → P3+ ~9K peak / ~18K spike (StreamCo MAX).
+- [ ] Crash recovery test (Phase 7): kill-9 → WAL replay → zero loss.
+- [x] Integration tests: bot UA → is_bot=1 + visitor_hash (`test/enrichment_e2e_test.go`); 10-case fast-reject table; cross-day grace.
 
 ### Phase 2: Security Layer (Weeks 5–6)
 
-**Guardrails active:** [`.claude/skills/ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md) — regression guard for Phase 2a rate-limiter. Plain `httprate.LimitByRealIP` shipped in PR #6; **ASN tiering + `iptoasn.com` TSV is Phase 10 hard gate before Filimo cutover** — not blocking here but the skill already fires on any middleware / rate-limit change.
+**Guardrail:** [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md) — regression guard for Phase 2a rate-limiter. ASN tiering + `iptoasn.com` is Phase 10 HARD GATE.
 
-- [x] TLS: **manual PEM loader only** — read `tls.cert_file` + `tls.key_file` from config, reload on SIGHUP for quarterly rotations. Autocert/LE slips to v1.1. (`internal/cert/loader.go` + `expiry.go` — atomic.Pointer hot-reload, fail-closed at boot, keep-old-on-reload-failure, expiry watcher with crossing-dedup at <30d/<7d.)
-- [ ] Dashboard auth (bcrypt + `crypto/rand` sessions + SameSite=Lax cookies + RBAC) — Phase 2b (deferred until Phase 3 dashboard contract lands)
-- [x] Rate limiting via `go-chi/httprate.LimitByRealIP` (100 req/s, NAT-aware) — `internal/ratelimit/ratelimit.go`. Keyed by the same `ingest.ClientIP` ladder the handler uses; emits `audit.ratelimit.exceeded` on 429. (Burst-as-separate-knob deferred — httprate uses a fixed window and the per-minute cap behaves as the burst.)
-- [x] Input validation (`http.MaxBytesReader` 8KB, field limits, timestamp ±1h) — already shipped in Phase 1; verified preserved.
-- [x] Hostname validation on `/api/event` (HMAC skipped entirely per doc 20) — already shipped in Phase 1; now also emits `audit.ingest.hostname_unknown` on miss.
-- [x] Audit log (JSONL via slog, append-only, **file sink only**) — `internal/audit/log.go`. `O_APPEND` for atomic concurrent writes; `Reopen()` for logrotate; typed `EventName` constants.
-- [ ] systemd hardening (NoNewPrivileges, ProtectSystem=strict, PrivateTmp, empty CapabilityBoundingSet) — Phase 2c (pairs with Phase 8 deploy)
-- [ ] iptables rules (80/443/22 only; CH port 9000 never exposed) — Phase 2c
-- [ ] LUKS setup procedure (documented, **optional** — evaluate 40–50% I/O overhead vs physical security) — Phase 2c
-- [ ] Backup script (clickhouse-backup + age + zstd + cron + monthly restore test) — Phase 2c
-- [x] Security assertions folded into `test/integration_test.go` (not a separate harness): httprate returns 429, hostname validation rejects, CH not reachable externally — `test/security_test.go` proves rate limit short-circuits before events reach ClickHouse. (Auth=403 deferred to Phase 2b.)
+- [x] TLS manual PEM loader + SIGHUP reload (`internal/cert/`, atomic.Pointer hot-reload, fail-closed, keep-old-on-fail, expiry watcher <30d/<7d).
+- [ ] Dashboard auth — Phase 2b.
+- [x] Rate limiting (`httprate.LimitByRealIP`, 100 req/s, NAT-aware via `ingest.ClientIP` ladder; emits `audit.ratelimit.exceeded`).
+- [x] Input validation (`MaxBytesReader` 8KB, ±1h drift) — shipped in Phase 1.
+- [x] Hostname validation (HMAC skipped per doc 20); emits `audit.ingest.hostname_unknown`.
+- [x] Audit log (`internal/audit/`, `O_APPEND`, `Reopen()` for logrotate, typed `EventName`).
+- [ ] systemd hardening, iptables, LUKS docs, backup script — Phase 2c.
+- [x] Security assertions in `test/integration_test.go` + `test/security_test.go`.
 
 ### Phase 3: Dashboard API (Weeks 7–9)
 
-**Guardrails active:** [`.claude/skills/tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md) enforces Architecture Rule 8 on every query in `internal/storage/queries.go` — pairs with the existing `make lint` `tenancy-grep` gate.
+**Guardrail:** [`tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md) — pairs with existing `make lint` `tenancy-grep`.
 
-All 8 stats endpoints live in one file (`internal/dashboard/stats.go`) — they share date-parse, site_id scoping, cache key, and JSON shaping. Admin + billing are separate files since they mutate state. Query building lives in a **flat** `internal/storage/queries.go` (one Go function per endpoint) — we do NOT mirror Pirsch's 10 sub-analyzer split because our 8 endpoints don't warrant it (doc 24 §Sec 4 pattern 1 recommendation).
+Flat `internal/storage/queries.go` (one Go function per endpoint) — we do NOT mirror Pirsch's 10 sub-analyzer split (doc 24 §Sec 4 pattern 1).
 
-- [x] `internal/storage/store.go` — typed `Store` interface (doc 24 §Sec 4 pattern 3). One method per endpoint: `Overview(ctx, *Filter)`, `Sources(ctx, *Filter)`, etc. Enables Phase 7 integration-test mocking without a live ClickHouse.
-- [x] `internal/storage/queries.go` — central `whereTimeAndTenant(*Filter, col) (string, []any)` helper that emits `WHERE site_id = ? AND <col> >= ? AND <col> < ?` as the first clause of every query (Architecture Rule 8 + doc 24 §Sec 4 pattern 6). Every endpoint SQL routes through this helper; a CI `tenancy-grep` gate rejects any `SELECT` in `internal/storage/queries.go` that doesn't call it (Makefile target + CI step).
-- [x] `internal/storage/filter.go` — `Filter` struct with `SiteID uint32`, `From`/`To time.Time`, `Path`, `Referrer`, `UTM*`, `Country`, `Browser`, `OS`, `Device`, `Sort`, `Search`. Field names aligned with Pirsch; `ClientID → SiteID` is the only rename. Deterministic `Hash()` (BLAKE3-128, UTC-normalized) doubles as the cache key.
-- [x] `stats.go` with 8 handlers (`GET /api/stats/...`): overview, sources, pages, geo, devices, funnel, campaigns, seo — `internal/dashboard/stats.go`. Geo/Devices/Funnel mounted but their Store methods return `ErrNotImplemented` → 501 (v1.1 / v2).
-- [x] Time-series endpoints use **`WITH FILL … STEP INTERVAL`** for zero-result gap fill — SEO daily series in `internal/storage/queries.go`. Visitors-trend endpoint deferred until Phase 5 frontend asks for it (would need a new `Store.VisitorsTrend` method).
-- [ ] POST/PUT/DELETE /api/admin/users (user + RBAC CRUD, admin-only) — Phase 3c (needs Phase 2b auth)
-- [ ] POST/PUT/DELETE /api/admin/goals (goal CRUD, writes YAML + triggers SIGHUP hot reload) — Phase 3c
-- [x] GET /api/realtime/visitors (10s cache, last-5-min active visitors — NOT full real-time) — `internal/dashboard/realtime.go`; cache TTL = `cache.TTLRealtime` (10s) via the CachedStore wrapping.
-- [x] Date range handling — half-open intervals `[from, to)` at day granularity (doc 24 §Sec 4 pattern 7) enforced in `Filter.Validate()`. Asia/Tehran conversion stays at the API layer (Phase 3b).
-- [x] LRU cache (realtime=10s, today=60s, yesterday=1h, historical=forever) — `internal/cache/{lru,policy}.go`. Per-entry TTL via `expiresAt` since the underlying `hashicorp/golang-lru/v2/expirable` only honors constructor-time TTL. `CachedStore` decorator in `internal/storage/cached_store.go`.
-- [ ] Funnel endpoint uses **`windowFunnel()`** + 1h cache — v2 (Store.Funnel returns ErrNotImplemented in 3a)
-- [ ] Dashboard query benchmark under 7K EPS load — Phase 7 hardening
-- [x] Integration test: call every endpoint with `site_id=A` and `site_id=B`, assert zero row leakage across sites — `test/dashboard_isolation_test.go` seeds two sites with disjoint paths + referrers, verifies Overview/Sources/Pages/Campaigns for each, asserts Geo/Devices/Funnel return ErrNotImplemented.
+- [x] `storage/store.go` — typed Store interface; one method per endpoint; mockable for Phase 7.
+- [x] `storage/queries.go` — central `whereTimeAndTenant(*Filter, col)` helper; CI `tenancy-grep` rejects any `SELECT` skipping it.
+- [x] `storage/filter.go` — Filter struct (SiteID, From/To, Path, Referrer, UTM, Country, Browser, OS, Device, Sort, Search). Deterministic BLAKE3 `Hash()` as cache key.
+- [x] 8 `GET /api/stats/*` handlers (overview/sources/pages/geo/devices/funnel/campaigns/seo). Geo/Devices/Funnel return 501 until v1.1/v2.
+- [x] `WITH FILL … STEP INTERVAL` for SEO daily series. Visitors-trend deferred.
+- [ ] Admin CRUD — Phase 3c (needs Phase 2b).
+- [x] `GET /api/realtime/visitors` (10s cache).
+- [x] Half-open `[from, to)` intervals at day granularity; Asia/Tehran conversion at API layer.
+- [x] LRU cache (realtime=10s, today=60s, yesterday=1h, historical=∞) — `internal/cache/{lru,policy}.go`; per-entry TTL via `expiresAt`.
+- [ ] Funnel via `windowFunnel()` + 1h cache — v2.
+- [ ] Dashboard query benchmark under 7K EPS — Phase 7.
+- [x] Multi-tenant integration test (`test/dashboard_isolation_test.go`).
 
 ### Phase 4: Tracker JS (Week 10)
 
-**Guardrails active:** [`.claude/skills/preact-signals-bundle-budget`](.claude/skills/preact-signals-bundle-budget/README.md) enforces the ~1.2 KB-min / ~600 B-gz tracker budget from day 1 and rejects CDN URLs + XHR transport. [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md) cross-checks that no embedded asset references external hosts.
+**Guardrails:** [`preact-signals-bundle-budget`](.claude/skills/preact-signals-bundle-budget/README.md) (1.2KB min / 600B gz tracker budget + CDN ban); [`air-gap-validator`](.claude/skills/air-gap-validator/README.md).
 
-- [x] Build tracker from doc 20 source — shipped in PR #21 at 1394 B min / 687 B gz (slightly over the 1.2 KB / 600 B aspirational target; chosen to leave room for Phase 7b regressions before the bundle gate fires).
-- [x] Rollup + Terser build config (`tracker/rollup.config.mjs`); Terser passes=3 + mangle.toplevel; output to `internal/tracker/dist/` so `go:embed` picks it up directly.
-- [x] Pageview + SPA (history API: pushState / replaceState / popstate) + custom events (`statnive.track(name, props, value)`) + user_id (`statnive.identify(uid)` with raw-cleared, hashed in handler — Privacy Rule 4). Batching, outbound link tracking deferred to v1.1.
-- [x] Client-side bot hints: `navigator.webdriver`, `_phantom`, `callPhantom` short-circuit before any send.
-- [x] **Sec-GPC short-circuit BEFORE the request even fires** (doc 27 Privacy Rule #9) + DNT short-circuit. Both make `track()` + `identify()` no-ops.
-- [x] Server-side bot filtering already shipped in Phase 1 (`internal/enrich/bot.go`); client-side hints are supplementary per Clarity pattern (doc 21).
-- [ ] Root-domain cookie walking — deferred; current `_statnive` cookie set on root path is sufficient for v1 (Filimo CDN subdomain test happens in Phase 10 and triggers this work).
-- [x] Served via `go:embed` from the analytics host (`internal/tracker/tracker.go`) — first-party, no external CDN, no SRI needed.
-- [x] **Cross-day returning visitors validated end-to-end via `_statnive` cookie round-trip** — the existing `readOrSetCookieID` path was never browser-tested before this slice.
-- [ ] Integration test (real tracker → Go server → ClickHouse → verify rollups) — deferred to Phase 7b real-traffic correctness sub-task. The Go-side handler test + Vitest specs gate the contract boundary; full round-trip verification against rollup aggregations needs the WAL fixes from 7b first.
+- [x] Build from doc 20 — 1394 B min / 687 B gz; Rollup + Terser passes=3 + mangle.toplevel; output to `internal/tracker/dist/`.
+- [x] Pageview + SPA (history API) + custom events (`statnive.track(name, props, value)`) + `statnive.identify(uid)` (raw cleared in handler, hashed via `identity.HexUserIDHash`).
+- [x] Client bot hints: `navigator.webdriver`, `_phantom`, `callPhantom` short-circuit before send.
+- [x] **Sec-GPC + DNT short-circuit BEFORE the request fires** (doc 27 Privacy Rule #9).
+- [x] Served via `go:embed` (`internal/tracker/tracker.go`).
+- [x] Cross-day returning visitors validated via `_statnive` cookie round-trip.
+- [x] Real-tracker integration test → rollup verification — Phase 7b2 (payload-golden contract: Vitest captures sendBeacon body, Go integration test replays each payload through the full pipeline → ClickHouse).
 
-**Deferred to v1.1:** engagement ping (10s heartbeat), throttle-with-last-event, base36 date encoding, envelope+payload separation. These power v2 session/engagement features — safe to defer until we build them.
+**Deferred to v1.1:** engagement ping (10s heartbeat), throttle-with-last-event, base36 date, envelope+payload separation.
 
-### Phase 5: Dashboard Frontend (Weeks 11–13, reduced scope for v1 cut)
+### Phase 5: Dashboard Frontend (Weeks 11–13)
 
-**Guardrails active:** [`.claude/skills/preact-signals-bundle-budget`](.claude/skills/preact-signals-bundle-budget/README.md) enforces the ~50 KB-min / ~15 KB-gz dashboard budget, rejects React-style `useState`/`useEffect` in signal contexts, flags barrel imports, and forbids CDN fonts (reinforces air-gap). Pairs with the community-installed `vercel-labs/web-design-guidelines` (UI audit rules) and `knip-unused-code-dependency-finder` (bundle trim).
+**Guardrails:** [`preact-signals-bundle-budget`](.claude/skills/preact-signals-bundle-budget/README.md) (50KB min / 15KB gz); plus `vercel-labs/web-design-guidelines` + `knip-unused-code-dependency-finder`.
 
-> **Brand reference:** all components use the tokens + type ramp from
-> [§ Brand & Design](#brand--design--statnivelive-visual-identity). The Preact
-> SPA imports `web/src/tokens.css` at the entry point so every panel /
-> chart / table reads from `var(--green)`, `var(--ink)`, `var(--paper)`
-> etc. Hand-rolled hex values in components are a PR-review reject.
+Brand tokens from [`docs/brand.md`](docs/brand.md) — `web/src/tokens.css` imports at SPA entry; hand-rolled hex in components is a PR-review reject.
 
-- [ ] Preact SPA scaffold (Vite + TypeScript + @preact/signals for reactive state)
-- [ ] Overview panel (summary cards)
-- [ ] Visitors trend chart (uPlot, hourly/daily)
-- [ ] Sources table (sortable, with revenue + conv%)
-- [ ] Pages table (with goals + revenue)
-- [ ] Funnel visualization (Frappe Charts bar)
-- [ ] Geo panel (provinces table)
-- [ ] Devices panel (device/browser/OS breakdown)
-- [ ] SEO panel (organic trend line only — richer panels deferred to v1.1)
-- [ ] Campaigns panel (utm_campaign table)
-- [ ] Gregorian date picker with period shortcuts (Jalali = v1.1)
-- [ ] Real-time active-visitors widget (10s refresh)
-- [ ] Admin pages: users + goals + funnels (calls /api/admin/*)
-- [ ] WCAG 2.2 AA compliance (contrast, focus rings, aria labels, keyboard reachability)
-- [ ] Embed via go:embed, verify binary size <20MB
+- [ ] Preact SPA scaffold (Vite + TypeScript + @preact/signals)
+- [ ] Overview panel; Visitors trend (uPlot, hourly/daily); Sources table (sortable, RPV); Pages table (goals + revenue); Funnel (Frappe Charts); Geo; Devices; SEO (organic trend only — richer = v1.1); Campaigns
+- [ ] Gregorian date picker (Jalali = v1.1); real-time widget (10s refresh); Admin pages (users/goals/funnels)
+- [ ] WCAG 2.2 AA (contrast, focus rings, aria, keyboard)
+- [ ] Embed via go:embed, verify binary <20MB
 
-**Deferred to v1.1:** Jalali calendar, comparison period toggle (% change UI), CSV export on tables, keyboard shortcuts / command palette. Polish, not load-bearing for Filimo launch.
+**Deferred to v1.1:** Jalali, comparison-period toggle, CSV export, command palette.
 
 ### Phase 6: Configuration & First-Run (Week 15)
 
-- [x] YAML config loader (with hot reload for goals/funnels) — viper-based; goals/funnels CRUD ships in Phase 3
-- [ ] First-run setup: create admin user, init ClickHouse schema — schema init done; admin user awaits Phase 2 auth
-- [ ] Goal CRUD (YAML-based, add/remove without restart)
-- [ ] Funnel CRUD (YAML-based)
-- [x] Schema migration runner (embedded SQL, run on startup) — `internal/storage/migrate.go`
-- [x] Health check endpoint (/healthz) — `internal/health/check.go`
+- [x] YAML config loader (viper, hot-reload goals/funnels via SIGHUP; goals/funnels CRUD in Phase 3)
+- [ ] First-run: admin user creation (awaits Phase 2 auth); Goal/Funnel CRUD (YAML)
+- [x] Schema migration runner; `/healthz`
 
-### Phase 7: Testing & Hardening (Week 16 — tightened from 2 weeks)
+### Phase 7: Testing & Hardening (Week 16)
 
-**Guardrails active:** [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md) acceptance test runs the binary under `iptables -P OUTPUT DROP` and asserts ingest, rollup materialization, and dashboard rendering all pass end-to-end — release-gate for every tagged build. [`.claude/skills/wal-durability-review`](.claude/skills/wal-durability-review/README.md) is the **hard gate on Phase 7b close** — the three WAL correctness gaps surfaced in PR #14 (WAL replay decode after SIGKILL; consumer drops on CH unreachable; post-restart drain) must satisfy this skill's 10-item checklist and the kill-9 CI gate (50 runs per PR at random 100 ms–2 s SIGKILL offsets) before Phase 7b closes.
+**Guardrails:** [`air-gap-validator`](.claude/skills/air-gap-validator/README.md) (release-gate under `iptables -P OUTPUT DROP`); [`wal-durability-review`](.claude/skills/wal-durability-review/README.md) — **hard gate on 7b close** (kill-9 CI 50 runs/PR).
 
-- [x] k6 smoke load test — `test/perf/load.js` shipped in PR #14. 7K EPS ramp with Persian paths + Iranian UAs. Run via `make load-test`. (Per-phase EPS targets in [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md): ~1,300 peak EPS for P1/P2; ~9K peak / ~18K spike for P3+.)
-- [x] Go benchmark suite (every pipeline stage) — `internal/{ingest,enrich}/bench_test.go` shipped in PR #14. Baselines: BurstGuard ~50 ns/op, Channel ~280 ns, Bloom ~340 ns, UA ~300 ns, Bot ~500 ns, Handler full path ~4 µs.
-- [ ] Integration test (100K events, multi-tenant → all v1 rollups → all API endpoints, each scoped by site_id; **security assertions folded in** — auth, rate limit, hostname validation, CH isolation, input limits) — Phase 7b, after auth lands.
-- [x] Crash recovery test (kill -9 Go → WAL replay) — `test/perf/crash_recovery_test.go` shipped in PR #14. Currently logs ~80% loss because WAL Replay decodes only 1 of N entries after SIGKILL (tidwall NoSync window). **Phase 7b will fix the WAL contract; this test will then assert <0.05% loss.**
-- [x] Disk-full policy test — `test/perf/disk_full_test.go` shipped in PR #14. Surfaced that the consumer drops events when CH is unreachable (fill_ratio stays 0.0). **Phase 7b will fix the buffer-on-outage contract; this test will then assert fill_ratio > 0.5 under pressure.**
-- [x] **Phase 7c — Optimization & hardening pass** (PR #18): ran the full skill matrix over the existing tree. Channel hot path -13% (1 alloc/op down from 2 via pre-lowercased Source.Name); modern-Go (`wg.Go`, range-over-int, `b.Loop()`); dead client-timestamp drift check removed (`validTimestamp` was always true because `RawEvent.TSUTC` is `json:"-"`); CI gate fixes (vendor-check CRLF tolerance + license-check GOFLAGS + golangci-lint v2.5 + `--new-from-rev=origin/main`). Audit evidence pack at [`audit/sec-findings.md`](audit/sec-findings.md), [`audit/ch-findings.md`](audit/ch-findings.md), [`audit/airgap-findings.md`](audit/airgap-findings.md). Bench baseline at [`bench.out`](bench.out) for `benchstat` regression checks. Air-gap iptables runbook step at [`docs/runbook.md`](docs/runbook.md) § Air-Gap Verification. New `make audit` target = one-shot pre-PR gate. Schema unchanged; zero new endpoints / deps.
-- [ ] Backup restore test (restore encrypted backup to fresh CH → row counts match) — Phase 7b (needs Phase 2c backup script first).
-- [ ] Manual TLS rotation test (replace PEMs + SIGHUP → new cert served without restart) — Phase 7b.
-- [ ] Documentation: README, deployment guide, API docs, runbook — partial: `docs/runbook.md` (Phase 7a operator gates) shipped in PR #14. Full deployment guide + API docs land with Phase 7b + Phase 8.
-- [x] CH outage buffer-and-drain test — `test/perf/ch_outage_test.go` shipped in PR #14 (10s in-test variant; 10-min variant documented in runbook for manual verification).
+- [x] k6 smoke (`test/perf/load.js`, PR #14, Persian paths + Iranian UAs, `make load-test`)
+- [x] Go bench suite (`internal/{ingest,enrich}/bench_test.go`, PR #14)
+- [ ] 100K-event integration (Phase 7b, after auth)
+- [x] Crash recovery test (logs ~80% loss before 7b WAL fix — now asserts <0.05%)
+- [x] Disk-full policy test; Phase 7c optimization (PR #18 — Channel -13%, modern Go, CI fixes, `make audit`)
+- [partial] Backup restore — Phase 7b2 ships the manual SOP at [`docs/runbook.md`](docs/runbook.md) § Backup & restore; CI automation (`deploy/backup/drill.sh` + dedicated job) lands in Phase 2c.
+- [x] Manual TLS rotation test — Phase 7b2 ([`internal/cert/rotation_e2e_test.go`](internal/cert/rotation_e2e_test.go) — atomic.Pointer hot-swap regression + fail-closed on corrupt PEM).
+- [x] CH outage buffer-and-drain test (10s in-test; 10min in runbook)
+- [x] Integration-level PII grep — Phase 7b2 ([`test/pii_leak_test.go`](test/pii_leak_test.go) byte-scans WAL segments + audit.jsonl + `events_raw` for raw user_id/IP probes; pins Privacy Rules 1 + 4).
+- [x] WAL fsync p99 surfaced via `/healthz` — Phase 7b2 closes [`wal-durability-review`](.claude/skills/wal-durability-review/README.md) item 7 (last open of 10).
+- [x] Kill-9 WAL CI gate — Phase 7b1b shipped harness; Phase 7b2 wires `make wal-killtest` 5-iter smoke into per-PR CI + nightly 50-iter on main.
 
 ### Phase 8: Deployment & Launch (Weeks 17–18)
 
-**Guardrails active:** [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md) + [`.claude/skills/clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md) + [`.claude/skills/clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md) — gate the air-gap bundle build and the migration templating before Phase A ships. Run `AgriciDaniel/claude-cybersecurity` one-shot audit before cutover (doc 25 §priority, Weeks 9–12).
+**Guardrails:** [`air-gap-validator`](.claude/skills/air-gap-validator/README.md), [`clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md), [`clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md). Plus `AgriciDaniel/claude-cybersecurity` one-shot audit.
 
-- [ ] Deploy to Hetzner CX32 (~€13/mo) for Phase A dogfood staging
-- [ ] OR deploy to Iranian DC for Filimo (production)
-- [ ] Build **offline install bundle** (`make airgap-bundle`): statically-linked binary + `vendor/` + migration SQL + default YAML + tracker bundle + IP2Location LITE DB23 BIN + SHA256SUMS + signed manifest. **Docker tarball deferred to v1.1.**
-- [ ] Complete deployment runbook (bare metal, air-gapped bundle install)
-- [ ] Backup cron verified + monthly restore drill scheduled
-- [ ] Monitoring: health endpoint + **file-sink alerts** (JSONL in `/var/log/statnive/alerts.jsonl`). Alerts: WAL >80%, CH down, disk >85%, cert expiry <30d. Syslog/Telegram sinks = v1.1.
-- [ ] Document offline GeoIP DB update procedure (SCP new BIN + SIGHUP)
-- [ ] Document internal NTP requirement (IRST salt correctness depends on correct clock)
-- [ ] Filimo tracker integration
-- [ ] **Air-gapped acceptance test**: deploy bundle on a host with `iptables -P OUTPUT DROP` (loopback + tracker IPs only), run full integration suite
-- [ ] v1 launch
+- [ ] Hetzner CX32 (Phase A) OR Iranian DC (Filimo)
+- [ ] `make airgap-bundle` — binary + `vendor/` + migrations + default YAML + tracker + DB23 BIN + SHA256SUMS + Ed25519 signature. Docker tarball → v1.1.
+- [ ] Deployment runbook (bare-metal, air-gapped bundle install)
+- [ ] Backup cron + monthly restore drill
+- [ ] File-sink alerts (`/var/log/statnive/alerts.jsonl`): WAL >80%, CH down, disk >85%, cert <30d. Syslog/Telegram = v1.1.
+- [ ] Offline GeoIP update procedure (SCP BIN + SIGHUP); internal NTP requirement docs
+- [ ] Filimo tracker integration; air-gap acceptance test; v1 launch
 
-### Phase 9: Dogfood on statnive.com (Weeks 19–20, Phase A of Launch Sequence)
+### Phase 9: Dogfood on statnive.com (Weeks 19–20)
 
-- [ ] Provision **Hetzner CX32 cloud (~€13/mo)** as initial **Deployment D1**. statnive.com traffic is <100K PV/mo — AX42 is 400× over-provisioned for dogfood. Upgrade to AX42 when first ~10 SaaS customers sign up (Phase C ramp).
-- [ ] DNS: A + AAAA records for `statnive.live` and `demo.statnive.live`
-- [ ] TLS: manual PEM via `certbot certonly` on a separate host (or a throwaway LE cert) — cron `certbot renew` calls a script that copies PEMs to D1 + SIGHUPs the binary. No autocert integration in v1.
-- [ ] IP2Location **LITE DB23** (free, attribution required) — good enough for Phase A dogfood. Upgrade to paid DB23 only for Filimo in Phase B.
-- [ ] Seed `sites` table: `site_id=1, hostname='statnive.com'`
-- [ ] Create shared viewer account `demo / demo-statnive` and internal admin account
-- [ ] Login page exposes demo credentials inline + "Sign up for your own analytics" CTA
-- [ ] Paste tracker snippet into `statnive-website/` Astro base layout: `<script src="https://statnive.live/tracker.js" defer></script>`
-- [ ] Acceptance: 24h after tracker install, `demo.statnive.live` dashboard shows non-zero visitors; viewer cannot call `/api/admin/*`; all 8 `/api/stats/*` endpoints return data
+- [ ] Hetzner CX32 (~€13/mo) as D1 initial. Upgrade to AX42 at ~10 SaaS customers (Phase C).
+- [ ] DNS A/AAAA for `statnive.live` + `demo.statnive.live`; manual PEM via certbot + cron+SIGHUP
+- [ ] IP2Location LITE DB23 (free, attribution)
+- [ ] Seed: `site_id=1, hostname='statnive.com'`; `demo/demo-statnive` viewer + internal admin
+- [ ] Login page exposes demo creds + "Sign up for your own analytics" CTA
+- [ ] Tracker snippet in `statnive-website/` Astro base layout
+- [ ] Acceptance: 24h → non-zero visitors; viewer blocked from `/api/admin/*`; all 8 `/api/stats/*` return data
 
-### Phase 10: Filimo dedicated Iranian VPS (Weeks 21–24, Phase B of Launch Sequence)
+### Phase 10: Filimo dedicated Iranian VPS (Weeks 21–24)
 
-**Guardrails active (HARD GATE on cutover):** [`.claude/skills/ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md) — Iranian-ASN compound-key tiering must ship before the first byte of Filimo traffic. Config: AS44244 / AS197207 / AS57218 on `(ip, site_id)` at 1 K req/s sustained / 2 K burst; 100/200 fallback elsewhere; per-`site_id` global cap 25 K req/s. ASN DB is `iptoasn.com` public-domain TSV (MaxMind / IPLocate rejected — CC-BY-SA contaminates binary). k6 scenarios `normal` / `burst` / `ddos` / `cgnat` must pass per doc 27 §line 54.
+**HARD GATE on cutover:** [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md) — Iranian-ASN compound-key tiering before the first byte. AS44244 / AS197207 / AS57218 on `(ip, site_id)` at 1K req/s sustained / 2K burst; 100/200 fallback elsewhere; 25K req/s per-site global cap. ASN via `iptoasn.com` public-domain TSV (MaxMind / IPLocate CC-BY-SA rejected). k6 scenarios `normal`/`burst`/`ddos`/`cgnat` must pass.
 
-**Onboarding sequence — app-by-app, not all-at-once.** Full StreamCo-class traffic (MAXIMUM envelope: 5M DAU / 200M events/day) requires a cluster. We enter the customer deployment with **web only** (MINIMUM envelope: ~200K DAU / 3M views/day — 30× smaller), then onboard iOS, Android, and TV apps across months 1–12 post-deployment. Hardware sizing evolves with the onboarding — see [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md) § 0 for the canonical 5-phase plan.
+**Onboarding app-by-app.** Full StreamCo-class (MAX: 5M DAU / 200M events/day) requires a cluster. Enter with **web only** (MIN: ~200K DAU / 3M views/day — 30× smaller), onboard iOS/Android/TV across months 1–12.
 
-**DNS & shutdown-resilience architecture (non-negotiable for Iranian deployment):** Single brand domain `statnive.live` with authoritative DNS split across an outside-Iran primary (Bunny DNS or ClouDNS) and an Iran-hosted secondary NSD on a cheap Asiatech VPS (AT-VPS-B1) fed by AXFR + NOTIFY. Parent-zone delegation lists both NS sets. Iranian resolvers reach the Iranian NS over NIN during international-internet shutdowns (currently day 48+ of the ongoing 2026-01-08 blackout as of this doc revision) and continue to resolve `statnive.live` → Iranian DC origin IP. Plus defensive `statnive.ir` registration via Pars.ir (EUR/USDT payment) parked at 301 → `statnive.live` as a break-glass for the rare case where `.live` is DPI-blocked by exact hostname. Replaces Cloudflare as the DNS management surface; `dns-management` skill no longer applies to Iranian domains. Canonical spec + operational playbook in [`../jaan-to/docs/research/26-iran-shutdown-dns-strategy.md`](../jaan-to/docs/research/26-iran-shutdown-dns-strategy.md). Recurring cost: ~$14/mo + $15/yr. Ships before P1 cutover — the Iranian NS must exist before the first byte of Iranian customer traffic flows.
+**DNS & shutdown-resilience (non-negotiable):** `statnive.live` authoritative DNS split outside-Iran primary (Bunny/ClouDNS) + Iran-hosted NSD on Asiatech VPS (AT-VPS-B1) via AXFR + NOTIFY. Parent zone lists both NS sets. Iranian resolvers reach Iranian NS over NIN during int'l shutdowns. Plus defensive `statnive.ir` at Pars.ir parked 301 → `statnive.live`. Replaces Cloudflare. Spec: [`../jaan-to/docs/research/26-iran-shutdown-dns-strategy.md`](../jaan-to/docs/research/26-iran-shutdown-dns-strategy.md). ~$14/mo + $15/yr.
 
-Per-phase Iranian DC sizing target (Asiatech primary pick):
+Per-phase Iranian DC sizing:
 
 | Sub-phase | Scope | Max DAU | Max MAU | Max daily events | Max monthly events | Asiatech server | Price/mo |
 |---|---|---|---|---|---|---|---|
-| **P1** (cutover) [MIN] | Web views only | 200K | 1.4M | 3M | 75M | `AT-VPS-G2` | 27.9M Rial |
-| **P2** (+1mo) | Web + curated interactions | 200K | 1.4M | 15M | 350M | `AT-VPS-G2` (carry over) | 27.9M Rial |
-| **P3** (+3mo) | +iOS onboarding | ~1.45M | ~5.65M | 70M | 1.4B | `AT-VPS-A1` + BW upgrade ≥500 GB/mo | 63.5M Rial + BW |
-| **P4** (+6mo) | +Android | ~3.45M | ~12.45M | 140M | 3B | Dedicated 16–32c/64–128GB/2TB NVMe + ≥1 TB/mo BW (outside VPS catalog) | quote |
-| **P5** (+10mo) [MAX] | +TV apps + HA | 5M | 17M | 200M | 4B | Dedicated cluster 2–3× (32c/128GB/4TB NVMe) + unmetered BW | quote |
+| **P1** [MIN] | Web views | 200K | 1.4M | 3M | 75M | `AT-VPS-G2` | 27.9M Rial |
+| **P2** (+1mo) | +curated interactions | 200K | 1.4M | 15M | 350M | `AT-VPS-G2` | 27.9M Rial |
+| **P3** (+3mo) | +iOS | ~1.45M | ~5.65M | 70M | 1.4B | `AT-VPS-A1` + BW ≥500 GB/mo | 63.5M + BW |
+| **P4** (+6mo) | +Android | ~3.45M | ~12.45M | 140M | 3B | Dedicated 16–32c/64–128GB/2TB NVMe + ≥1 TB/mo | quote |
+| **P5** (+10mo) [MAX] | +TV + HA | 5M | 17M | 200M | 4B | Cluster 2–3× (32c/128GB/4TB NVMe) + unmetered | quote |
 
-- [ ] **P1 cutover hardware:** start with **Asiatech G1 or G2 standard VPS** (~15–28M Rial/mo, 150 GB/mo bandwidth fits web-views-only). Postpone the "~8c/32GB/1TB NVMe dedicated" conversation to P3 when iOS joins and bandwidth upgrade becomes load-bearing.
-- [ ] Negotiate P3+ quotes in parallel: Asiatech bandwidth upgrade (500 GB/mo, 1 TB/mo, unmetered tiers), plus dedicated server quotes from Asiatech / Shatel / Afranet / ParsPack — 8c/32GB/1TB NVMe through 32c/128GB/4TB NVMe
-- [ ] Provision **Deployment D2** on Iranian DC (VPS for P1/P2, graduates to dedicated at P3)
-- [ ] DNS: CNAME `filimo.statnive.live` → Iranian DC IP (Cloudflare proxy **OFF** — traffic must reach Iranian DC directly)
-- [ ] Build offline install bundle via `make airgap-bundle`
-- [ ] SCP bundle → Iranian DC, verify SHA256 + Ed25519 signature
-- [ ] Run `deploy/airgap-install.sh`
-- [ ] TLS: manual PEM files (issued from a throwaway LE cert or Filimo's internal CA), rotated quarterly by operator
-- [ ] Upgrade to **paid IP2Location DB23** on D2 only (city accuracy matters for Filimo)
-- [ ] Generate Ed25519 license JWT: `site_id=1, Customer="Filimo", MaxEventsDay=0, Features=["*"], ExpiresAt=+1y`; drop at `config/license.key`. Key stored in an age-encrypted file on an offline laptop (no HSM in v1).
-- [ ] Config overrides: `audit.sink = "file"`, `license.phone_home = false`. Single-tenant (only site_id=1).
-- [ ] Seed `sites` table with Filimo hostnames: `filimo.com`, `www.filimo.com`, + any CDN / video-delivery subdomains
-- [ ] Create Filimo admin user; deliver password via secure channel (Signal / in-person / PGP)
-- [ ] Filimo pastes `<script src="https://filimo.statnive.live/tracker.js" defer></script>` in their site template
-- [ ] Root-domain cookie walking (Clarity pattern, doc 21) to cover CDN subdomains
-- [ ] Acceptance: k6 7K EPS ramp (Persian URLs, Iranian UAs) passes p99 <500ms; full `iptables OUTPUT DROP` air-gapped acceptance from Phase 8 passes; Filimo smoke test confirms live traffic in dashboard within 1h; backup + restore drill succeeds
+- [ ] P1 cutover: Asiatech G1/G2 standard VPS (~15–28M Rial/mo, 150 GB/mo fits web)
+- [ ] Negotiate P3+ quotes: Asiatech BW upgrades + dedicated from Asiatech/Shatel/Afranet/ParsPack
+- [ ] D2 provisioning (VPS P1/P2 → dedicated P3)
+- [ ] DNS: `CNAME filimo.statnive.live → <Iranian-DC-IP>` (Cloudflare proxy **OFF**)
+- [ ] `make airgap-bundle` → SCP → verify SHA256 + Ed25519 sig → `deploy/airgap-install.sh`
+- [ ] Manual PEM (LE throwaway or Filimo internal CA), quarterly rotation
+- [ ] **Paid IP2Location DB23** on D2 only (city accuracy matters)
+- [ ] Ed25519 license JWT (`site_id=1, Customer="Filimo", MaxEventsDay=0, Features=["*"], ExpiresAt=+1y`). Private key age-encrypted on offline laptop.
+- [ ] Config overrides: `audit.sink=file`, `license.phone_home=false`. Only `site_id=1`.
+- [ ] Seed `sites` with Filimo hostnames (`filimo.com`, `www.filimo.com`, CDN subdomains)
+- [ ] Admin user → secure channel (Signal / in-person / PGP)
+- [ ] Filimo pastes `<script src="https://filimo.statnive.live/tracker.js" defer></script>` + root-domain cookie walking (Clarity pattern, doc 21)
+- [ ] Acceptance: k6 ~1,300 peak EPS Persian URLs/UAs, p99 <500ms; air-gap test end-to-end; smoke confirms live traffic <1h; backup+restore. Higher-EPS gates (7K/18K MAX) deferred to P3/P5.
 
-### Phase 11: International SaaS self-serve (Weeks 26–30, Phase C of Launch Sequence)
+### Phase 11: International SaaS self-serve (Weeks 26–30)
 
-**Guardrails active (HARD GATE on first public signup):** [`.claude/skills/gdpr-code-review`](.claude/skills/gdpr-code-review/README.md) + [`.claude/skills/dsar-completeness-checker`](.claude/skills/dsar-completeness-checker/README.md) — paired. Must pass: 12-item privacy-by-design checklist (salt DELETE not overwrite; Sec-GPC short-circuits BEFORE hash; no fingerprinting vectors; no raw PII in slog); sink-matrix integration test enumerates `system.tables` dynamically and asserts zero rows for erased visitor across every table. DPA draft committed at `docs/dpa-draft.md` with doc 27 §line 77-79 HLL-anonymous language. Weekly rollup rebuild cron (`robfig/cron`, Sunday 03:00 IRST) scheduled as bounded-time compliance safety net.
+**HARD GATE on first signup:** [`gdpr-code-review`](.claude/skills/gdpr-code-review/README.md) + [`dsar-completeness-checker`](.claude/skills/dsar-completeness-checker/README.md) paired. 12-item privacy-by-design + sink-matrix integration test (`system.tables` enumerated dynamically). DPA draft at `docs/dpa-draft.md` with doc 27 §line 77-79 HLL-anonymous language. Weekly rollup rebuild cron (`robfig/cron`, Sunday 03:00 IRST) as bounded-time safety net.
 
-- [ ] Implement `POST /api/signup` (email + password + hostname → creates site + admin user)
-- [ ] Implement `POST /api/admin/billing` (Polar.sh webhook — verify `X-Polar-Signature` HMAC-SHA256, handle `subscription.created` / `subscription.updated` / `subscription.canceled` only; plan→features mapping lives in Go code, not Polar Benefits; idempotent by event.id)
-- [ ] **Path-based tenant routing** in `dashboard/router.go` — URL shape `app.statnive.live/s/<slug>/...`; middleware extracts `<slug>`, resolves to `site_id` via `internal/sites/sites.go`, scopes all `/api/stats/*` calls. No subdomain-per-tenant, no wildcard TLS beyond `*.statnive.live` apex+app, no cookie isolation gymnastics.
-- [ ] `internal/sites/sites.go` — slug generation (`example.com` → `example-com`), uniqueness check, hostname blocklist, create/disable
-- [ ] Signup guardrails: hostname DNS-resolvable, not on blocklist, unique in `sites` table, rate limit 5 signups/hour per IP
-- [ ] Free tier quota: 10K PV/mo tracked via `daily_users` rollup (available once v1.1 adds that rollup); v1 falls back to a periodic `count(DISTINCT visitor_hash)` query over `hourly_visitors` for the current month; soft throttle on ingest above limit (still accept, tag events `quota_exceeded=1`), upsell banner in dashboard
-- [ ] Polar.sh integration (Merchant of Record — Polar handles VAT / global tax). Create 4 Products (Starter, Growth, Business, Scale) × monthly+yearly Prices in Polar dashboard; `POST /api/billing/checkout` server endpoint creates a Polar checkout session via `POST https://api.polar.sh/v1/checkouts/` with `external_customer_id = site_id`, redirects user to `{url}` from response. **Customer Portal link + Polar Benefits model = v2** — v1 cancellations go through us (email support).
-- [ ] Paid tiers unlock higher quota + goals/funnels CRUD (feature gate in Go code keyed by `sites.plan`)
-- [ ] Onboarding page at `app.statnive.live/s/<slug>/onboarding` with copy-paste snippet + "I've installed the tracker — check now" button (no polling endpoint; user-triggered refresh)
-- [ ] Email transactional flow (signup confirm, payment receipt, quota warnings) — opt-in per deployment via `email.enabled`
-- [ ] Acceptance: fresh signup → tracker embed → first event visible in tenant dashboard in <5 min; cross-site isolation test (site A admin cannot query site B data via URL manipulation); Polar sandbox `subscription.created` webhook correctly updates `sites.plan`; webhook is idempotent (replay same event.id → no double-apply); signup rate limiter rejects 6th signup/hour from same IP
-
----
+- [ ] `POST /api/signup` (email + password + hostname → site + admin user)
+- [ ] `POST /api/admin/billing` (Polar.sh webhook — verify `X-Polar-Signature` HMAC-SHA256; `subscription.{created,updated,canceled}` only; idempotent by event.id)
+- [ ] **Path-based tenant routing** in `dashboard/router.go` — `app.statnive.live/s/<slug>/...`; middleware extracts slug → `site_id` via `internal/sites/sites.go`
+- [ ] `internal/sites/sites.go` — slug generation, uniqueness, blocklist, create/disable
+- [ ] Signup guardrails: DNS-resolvable, not on blocklist, unique in `sites`, 5/hr/IP
+- [ ] Free tier 10K PV/mo via `daily_users` (v1.1) or `count(DISTINCT visitor_hash)` over `hourly_visitors`; soft throttle + `quota_exceeded=1` tag + upsell banner
+- [ ] Polar.sh (Merchant of Record): 4 Products × monthly+yearly; `POST /api/billing/checkout` → `POST api.polar.sh/v1/checkouts/` with `external_customer_id=site_id`. Customer Portal + Benefits = v2; v1 = email support
+- [ ] Paid tiers unlock quota + goals/funnels CRUD (gate keyed by `sites.plan`)
+- [ ] Onboarding at `/s/<slug>/onboarding` (copy-paste + user-triggered refresh)
+- [ ] Email transactional (signup/receipt/quota) — opt-in via `email.enabled`
+- [ ] Acceptance: fresh signup → tracker → first event <5min; cross-site isolation; sandbox `subscription.created` updates `sites.plan`; webhook idempotent; 6th signup/hr rejected
 
 ## License Management (Self-Hosted)
 
-statnive-live is **not open-source**. Self-hosted customers need a license.
+Not open-source. Self-hosted customers need a license.
 
-### v1 License System (Manual)
-- License key = signed JWT containing: `{site_id, customer, expires, max_events_per_day, features[]}`
-- Go binary checks license on startup: decode JWT, verify Ed25519 signature, check expiry
-- License stored in `config/license.key` file
-- **Manual activation**: admin generates license key via CLI tool, sends to customer
-- No payment system integration yet — handle offline
-- Unlicensed binary runs in "demo mode" (30-day trial, 10K events/day cap, watermark on dashboard). *Numbers are a starting point — revisit against Plausible/Fathom/PostHog trial policies (doc 14, doc 17) before public launch.*
+**v1 (Manual):** JWT `{site_id, customer, expires, max_events_per_day, features[]}` signed Ed25519. Startup: decode → verify signature → check expiry. File `config/license.key`. No payment system yet. Unlicensed = demo mode (30-day trial, 10K events/day cap, dashboard watermark).
 
-### v2 License System (Automated)
-- License server at `license.statnive.live`
-- Periodic license validation — daily phone-home, **grace period 30 days offline** (Iran connectivity is fragile per doc 19; 7 days too aggressive)
-- Phone-home payload is strictly `{site_id, events_day_count, version}` — no user, URL, event, IP, or referrer data transmitted (privacy + GDPR)
-- Polar.sh integration for self-serve purchase (Merchant of Record — Polar absorbs global tax compliance, no per-country registration)
-- Usage reporting (anonymous: events/day count only)
+**v2 (Automated):** license server at `license.statnive.live`. Daily phone-home with 30-day offline grace (Iran connectivity fragile per doc 19). Payload strictly `{site_id, events_day_count, version}` — no PII. Polar.sh Merchant of Record.
 
-### License Key Structure
-```go
-type License struct {
-    SiteID       string    `json:"site_id"`
-    Customer     string    `json:"customer"`
-    Plan         string    `json:"plan"`       // starter, growth, business
-    MaxEventsDay int64     `json:"max_events"` // 0 = unlimited
-    Features     []string  `json:"features"`   // ["funnels", "revenue", "seo"]
-    IssuedAt     time.Time `json:"issued_at"`
-    ExpiresAt    time.Time `json:"expires_at"`
-}
-```
-
-Signed with Ed25519 (public key embedded in binary, private key kept by us).
-
-**Key operations (v1 — simple):**
-- Private key stored in an **age-encrypted file** on an offline laptop (no HSM, no hardware token — defer until we have 20+ licensed self-hosted customers)
-- Single keypair for all of v1; if compromised, rotate and ship a new binary
-- Compromise recovery: rotate keypair, re-issue tokens, ship binary with only the new key
-
-HSM + yearly rotation SOP + public-key overlap window = v2 ceremony when license volume justifies the overhead.
-
----
+**Key management (v1):** private key in age-encrypted file on offline laptop. Single keypair for all of v1; compromise = rotate + ship new binary. HSM + yearly rotation = v2 when volume justifies.
 
 ## v2 Roadmap (Post-Launch, +8–12 weeks)
 
-| Feature | Effort | Priority | Lands in |
-|---------|--------|----------|----------|
-| Sequential funnel (windowFunnel) | 2 weeks | High | v2 |
-| Cohort / retention | 2 weeks | High | v2 |
-| Filtering / drill-down | 2 weeks | High | v2 |
-| Google Search Console integration | 2 weeks | High | v2 |
-| Session tracking | 1 week | Medium | v2 |
-| Entry / exit pages | 1 week | Medium | v2 |
-| Engagement time / page gap (doc 17 #62) | 1 week | Medium | v2 |
-| Telegram weekly reports | 1 week | Medium | v2 |
-| Data export / CSV (promote to v1 if frontend time permits) | 1 week | Medium | v2 |
-| Public REST API | 1 week | Low | v2 |
-| **Operator CLI** (`statnive` subcommands — see CLI section) | 1 week | Medium | **v1.1** |
-| **MCP server** (read-only analytics tools — see MCP section) | 2 weeks | High | **v2** |
-| Microsoft Clarity integration (complementary, not replacement) | 1 day | Future | post-v2 |
-
----
-
-## CLI & MCP — Operator + Agent Surfaces
-
-The single binary already runs as the analytics daemon (`statnive-live` with no
-arguments boots the HTTP server). v1.1 + v2 add two more entry points so
-operators don't have to reach for `clickhouse-client` + raw SQL, and so AI
-assistants can answer customer questions directly from rollup data.
-
-Both surfaces share the existing `internal/storage` package — no parallel
-data paths, no separate auth model. Air-gap rules from
-[§ Air-Gapped / Isolated Deployment](#air-gapped--isolated-deployment) apply
-unchanged: stdio MCP transport works on a fully isolated host; HTTP MCP is
-opt-in and disabled by default.
-
-### v1.1 — Operator CLI (`statnive` subcommands, ~1 week)
-
-Same binary, sub-command dispatcher (`spf13/cobra`, Apache-2.0). Default
-sub-command stays `serve` so existing systemd units / Dockerfiles don't
-break — running the binary with no args is identical to `statnive serve`.
-
-Every sub-command writes to stdout in JSON (`--output=json`, default) or
-human-readable table (`--output=table`); exits non-zero on error.
-`--config=path/to/statnive-live.yaml` overrides the default config search.
-
-**Subcommands (alphabetical):**
-
-| Command | Purpose | Notes |
-|---|---|---|
-| `statnive backup snapshot` | Wraps `clickhouse-backup` + `age` + `zstd` per Phase 8. | Verifies output via SHA-256; refuses to overwrite. |
-| `statnive backup restore <file>` | Restores an encrypted snapshot to a fresh CH. | Idempotent; runs migrations before applying rows. |
-| `statnive bloom dump` | Emit current bloom-filter approx-count + size. | Diagnostic only. |
-| `statnive bloom reset` | Truncate `${wal_dir}/bloom.dat` (next boot starts cold). | Requires `--yes` confirmation. |
-| `statnive doctor` | Health snapshot: CH ping, WAL fill ratio, disk free, cert expiry, DB23 freshness, audit-log tail. | Same data as `/healthz` + extras for shell troubleshooting. |
-| `statnive license issue` | Generate a signed Ed25519 license JWT. | Reads private key from age-encrypted file; never logs. |
-| `statnive license verify <file>` | Verify a license file against the embedded public key. | Returns parsed claims on success. |
-| `statnive migrate status` | Show applied migration versions. | Reads from `statnive.schema_migrations`. |
-| `statnive migrate up` | Apply pending migrations. | Same path the daemon uses on boot. |
-| `statnive secret generate` | Hex-encoded 32-byte master secret to stdout. | Operator pipes to `chmod 0600 config/master.key`. |
-| `statnive serve` | Run the analytics HTTP server. | **Default**; preserves current behavior. |
-| `statnive sites add --hostname X --slug Y` | Insert a row into `statnive.sites`. | Validates hostname uniqueness + DNS-resolvable. |
-| `statnive sites disable --site N` | Flip `enabled = 0`. | Soft delete; preserves historical rows. |
-| `statnive sites list` | Tabular listing of registered sites. | |
-| `statnive stats overview --site N --range 7d` | Quick CLI read of the overview panel. | Wraps the dashboard API; useful for cron + ssh-only ops. |
-| `statnive users add --email X --role admin\|viewer\|api` | Create dashboard auth user. | Lands once Phase 2 auth ships. |
-| `statnive users reset-password --email X` | Generate a random password + bcrypt-hash it. | Prints once; never logs. |
-
-**Why a CLI in v1.1, not v1:**
-
-- v1's tiny operator surface (Phase 8 deploy → Phase 9 dogfood → Phase 10 Filimo)
-  needs maybe 4–5 of these commands — `secret generate`, `license issue`,
-  `sites add`, `migrate`, `doctor`. Those can ship as discrete shell scripts
-  in `deploy/` for v1.
-- A real CLI binds the operator UX to a single tool, which is the right shape
-  for v1.1 once we have ≥1 self-hosted customer running their own ops.
-- Cobra adds ~200 KB to the binary. Acceptable; binary is currently <20 MB.
-
-**Skill + dep surface:** `golang-cli` skill (already installed). Deps:
-`spf13/cobra` (Apache-2.0). No new transitive risk.
-
-### v2 — MCP server (read-only analytics tools, ~2 weeks)
-
-Implements the [Model Context Protocol](https://modelcontextprotocol.io) so
-Claude / other MCP-aware clients can query analytics data via natural
-language. Same binary; new sub-command:
-
-```
-statnive mcp serve --transport=stdio                    # default; air-gap-safe
-statnive mcp serve --transport=http --listen=127.0.0.1:8081 --token=$TOKEN
-```
-
-Stdio transport works on a fully isolated host (operator pipes through
-`claude mcp add statnive -- statnive mcp serve`). HTTP transport is opt-in,
-requires Bearer token auth (same session token as the dashboard), and is
-listed in [§ Opt-in external services](#opt-in-external-services-all-off-by-default-in-air-gapped-mode)
-as `mcp.http.enabled = false` by default.
-
-**v2 read-only tools (mapped 1:1 to dashboard API endpoints):**
-
-| MCP tool | Wraps | Returns |
-|---|---|---|
-| `statnive_overview` | `GET /api/stats/overview` | Visitors / pageviews / goals / revenue for a site + range. |
-| `statnive_sources` | `GET /api/stats/sources` | Per-channel breakdown with RPV. |
-| `statnive_pages` | `GET /api/stats/pages` | Top pages (sortable). |
-| `statnive_geo` | `GET /api/stats/geo` | Iranian provinces + cities (v1.1 rollup). |
-| `statnive_devices` | `GET /api/stats/devices` | Device / browser / OS breakdown. |
-| `statnive_funnel` | `GET /api/stats/funnel` | Funnel step counts + drop-off %. |
-| `statnive_campaigns` | `GET /api/stats/campaigns` | UTM-campaign attribution. |
-| `statnive_seo` | `GET /api/stats/seo` | Organic search trend (richer panels = v1.1). |
-| `statnive_realtime` | `GET /api/realtime/visitors` | Last-5-min active visitors (10s cache). |
-
-**Tool argument shape (every tool):**
-
-```jsonc
-{
-  "site_slug": "filimo-com",   // resolved server-side to site_id; auth must permit
-  "range": "7d",               // 1h | 1d | 7d | 30d | "2026-04-01..2026-04-18"
-  "filters": { ... }           // optional; matches the Filter struct from Phase 3
-}
-```
-
-**Auth model:** every MCP request carries a Bearer token (HTTP) or is bound
-to the operator's local file permissions (stdio). Token → `(user_id, role,
-allowed_site_ids[])`. Tools enforce `WHERE site_id IN (...)` via the same
-central `whereTimeAndTenant()` helper Phase 3 lands. Cross-tenant attempts
-return `mcp.invalid_params`, not silent empty results.
-
-**Deferred to post-v2:**
-
-- **Write tools** — `statnive_create_goal`, `statnive_create_funnel`,
-  `statnive_disable_site`. Require dashboard auth UX to absorb MCP-issued
-  changes first; ship after v2 dashboard CRUD stabilizes.
-- **`statnive_query` (sandboxed SELECT)** — operator-grade ad-hoc SQL with
-  `WHERE site_id = ?` enforcement + a per-token query budget. Powerful but
-  needs a query parser to enforce the tenancy clause; defer until a
-  customer asks.
-- **Anomaly detection tool** — `statnive_anomaly_detect(site, range)`. Needs
-  a baseline model. Defer until we have ≥3 months of production rollups
-  to seed.
-
-**Dependency + license surface:**
-
-- MCP Go SDK candidate: [`mark3labs/mcp-go`](https://github.com/mark3labs/mcp-go) (MIT — verify at v2 dep-add time)
-- No new transitive AGPL risk
-- Both stdio + HTTP transports are in-tree; no daemon-of-a-daemon
-
-**Air-gap invariant (re-stated):** stdio MCP requires zero outbound. HTTP
-MCP listens on `127.0.0.1` by default; operator must explicitly bind to
-a routable address + open the firewall to expose it externally — the
-binary won't dial out to register itself anywhere.
-
----
+| Feature | Effort | Priority | Lands |
+|---------|--------|----------|-------|
+| Sequential funnel (windowFunnel) | 2wk | High | v2 |
+| Cohort / retention | 2wk | High | v2 |
+| Filtering / drill-down | 2wk | High | v2 |
+| Google Search Console | 2wk | High | v2 |
+| Session tracking | 1wk | Med | v2 |
+| Entry / exit pages | 1wk | Med | v2 |
+| Engagement time / page gap | 1wk | Med | v2 |
+| Telegram weekly reports | 1wk | Med | v2 |
+| CSV export | 1wk | Med | v2 |
+| Public REST API | 1wk | Low | v2 |
+| **Operator CLI** | 1wk | Med | **v1.1** |
+| **MCP server** | 2wk | High | **v2** |
+| Microsoft Clarity integration | 1d | Future | post-v2 |
 
 ## Skills & Tooling Surface
 
-Authoritative inventory lives in [`docs/tooling.md`](docs/tooling.md) (community skills + MCP servers) and the ten `.claude/skills/*/README.md` specs (project-local custom skills). Research anchors:
+Authoritative inventory in [`docs/tooling.md`](docs/tooling.md) + the 14 `.claude/skills/*/README.md` specs. Research anchors: doc 23 (tooling landscape), doc 25 (install matrix + custom-skill catalog), doc 27 (three-gap closure: WAL / CGNAT / GDPR-on-HLL), doc 28 (GeoIP / Iranian-DC / CH-ops + upgrade playbook). Blacklist: `anthropics/skills/web-artifacts-builder` (air-gap violation), `shajith003/awesome-claude-skills`, `sickn33/antigravity-awesome-skills`, `rohitg00/awesome-claude-code-toolkit`.
 
-- **Doc 23** — [`jaan-to/docs/research/23-ai-workflow-claude-skills-go-clickhouse-analytics.md`](../jaan-to/docs/research/23-ai-workflow-claude-skills-go-clickhouse-analytics.md) — initial Claude-skills + MCP landscape and Tier-1 installs. Shipped foundation: 30 installed skills (cc-skills-golang 12/37, ClickHouse/agent-skills 6, trailofbits 8, marina 4), 4 MCP servers (Altinity ClickHouse, gopls, Hetzner, Grafana).
-- **Doc 25** — [`jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md`](../jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md) — refinement: 17 community additions (anthropics/skills cherry-pick, JetBrains use-modern-go, agamm/claude-code-owasp, BehiSecc/VibeSec-Skill, izar/tm_skills, vercel-labs web-design-guidelines + react-best-practices, obra/superpowers 5-skill subset, knip, constant-time-analysis) + **6 mandatory** project-local custom skills that encode the 8 non-negotiable architecture rules (tenancy, air-gap, rollup correctness, cluster migration, Preact bundle budget, BLAKE3/HMAC identity). 12-week install order front-loads security and tenancy guardrails *before* their code phase.
-- **Doc 27** — [`jaan-to/docs/research/27-closing-three-skill-gaps-statnive-live.md`](../jaan-to/docs/research/27-closing-three-skill-gaps-statnive-live.md) — three-gap closure: **WAL durability** (`tidwall/wal` semantics, fsyncgate 2018, ack-after-fsync group commit), **CGNAT-aware rate limiting** (Iranian ASN compound key, `iptoasn.com` public-domain TSV — MaxMind / IPLocate CC-BY-SA rejected), **GDPR on HLL** (Recital 26 + C-413/23 anonymity argument + weekly rollup rebuild safety net). 2 adjacent community skills (Sushegaad GDPR, anthropics legal/compliance-check) + **4 custom project-local skills** (wal, ratelimit, gdpr, dsar).
-- **Blacklist** — `anthropics/skills/web-artifacts-builder` (air-gap violation), `shajith003/awesome-claude-skills`, `sickn33/antigravity-awesome-skills`, `rohitg00/awesome-claude-code-toolkit`.
+## Brand & Design
 
-**Custom-skill status (scaffolded, bodies fill in per phase):** `tenancy-choke-point-enforcer`, `air-gap-validator`, `clickhouse-rollup-correctness`, `clickhouse-cluster-migration`, `preact-signals-bundle-budget`, `blake3-hmac-identity-review`, `wal-durability-review`, `ratelimit-tuning-review`, `gdpr-code-review`, `dsar-completeness-checker`. See each skill's `README.md` for Semgrep/ESLint rule spec, CI integration TODO, and research anchors.
+Full spec — wordmark + summit logo, cream/ink/Persian-Teal palette, Fraunces + IBM Plex type ramp, token CSS, typography rules, voice rules, compliance hooks — in [`docs/brand.md`](docs/brand.md). Applies to statnive.live marketing + demo + tenant dashboards + Filimo dashboard + README/docs.
 
----
+## SaaS Model, Server Costs, Air-Gapped Deployment
 
-## Brand & Design — statnive.live Visual Identity
+**SaaS model (pricing tiers, multi-tenant architecture, GDPR requirements):** details in [`docs/deployment.md § SaaS Model`](docs/deployment.md#saas-model-statnive-live-cloud). Tiers: Free 10K PV ($0 self-hosted only), Starter 100K ($9/mo), Growth 1M ($19/mo), Business 10M ($69/mo), Scale 100M ($199/mo), Enterprise 1B+ (custom).
 
-The canonical brand reference is the standalone HTML preview at
-[`../jaan-to/outputs/detect/design/statnive-brand-guideline/statnive-live-brand-guidelines.html`](../jaan-to/outputs/detect/design/statnive-brand-guideline/statnive-live-brand-guidelines.html)
-(open it in a browser to see the wordmark, summit logo, color swatches,
-type ramp, component samples, and pattern library). Companion files in
-the same directory: `Statnive Logo.html` (mark variants), `icons.jsx`
-(SVG icon set), `design-canvas.jsx` (source for the preview).
+**Server costs:** Hetzner CX32 (~€13/mo) Phase A dogfood → AX41 (~€39/mo) first ~10 paying → AX42 (€46/mo) ~30–50 customers → AX102 (€104/mo) 100+. Filimo Iranian DC ~€180/mo (quote-based; phase-dependent per [`deployment.md § Server Costs`](docs/deployment.md#server-costs)).
 
-**Where the brand applies.** Every public surface that carries the
-statnive.live name:
-
-- **statnive.live root** — marketing landing page (Phase 9 + Phase 11). Hero
-  uses the summit mark + Persian Teal accent on cream; CTAs in serif.
-- **demo.statnive.live** — public demo dashboard (Phase 9). Same surface as
-  tenant dashboards but with the "Public demo" banner from Phase A.
-- **app.statnive.live/s/&lt;slug&gt;** — tenant dashboards (Phase 11). The Preact
-  SPA from Phase 5 owns the implementation; brand tokens shipped as CSS
-  custom properties so per-tenant white-label (a v2 upsell) is a token
-  swap, not a refactor.
-- **filimo.statnive.live** — Filimo dedicated dashboard (Phase 10). Same
-  brand by default; Filimo can request white-label co-branding under v2.
-- **README + docs site** — when we eventually publish operator docs, they
-  use the same palette + Fraunces wordmark.
-
-**Tokens to ship as CSS custom properties** (copy verbatim into
-`web/src/tokens.css` when Phase 5 starts):
-
-```css
-:root {
-  /* Surface */
-  --paper:     #F4EFE6;   /* primary background — cream */
-  --ink:       #1A1916;   /* primary text + rules */
-  --rule-soft: #C9C0AB;   /* dividers, table borders */
-
-  /* Accent — Persian Teal (the .live mark color) */
-  --green:     #00756A;
-  --green-dk:  #004F48;   /* hover / pressed */
-  --green-lt:  #9FCDC5;   /* tinted backgrounds, info pills */
-
-  /* Secondary palette — chart series, status badges */
-  --navy:      #1E3551;
-  --ochre:     #B87B1A;
-  --plum:      #5F3B6E;
-  --rust:      #A84628;
-
-  /* Type */
-  --serif: 'Fraunces', 'Charter', Georgia, serif;
-  --sans:  'IBM Plex Sans', system-ui, sans-serif;
-  --mono:  'IBM Plex Mono', ui-monospace, monospace;
-}
-```
-
-**Typography rules** (from the guideline's "Type Ramp" panel):
-
-- **Fraunces (serif)** — wordmark, marketing headlines, dashboard panel
-  titles. Italic for the `.live` suffix in the wordmark.
-- **IBM Plex Sans** — UI body, table cells, form controls.
-- **IBM Plex Mono** — numeric telemetry (visitor counts, RPV figures,
-  latency p99), code samples, IDs, hashes. Mono is load-bearing for the
-  "fast, smart" product positioning — numbers must align in tables.
-
-**Logo + voice rules** (from the guideline's "Three tones do ninety percent
-of the work" thesis):
-
-- The summit mark (the angular peak with the Persian Teal apex dot) is
-  **secondary** to the wordmark. Wordmark first; summit mark only as a
-  favicon, app-tile icon, or condensed-space mark.
-- Cream + ink + rule do most of the work. Persian Teal is the **only**
-  accent; secondary palette colors (navy / ochre / plum / rust) are reserved
-  for chart series, status badges, and category differentiation — never for
-  primary UI chrome.
-- Voice from the guideline blurb: terse, technical, confident. "Cream, ink,
-  rule." not "Our brand uses three primary colors."
-
-**Compliance hooks** (where this plan enforces brand consistency):
-
-- **Phase 5 (Dashboard Frontend)** — `web/src/tokens.css` MUST originate from
-  the swatch table above. PR review rejects hand-rolled hex values in
-  Preact components; they must reference `var(--green)` etc.
-- **Phase 9 (Phase A dogfood)** — when the tracker snippet is pasted into
-  `statnive-website/`, the surrounding marketing copy + hero use the
-  brand palette + Fraunces wordmark.
-- **Phase 11 (Phase C SaaS)** — the per-tenant slug page reuses the same
-  token file; per-tenant white-label is a v2 feature that swaps token
-  values, never the structure.
-
-**Source of truth rule:** if the brand guideline HTML and this section
-disagree, the HTML wins. Update the HTML first, then port the relevant
-token deltas back into PLAN.md.
-
----
-
-## SaaS Model (statnive-live Cloud)
-
-If offering as SaaS alongside self-hosted:
-
-### Multi-Tenant Architecture
-- Same binary, `site_id` on every raw + rollup row
-- Row-level isolation via `WHERE site_id = ?` on all queries (no view-per-tenant)
-- Per-site rate limiting + metering
-- Shared ClickHouse (pool model) for <1000 tenants
-
-### GDPR Compliance (Required for SaaS — hosted outside Iran)
-
-AGPL Section 13 is not the only reason hosting outside Iran matters: **GDPR applies to any EU visitor on a SaaS-hosted customer site.** v1 SaaS must ship with:
-
-- **Data Processing Agreement (DPA)** template signed with every paying customer
-- **Consent banner** with Reject / Accept / Custom (ePrivacy compliant); when consent is declined we drop user_id + cookies and fall back to BLAKE3 hash of (ip+ua+site_secret+daily_salt)
-- **User rights endpoint**: `GET /api/privacy/export?user_id=X`, `DELETE /api/privacy/erase?user_id=X` (WordPress-style privacy API, CASCADE through rollups)
-- **Retention**: raw 90d default, rollups 2y default (configurable per site)
-- **Sub-processor list**: Hetzner (Germany, IAAS), Let's Encrypt (certs) — published at statnive.live/privacy
-- **Audit trail**: every admin access logged to append-only JSONL + shipped to external syslog
-
-Iranian self-hosted deployments are exempt (no EU visitors / data stays on customer server).
-
-### Pricing (Pageview-Based, Plausible-Compatible)
-
-| Tier | Pageviews/mo | Price |
-|------|-------------|-------|
-| Free | 10K | $0 (self-hosted only) |
-| Starter | 100K | $9/mo |
-| Growth | 1M | $19/mo |
-| Business | 10M | $69/mo |
-| Scale | 100M | $199/mo |
-| Enterprise | 1B+ | Custom |
-
-### Infrastructure Cost per Customer (growth path)
-
-- **Pre-paying-customers (dogfood):** Hetzner CX32 (~€13/mo) hosts statnive.com + a handful of free-tier trials. Fixed cost, no per-customer math yet.
-- **First ~10 paying customers:** AX41 (~€39/mo) — comfortably handles 10–30 sites at 1M PV/mo each. **~€1.30–3.90/mo per customer**; ~90% gross margin at $19/mo pricing.
-- **~30–50 customers:** AX42 (€46/mo) safely handles 30–50 sites at 1M PV/mo each. 100 sites × 1M PV/mo = ~13.5K EPS — above the 7K EPS proven load ceiling, so don't over-pack AX42.
-- **100+ customers:** AX102 (€104/mo) or horizontal shard. Revisit architecture when we get there.
-
----
-
-## Server Costs
-
-| Stage | Server | Monthly | Annual |
-|-------|--------|---------|--------|
-| **Phase A dogfood (v1)** | Hetzner CX32 cloud (4c/8GB/80GB) | **~€13** | **~€156** |
-| Phase C first paying tier (~10 customers) | Hetzner AX41 (6c/64GB/2×512GB) | **~€39** | **~€468** |
-| Phase C growth (~50–100 customers) | Hetzner AX42 (8c/64GB/1TB) | **€46** | **€552** |
-| Phase C scale (100+ customers) | Hetzner AX102 (16c/128GB/4TB) | **€104** | **€1,248** |
-| Filimo (Phase B) | 8c/32GB/1TB NVMe Iranian DC (Asiatech / Shatel / Afranet) | **~€180** | **~€2,160** |
-
-**Notes:**
-- **Start small:** CX32 (~€13/mo) handles statnive.com dogfood traffic (<100K PV/mo) for ~400× less cost than AX42. Upgrade to AX42 when SaaS load demands it. Saves ~€430/yr in year 1.
-- Iranian DCs are quote-based (not public pricing). Upfront CAPEX on custom bare-metal builds; monthly figure is colocation + bandwidth only.
-- **Customer Iranian DC sizing is phase-dependent**, not a single number. P1/P2 (StreamCo MIN, web only) runs on an Asiatech G2 standard VPS (~28M Rial/mo). P3 (+iOS) needs bandwidth upgrade or small dedicated. P4/P5 (StreamCo MAX, full fidelity) is a 2–3 node cluster. See the 5-phase table in Phase 10 above and [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md) for monthly bandwidth / disk / EPS per sub-phase.
-- **Bandwidth envelope by sub-phase** (StreamCo profile, at 300 B/event optimized): P1 ~22 GB/mo (MIN), P2 ~105 GB/mo, P3 ~420 GB/mo, P4 ~900 GB/mo, P5 ~1.2 TB/mo (MAX). All Asiatech standard VPS tiers cap at 150 GB/mo — upgrade conversation lands at P3, not at initial cutover.
-- IP2Location paid DB23 subscription only on D2 (Filimo) in v1. LITE DB23 on D1 (free, attribution required).
-
----
-
-## Air-Gapped / Isolated Deployment
-
-The final platform runs as a **single, self-contained binary on one server with zero required outbound connections**. This is a core product requirement, not an edge case — Filimo's Iranian DC is assumed internet-restricted, and enterprise self-hosted customers may deploy behind corporate firewalls.
-
-### What ships inside the binary (via `go:embed`)
-
-- Go server + all vendored dependencies (single statically-linked executable)
-- ClickHouse schema + numbered migrations (embedded SQL)
-- Preact SPA (compiled Vite bundle)
-- Tracker JS (served first-party at `/t.js`)
-- `crawler-user-agents.json` bot patterns
-- Default `statnive-live.yaml` + `sources.yaml` (overridable at runtime)
-
-### What ships next to the binary (offline install bundle, `make airgap-bundle`)
-
-- `statnive-live` binary (`CGO_ENABLED=0` where possible — one file, no runtime deps)
-- `vendor/` tarball (for buildable-from-source audits only; not required to run)
-- `IP2LOCATION-LITE-DB23.BIN` (or licensed DB23 BIN for Filimo)
-- `clickhouse-backup` + `age` binaries
-- `schema.sql` + `migrations/`
-- `deploy/` scripts (systemd, iptables, backup, airgap-install, airgap-update-geoip)
-- `SHA256SUMS` + detached Ed25519 signature
-
-**Docker tarball (`docker save`) deferred to v1.1** — static binary is one file, runs anywhere; Docker-based installs are a convenience layer that adds bundle size + CI time without unblocking any of the 5 goals. Revisit when an operator actually asks for it.
-
-### Mandatory external services: **NONE**
-
-### Opt-in external services (all OFF by default in air-gapped mode)
-
-| Service | Purpose | Disable via config |
-|---|---|---|
-| Let's Encrypt (ACME) | TLS cert issuance | v1 uses manual PEM only — LE never called from the binary. Operator obtains certs separately via `certbot certonly --manual` and drops PEMs. |
-| Telegram Bot API | Operator alerts | v1.1 only — v1 uses file sink (`/var/log/statnive/alerts.jsonl`) |
-| `license.statnive.live` | SaaS license phone-home | `license.phone_home = false` (v1 default) |
-| ip2location.com | Monthly GeoIP DB refresh | Never auto-fetched — always manual file drop |
-| Remote syslog | Audit log shipping | v1.1 only — v1 uses file sink |
-| Google Search Console (v2) | Organic SEO data | Feature flag off |
-| Microsoft Clarity (future) | Heatmaps | Feature flag off |
-| Polar.sh (SaaS Phase C only) | Billing (Merchant of Record), checkout sessions, webhooks at `api.polar.sh` | `billing.polar.enabled = false` (D2 always off) |
-| Transactional email (SaaS Phase C only) | Signup confirm, receipts, quota alerts | `email.enabled = false` (D2 always off) |
-
-### Install procedure (air-gapped host)
-
-1. Transfer `statnive-live-<version>-airgap.tar.gz` via USB/SCP from a trusted bastion
-2. Verify SHA256 + Ed25519 signature against public key on a separate channel
-3. Run `deploy/airgap-install.sh` — provisions user, systemd unit, iptables (`OUTPUT DROP` except tracker clients + loopback; CH localhost-bound)
-4. Place license JWT at `config/license.key`
-5. Start service; first-run creates admin user, applies migrations
-6. GeoIP updates: SCP new `IP2LOCATION-…BIN` monthly, run `deploy/airgap-update-geoip.sh` (atomic rename + `SIGHUP`)
-
-### What stops working in air-gapped mode (acceptable)
-
-- Automatic TLS renewal — operator rotates manual certs quarterly (file-sink alert when `<30d` remaining)
-- Remote alerting (Telegram / syslog forwarding) — file sink only in v1; v1.1 adds optional remote sinks
-- v2 license phone-home — pure offline JWT, grace treated as forever
-- GSC / Clarity / auto-dep-updates — never required
-
-### Prerequisites on the air-gapped host
-
-- Linux kernel 5.x+, systemd, ClickHouse 24+ (also shipped in the bundle)
-- **Internal NTP source** — IRST salt correctness depends on accurate clock
-- Sufficient disk (plan ≥100 GB for WAL + CH data at 7K EPS for 90 days)
-- Optional: internal CA + root cert distributed to tracker-embedding clients (for Filimo's corporate trust store)
-
----
+**Air-gapped / isolated deployment:** zero required outbound connections, single binary, all deps `go:embed` or vendored; opt-in external services (LE ACME, Telegram, license phone-home, GSC, Clarity, Polar, email) disabled by default. Full procedure (bundle contents, `make airgap-bundle`, install steps, prerequisites) in [`docs/deployment.md § Air-Gapped / Isolated Deployment`](docs/deployment.md#air-gapped--isolated-deployment).
 
 ## Launch Sequence
 
-statnive-live ships in **three public-facing phases across two deployments**. Same binary, same schema; differences are config + DNS + hosting.
+statnive-live ships in **three public-facing phases across two deployments**. Same binary, schema, config differences only.
 
 | Deployment | Host | Tenancy | Purpose | Phases |
 |---|---|---|---|---|
-| **D1 — `statnive.live` (SaaS)** | Hetzner CX32 (v1, ~€13/mo) → AX41/AX42 as paying customers arrive | Multi-tenant, pooled ClickHouse | Dogfood + public SaaS | A, C |
-| **D2 — `filimo.statnive.live` (Dedicated)** | Iranian DC (Asiatech / Shatel / Afranet) | Single-tenant (`site_id=1` only), air-gapped | Filimo production | B |
+| **D1 — `statnive.live` (SaaS)** | Hetzner CX32 (v1) → AX41/AX42 | Multi-tenant, pooled CH | Dogfood + public SaaS | A, C |
+| **D2 — `filimo.statnive.live` (Dedicated)** | Iranian DC (Asiatech / Shatel / Afranet) | Single-tenant (`site_id=1`), air-gapped | Filimo production | B |
 
-### Routing strategy
+**Routing:** single tracker URL per deployment (`statnive.live/tracker.js`, `filimo.statnive.live/tracker.js`); `site_id` resolved server-side from `Origin`/`Referer`. Path-based tenant routing in Phase C: `app.statnive.live/s/<slug>/…`. One TLS cert for `statnive.live` + `demo.statnive.live` + `app.statnive.live` + `filimo.statnive.live`; no wildcard in v1. Subdomain-per-tenant branding = v2 upsell.
 
-- **Single tracker URL per deployment:** `https://statnive.live/tracker.js` (D1) and `https://filimo.statnive.live/tracker.js` (D2). Site-agnostic; `site_id` resolved server-side from `Origin` / `Referer` hostname against the `sites` table.
-- **Path-based tenant routing in Phase C:** `app.statnive.live/s/<slug>/…` (e.g. `app.statnive.live/s/example-com/overview`). One TLS cert for `statnive.live` + `demo.statnive.live` + `app.statnive.live` + `filimo.statnive.live`; **no wildcard cert needed in v1**. Subdomain-per-tenant branding = v2 upsell.
-- **Fixed dashboard hostnames:** `demo.statnive.live` (Phase A public demo), `filimo.statnive.live` (Phase B dedicated), `app.statnive.live` (Phase C tenant app).
-- **Central signup + login:** `statnive.live/signup`, `statnive.live/app` → post-login redirect to `app.statnive.live/s/<slug>/overview`.
+**Auth per phase:** A demo = shared `demo/demo-statnive` viewer (displayed on login); B Filimo = admin+viewer, rotatable via `/api/admin/users`; C SaaS = email+password, bcrypt + 14-day session.
 
-### Auth model per phase
-
-| Phase | Who logs in | Role | Credentials source |
-|---|---|---|---|
-| A (demo) | Anyone | **viewer** (read stats only; no `/api/admin/*`, no CSV export, no audit log) | Shared `demo / demo-statnive`, displayed on login page |
-| B (Filimo) | Filimo team | admin + viewer | Set at first-run, handed to Filimo via secure channel; rotatable via `/api/admin/users` |
-| C (SaaS) | Registered site owner | admin of their own `site_id` only | Email + password, bcrypt + 14-day session (v1 security #6) |
-
-### License strategy per phase
-
-- **D1 (Phases A + C):** no JWT required — it's our own instance. Access gated by admin-user records, not license keys. Demo mode unused.
-- **D2 (Phase B):** signed Ed25519 JWT at `config/license.key`: `{site_id:1, Customer:"Filimo", MaxEventsDay:0, Features:["*"], ExpiresAt:+1y}`. Offline — never phones home.
-
----
+**License per phase:** D1 (A + C) = no JWT (our instance; admin-user gating). D2 (B) = Ed25519 JWT at `config/license.key`, `MaxEventsDay=0`, `Features=["*"]`, `ExpiresAt=+1y`, offline.
 
 ### Phase A — Dogfood on statnive.com (Weeks 20–21)
 
-**Goal:** `statnive.com` → `statnive.live/tracker.js`; live dashboard at `demo.statnive.live` with shared viewer credentials so anyone can watch the live numbers.
+D1 Hetzner CX32 (~€13/mo). DNS A/AAAA for `statnive.live`, `demo.statnive.live`, `app.statnive.live`. Manual PEM via `certbot certonly --manual --preferred-challenges dns` on laptop, drop on D1, quarterly cron+SIGHUP. LITE DB23. Config diff: `tls.{cert_file,key_file}` set; `license.required=false`. Seed: `INSERT INTO sites VALUES (1, 'statnive.com')`; shared viewer + internal admin. Tracker in `statnive-website/` Astro base layout. Login-attempt cap 10/min/IP. Banner: "Public demo — statnive.com traffic — viewer role, no writes".
 
-- **Deployment:** D1 on Hetzner CX32 (~€13/mo) — statnive.com traffic fits comfortably; upgrade to AX41/AX42 when paying customers arrive in Phase C
-- **DNS:** A + AAAA → D1 IP for `statnive.live`, `demo.statnive.live`, `app.statnive.live`
-- **TLS:** manual PEM. Obtain LE cert via `certbot certonly --manual --preferred-challenges dns` on our laptop (one-time), drop PEMs on D1, renew quarterly via a cron that calls certbot and SIGHUPs the binary. No autocert in v1.
-- **GeoIP:** IP2Location **LITE DB23** (free, attribution required)
-- **Config diff from default:** `tls.cert_file` + `tls.key_file` set to PEMs; `license.required = false`
-- **Seed SQL:** `INSERT INTO sites (site_id, hostname) VALUES (1, 'statnive.com');`
-- **Seed users:** shared viewer `demo / demo-statnive`; internal admin for us
-- **Login page:** displays demo credentials inline + "Sign up for your own analytics" CTA → Phase C signup
-- **Tracker install:** `<script src="https://statnive.live/tracker.js" defer></script>` in `statnive-website/` Astro base layout
-- **Rate limiting:** login attempts capped at 10/min per IP to prevent brute force on the shared demo password
-- **Banner in dashboard:** "Public demo — statnive.com traffic — viewer role, no writes"
-- **Acceptance:** within 24h of tracker install, dashboard shows non-zero visitors; viewer login gets 403 on any `/api/admin/*`; all 8 `/api/stats/*` endpoints return data scoped to `site_id=1`
+**Acceptance:** 24h → non-zero visitors; viewer 403 on `/api/admin/*`; all 8 `/api/stats/*` return `site_id=1` data.
 
 ### Phase B — Filimo dedicated Iranian VPS (Weeks 22–25)
 
-**Goal:** `filimo.statnive.live` runs on an Iranian DC, Filimo team logs in with admin credentials, tracker is `filimo.statnive.live/tracker.js`. Fully secure, max performance, air-gapped-capable. **Cutover scope = Filimo web traffic only** (P1 of the app-by-app onboarding plan — ~200K DAU / 3M views/day).
+Cutover scope = **Filimo web only** (P1 onboarding, ~200K DAU / 3M views/day). D2 initial = Asiatech G1/G2 VPS (~15–28M Rial/mo). Graduates to dedicated bare-metal at P3 (~3mo post-cutover, +iOS). Hardware per sub-phase table in Phase 10. Install = offline bundle (`make airgap-bundle`) → SCP via bastion → verify SHA256+Ed25519 → `deploy/airgap-install.sh`. DNS `CNAME filimo.statnive.live → <Iranian-DC-IP>` (Cloudflare proxy **OFF**). Manual PEM (Filimo internal CA preferred, or self-signed w/ distributed root), quarterly. Upgrade to paid IP2Location DB23. License JWT + age-encrypted key. Config: `audit.sink=file`, `license.phone_home=false`. Seed Filimo hostnames. Admin via secure channel. Tracker `<script src="https://filimo.statnive.live/tracker.js" defer></script>` + root-domain cookie walking. Firewall: `iptables -P OUTPUT DROP` except loopback, CH localhost, tracker client IPs, DNS, NTP.
 
-- **Deployment:** D2 — Iranian DC. **Initial cutover on an Asiatech G1/G2 standard VPS** (~15–28M Rial/mo, 150 GB/mo bandwidth fits web-only traffic). Graduates to dedicated bare-metal at P3 (+iOS, ~3 months post-cutover) when bandwidth need crosses 150 GB/mo. See Phase 10 sub-phase table above for hardware progression.
-- **Hardware progression:** VPS for P1/P2, dedicated bare-metal for P3/P4, cluster for P5. Quotes negotiated in parallel: Asiatech (all tiers + bandwidth upgrades), Shatel, Afranet, ParsPack.
-- **Install:** offline bundle from Phase 8 (`make airgap-bundle`) — SCP tarball via bastion, verify `SHA256SUMS` + Ed25519 signature, run `deploy/airgap-install.sh`
-- **DNS:** `CNAME filimo.statnive.live → <Iranian-DC-IP>`; Cloudflare proxy **OFF** (traffic must terminate inside Iran)
-- **TLS:** manual PEM files only. Either Filimo's internal CA (preferred — cert already trusted by Filimo's client base) or a self-signed cert we generate with our root distributed once. Rotated quarterly by operator via config reload.
-- **GeoIP:** upgrade to **paid IP2Location DB23** on D2 only — city accuracy matters for Filimo
-- **License:** generate JWT with an Ed25519 private key stored in an age-encrypted file on our offline laptop (no HSM in v1) — `site_id=1, Customer="Filimo", MaxEventsDay=0, Features=["*"], ExpiresAt=+1y` — drop at `config/license.key`
-- **Config overrides:**
-  - `tls.cert_file` / `tls.key_file` set to manual PEMs
-  - `audit.sink = "file"` (no remote log shipping)
-  - `license.phone_home = false`
-  - Single-tenant: only `site_id=1` provisioned in `sites` table
-- **Seed:** `INSERT INTO sites VALUES (1, 'filimo.com'), (1, 'www.filimo.com'), (1, 'cdn.filimo.com'), …` — all Filimo-owned hostnames that might embed the tracker
-- **Admin user:** password generated at first-run, delivered to Filimo via secure channel (Signal / in-person / PGP)
-- **Tracker install (on Filimo side):** `<script src="https://filimo.statnive.live/tracker.js" defer></script>` in their site template; root-domain cookie walking (Clarity pattern, doc 21) automatically covers all Filimo subdomains + CDN hosts
-- **Firewall:** `iptables -P OUTPUT DROP` with explicit allows for: loopback, ClickHouse port (localhost only), tracker client IP ranges (if geofenced), DNS resolver, NTP
-- **Acceptance (P1 cutover, StreamCo MIN envelope):** k6 ~1,300 peak EPS ramp (Persian URLs, Iranian UA strings) sustains p99 <500ms; full air-gapped acceptance test from Phase 8 verification passes end-to-end; customer web smoke test confirms live traffic in dashboard within 1h; monthly backup + restore drill succeeds. Higher-EPS gates (7K / 18K — StreamCo MAX envelope) deferred to P3 / P5 graduation reviews.
+**Acceptance (P1 StreamCo MIN):** k6 ~1,300 peak EPS (Persian URLs / Iranian UAs), p99 <500ms; air-gap test end-to-end; customer web smoke <1h; monthly backup+restore. Higher-EPS gates (7K/18K MAX) deferred to P3/P5 graduation.
 
 ### Phase C — International SaaS self-serve (Weeks 25–29)
 
-**Goal:** anyone registers at `statnive.live`, gets their dashboard at `app.statnive.live/s/<slug>`, pastes a one-liner tracker snippet.
+D1 continues Phase A; CX32 → AX41 at ~10 paying. New: `POST /api/signup`, `POST /api/billing/checkout`, `POST /api/admin/billing` (Polar webhook). Path-based tenant routing via chi middleware: `/s/<slug>/` → `site_id` context → scoped `/api/stats/*`. Missing slug → 404 / redirect to root login. Guardrails: DNS-resolvable, not blocklisted, unique, 5/hr/IP, email verification (24h grace). Free 10K PV/mo (v1 `count(DISTINCT)` → v1.1 `daily_users`); over-quota = soft throttle + `quota_exceeded=1` + upsell. Polar Products × monthly+yearly (Free self-hosted only, Starter $9, Growth $19, Business $69, Scale $199). **Merchant of Record** = no per-country tax registration. v1 Polar scope = checkout + webhook only; Portal + Benefits = v2. No Go SDK — call REST directly. Sandbox: `sandbox-api.polar.sh`. Onboarding at `/s/<slug>/onboarding` (user-triggered refresh). Email transactional opt-in via `email.enabled`.
 
-- **Deployment:** D1 (continues Phase A instance; upgrade CX32 → AX41 when ~10 paying customers sign up)
-- **New endpoints (on top of v1):**
-  - `POST /api/signup` — `{email, password, hostname}` → creates `site_id`, admin user, returns redirect to `app.statnive.live/s/<slug>/onboarding`
-  - `POST /api/billing/checkout` — creates a Polar checkout session, returns `{url}` for redirect
-  - `POST /api/admin/billing` — Polar.sh webhook (v1 handles `subscription.created` / `subscription.updated` / `subscription.canceled` only); verify `X-Polar-Signature` HMAC-SHA256; idempotent by `event.id`; reconcile via `customer.external_id = site_id`
-- **Path-based tenant routing** (chi middleware in `router.go`):
-  - Parse `/s/<slug>/` prefix → resolve to `site_id` via `internal/sites/sites.go`
-  - Inject `site_id` into request context; all `/api/stats/*` handlers read from context
-  - Missing or unknown slug → 404 / redirect to `statnive.live/app` (root login)
-- **Signup guardrails:**
-  - Hostname must DNS-resolve (simple A/AAAA lookup)
-  - Hostname not on blocklist (spam/phishing lists, known typosquats)
-  - Unique in `sites` table (first-come-first-served for hostname)
-  - Rate limit 5 signups/hour per IP
-  - Email verification link before tracker is activated (24h grace)
-- **Free tier quota:** 10K PV/mo. v1 tracks via monthly `count(DISTINCT visitor_hash)` on `hourly_visitors`; v1.1 switches to a dedicated `daily_users` rollup. Over-quota = soft throttle (still accept events, tag `quota_exceeded=1`, show upsell banner).
-- **Polar.sh products** (one Polar Product per tier; two Prices each — monthly + yearly):
-  - Free (self-hosted only, no SaaS — no Polar Product)
-  - Starter $9/mo → 100K PV + 5 goals
-  - Growth $19/mo → 1M PV + unlimited goals + funnels CRUD
-  - Business $69/mo → 10M PV + API access
-  - Scale $199/mo → 100M PV + priority support
-- **Why Polar (not Stripe):** Polar is a **Merchant of Record** — handles VAT/GST/sales tax globally so we don't register in every jurisdiction. Open-source, ~4% fee including tax. Cached docs at [`jaan-to/outputs/dev/docs/context7/polar-sh.md`](../jaan-to/outputs/dev/docs/context7/polar-sh.md).
-- **v1 Polar scope = checkout + webhook only.** Customer Portal magic-link + `benefit.granted`/`benefit.revoked` feature-flag plumbing = v2. v1 hardcodes plan → features in Go; plan changes ship as releases. Cancellations go through email support in v1.
-- **No Go SDK** — call Polar REST directly via `net/http` (or `go-resty` if we want a thin wrapper). Sandbox: `sandbox-api.polar.sh` for CI integration tests.
-- **Onboarding UX:** post-signup page shows tracker snippet + "I've installed the tracker — check now" button (user-triggered refresh, no polling endpoint)
-- **Email transactional:** signup confirm, payment receipt, quota warnings — opt-in per deployment via `email.enabled`
-- **Acceptance:** fresh signup → tracker embed → first event visible in tenant dashboard in <5 min; cross-tenant isolation (site A admin cannot query site B data even when URL-manipulating `/s/<other-slug>/...`); Polar sandbox `subscription.created` updates `sites.plan`, `subscription.canceled` reverts at period end; webhook is idempotent; signup rate limiter rejects 6th signup/hour per IP
-
----
+**Acceptance:** signup → tracker → first event <5min; cross-tenant isolation (URL-manipulation blocked); Polar sandbox `subscription.created` → `sites.plan`, `subscription.canceled` reverts at period end; idempotent webhook; 6th signup/hr rejected.
 
 ## Key Files (Already Written)
 
-All Go code from doc 22 is ready to copy:
+All Go code from doc 22 is in the working tree. Per-package inventory in [`docs/repo-structure.md`](docs/repo-structure.md).
 
-| File | Content | Source |
-|------|---------|--------|
-| main.go | Complete wiring + shutdown | Doc 22 bonus |
+**License-verified deps (MIT/Apache/BSD/ISC):** clickhouse-go/v2 (Apache-2.0), go-chi/chi (MIT), go-chi/httprate (MIT), tidwall/wal (MIT), ip2location-go/v9 (MIT), medama-io/go-useragent (MIT), omrilotan/isbot (MIT), bits-and-blooms/bloom (BSD-2), lukechampine.com/blake3 (MIT), google/uuid (BSD-3), gopkg.in/yaml.v3 (MIT), filippo.io/age (BSD-3), klauspost/compress (BSD-3), bcrypt/acme/autocert (BSD-3), spf13/viper (MIT). ⚠️ hashicorp/golang-lru (MPL-2.0 weak copyleft — use unmodified). ❌ knadh/koanf (AGPL-3.0 — never use). ❌ pirsch-analytics/pirsch (AGPL-3.0 — never import). `go-licenses check ./...` must pass in CI.
 
-### License Compliance (Critical for SaaS outside Iran)
+## Technology Docs Cache
 
-All dependencies must be permissive (MIT/Apache/BSD/ISC). Verified list:
-- clickhouse-go/v2 — **Apache-2.0** ✓
-- go-chi/chi — **MIT** ✓
-- go-chi/httprate — **MIT** ✓
-- tidwall/wal — **MIT** ✓
-- ip2location-go/v9 — **MIT** ✓
-- medama-io/go-useragent — **MIT** ✓
-- omrilotan/isbot (server bot detection) — **MIT** ✓
-- bits-and-blooms/bloom — **BSD-2** ✓
-- lukechampine.com/blake3 — **MIT** ✓
-- google/uuid — **BSD-3** ✓
-- gopkg.in/yaml.v3 — **MIT** ✓
-- filippo.io/age (backup encryption) — **BSD-3** ✓
-- klauspost/compress (zstd) — **BSD-3** ✓
-- golang.org/x/crypto/bcrypt — **BSD-3** ✓
-- golang.org/x/crypto/acme/autocert — **BSD-3** ✓
-- spf13/viper (optional config loader) — **MIT** ✓
-- golang.org/x/* — **BSD-3** ✓
-- ⚠️ hashicorp/golang-lru — **MPL-2.0**. Weak copyleft — OK to **use** in SaaS without disclosure, but if we modify golang-lru's own source we must publish those changes. **Decision:** use unmodified; if a feature is missing, fork to a separate repo, not inline. Consider switching to `github.com/hashicorp/golang-lru/v2` or an MIT-licensed alternative (`dgraph-io/ristretto`, MIT) if SaaS legal prefers zero ambiguity.
-- ⚠️ knadh/koanf — **AGPL-3.0** ❌ DO NOT USE. Use `spf13/viper` (MIT) or env-only config.
-- ⚠️ pirsch-analytics/pirsch — **AGPL-3.0** ❌ DO NOT IMPORT. Reference patterns only.
-- **License verification is mandatory**: `go-licenses check ./...` must pass in CI on every PR.
-
-| pipeline.go | 6-worker enrichment | Doc 22 GAP 1 |
-| handler.go | HTTP handler + JSON array | Doc 22 GAP 1+3 |
-| consumer.go | Batch writer + WAL ack | Doc 22 GAP 5 |
-| wal.go | WAL + fsync + size cap | Doc 22 GAP 5 |
-| clickhouse.go | 34-col batch insert (incl. site_id) + DLQ | Doc 22 GAP 4 |
-| channel.go | Referrer mapper + SIGHUP | Doc 22 GAP 2 |
-| sources.yaml | 50+ Iranian sources | Doc 22 GAP 2 |
-| geoip.go | IP2Location DB23 | Doc 22 GAP 8 |
-| ua.go | Medama UA parser | Doc 22 GAP 9 |
-| bot.go | Bot detection | Doc 22 GAP 7 |
-| newvisitor.go | Bloom filter | Doc 22 GAP 9 |
-| salt.go | IRST salt rotation | Doc 22 GAP 6 |
-| hash.go | BLAKE3-128 | Doc 22 GAP 9 |
-| check.go | Health endpoint | Doc 22 GAP 10 |
-
----
-
-## Technology Docs Cache (Context7, 2026-04-17)
-
-Full cache of per-library docs lives at [`docs/tech-docs/`](docs/tech-docs/). Each file carries YAML frontmatter and distilled API snippets aligned to statnive-live's usage in PLAN.md.
-
-### Plan decisions that originated from this cache
-
-1. **Rate limiting**: Switch from `golang.org/x/time/rate` (manual) to `go-chi/httprate` (MIT, chi-native). Use `httprate.LimitByRealIP(100, time.Minute)` on `/api/event`. Handles NAT/proxy correctly.
-2. **Preact signals**: Use `@preact/signals` instead of useState for dashboard state. Signals auto-update JSX without re-renders — better for real-time metric displays. Pass `{signal}` directly in JSX (not `{signal.value}`) to bind to DOM text nodes with zero re-renders.
-3. **ClickHouse rollups**: Schema uses `AggregateFunction(uniqCombined64, FixedString(16))` — HyperLogLog approximation with ~0.5% error, ~2–3× lower memory than `uniqExact`. All rollup `ORDER BY` clauses lead with `site_id` for multi-tenant index pruning.
-4. **Config loader**: `spf13/viper` fsnotify-based `WatchConfig` + `OnConfigChange` replaces the SIGHUP hot-reload mechanism noted elsewhere in this plan — SIGHUP is kept only as a manual fallback.
-5. **LRU cache**: `hashicorp/golang-lru/v2` with `v2/expirable` for TTL semantics; generics-ready and MPL-2.0 (weak copyleft, use unmodified).
-
-### Libraries cached (14)
-
-| Library | Context7 ID | Cache file | Delta vs prior snapshot |
-|---------|-------------|------------|-------------------------|
-| clickhouse-go/v2 | `/clickhouse/clickhouse-go` | [clickhouse-go.md](docs/tech-docs/clickhouse-go.md) | None — `PrepareBatch → Append → Send` stable |
-| go-chi/chi v5 | `/go-chi/docs` | [go-chi.md](docs/tech-docs/go-chi.md) | None. Security warning on `middleware.RealIP`: only register behind a trusted reverse proxy |
-| go-chi/httprate | `/go-chi/httprate` | [httprate.md](docs/tech-docs/httprate.md) | None. `LimitByRealIP` vs `LimitByIP` choice depends on deployment topology |
-| ClickHouse server | `/clickhouse/clickhouse-docs` | [clickhouse-server.md](docs/tech-docs/clickhouse-server.md) | None. AggregatingMergeTree + MV + `PARTITION BY toYYYYMM()` pattern confirmed |
-| @preact/signals | `/preactjs/signals` | [preact-signals.md](docs/tech-docs/preact-signals.md) | None. Re-emphasised `{signal}` vs `{signal.value}` for zero-rerender DOM updates |
-| uPlot | `/leeoniya/uplot` | [uplot.md](docs/tech-docs/uplot.md) | None. `uPlot.sync()` cursor sync confirmed for cross-panel hover |
-| k6 | `/grafana/k6-docs` | [k6.md](docs/tech-docs/k6.md) | None. `maxVUs` anti-pattern warning — use `preAllocatedVUs` generously |
-| spf13/viper (v1.20.1) | `/spf13/viper` | [viper.md](docs/tech-docs/viper.md) | None. fsnotify-based hot reload (`WatchConfig` + `OnConfigChange`) supersedes SIGHUP approach |
-| ip2location-go/v9 | `/ip2location/ip2location-go` | [ip2location-go.md](docs/tech-docs/ip2location-go.md) | None. Use `Get_city` / `Get_country` over `Get_all` in hot path |
-| medama-io/go-useragent | `/medama-io/go-useragent` | [go-useragent.md](docs/tech-docs/go-useragent.md) | None. Singleton `NewParser()` pattern mandatory |
-| bits-and-blooms/bloom (v3) | `/bits-and-blooms/bloom` | [bloom.md](docs/tech-docs/bloom.md) | None. `NewWithEstimates(10M, 0.001) ≈ 18MB` matches PLAN budget |
-| hashicorp/golang-lru (v2) | `/hashicorp/golang-lru` | [golang-lru.md](docs/tech-docs/golang-lru.md) | v2 import path: `github.com/hashicorp/golang-lru/v2` — generics-ready. Note MPL-2.0 weak-copyleft caveat in license section above |
-| Vite | `/websites/vite_dev` | [vite.md](docs/tech-docs/vite.md) | **🔴 API DELTA** — see below |
-| Vitest (v4) | `/vitest-dev/vitest` | [vitest.md](docs/tech-docs/vitest.md) | None. v4 GA confirmed; `vi.useFakeTimers` / `vi.setSystemTime` stable |
-| Preact | `/preactjs/preact-www` | [preact.md](docs/tech-docs/preact.md) | None. `preact/hooks` + `@preact/signals` integration stable |
-
-### Libraries NOT indexed in Context7
-
-Documented in [_unindexed.md](docs/tech-docs/_unindexed.md) with direct pkg.go.dev / GitHub references.
-
-- **tidwall/wal** — Context7 surfaced only tidwall's BuntDB / Rtree / Tile38 / Pogocache, not `wal`. The `Open / Write / Read / TruncateFront / Sync` API is stable; consult pkg.go.dev.
-- **lukechampine.com/blake3** — only Rust / reference / .NET BLAKE3 ports are indexed. Go port API stable: `blake3.Sum256(data)` or `blake3.New(16, key)` for BLAKE3-128 keyed hashing.
-
-### 🔴 API deltas since 2026-04-17 snapshot
-
-Only **Vite** has notable deprecations. All other libraries verify clean against the snapshot at the previous section.
-
-1. **Vite — `build.rollupOptions` → `build.rolldownOptions`.** Vite now bundles with **Rolldown** (Rust-based, rollup-compatible). `rollupOptions` still works as a deprecated alias. **Action:** author `web/vite.config.ts` with `rolldownOptions` from day 1. Reference: https://rolldown.rs/reference/
-2. **Vite — JSX config moved from `esbuild.*` to `oxc.jsx.*`.** Preact importSource is now configured via `oxc: { jsx: { importSource: 'preact' } }`. The older `esbuild.jsxImportSource` is no longer the canonical path.
-3. **hashicorp/golang-lru — v2 is the current line.** Import as `github.com/hashicorp/golang-lru/v2` and `…/v2/expirable`. v1 is legacy.
-4. **Vitest — v4.0.7 is current** (v3.2.4 also indexed). No breaking changes for our planned usage.
-
-All existing architectural decisions in the plan (schema, identity, transport, pipeline, license strategy) remain valid. The only concrete pre-Phase-0 code touch-up is the `vite.config.ts` option names.
-
----
+Context7-cached per-library API references (14 libs, 2026-04-17 snapshot). Full index + plan decisions that originated from the cache + API deltas (Vite Rolldown, JSX config, golang-lru v2, Vitest v4) in [`docs/tech-docs-index.md`](docs/tech-docs-index.md). Per-library files in [`docs/tech-docs/`](docs/tech-docs/).
 
 ## Verification
 
-1. `go build ./cmd/statnive-live` compiles without errors
+1. `go build ./cmd/statnive-live` compiles
 2. `make test` passes (unit + integration)
-3. `go-licenses check ./...` passes — zero AGPL / strong-copyleft deps
+3. `go-licenses check ./...` — zero AGPL / strong-copyleft
 4. k6 load test sustains 7K EPS with p99 <500ms
-5. All dashboard endpoints (8 stats + 2 admin + 1 realtime) return correct data, all scoped by `WHERE site_id = ?`
-6. Multi-tenant isolation: events for site_id=A are invisible in site_id=B queries
-7. Enrichment order asserted: emit bot event → visitor_hash populated AND is_bot=1
-8. Security: auth required, httprate returns 429, TLS 1.3 only, CH bound to 127.0.0.1, hostname validation rejects foreign Origin
-9. Crash recovery: kill -9 Go → restart → zero event loss (WAL replay)
-10. ClickHouse outage: stop CH 10 min → events buffer to WAL → resume → zero loss
-11. Disk-full policy: fill WAL to 10GB cap → 503 with clear error, existing events preserved
-12. Backup: restore encrypted backup to fresh CH → row counts match exactly
-13. TLS rotation: replace PEM files + SIGHUP → new certificate served without binary restart; cert-expiry alert fires at <30 days
-14. Tracker: install on test page → events appear in dashboard within 1 hour
-15. GDPR (SaaS only): consent decline drops cookies + user_id; `/api/privacy/erase` removes visitor across raw + all v1 rollups (3 now, 6 after v1.1)
-16. License: demo-mode binary caps at 10K events/day; valid JWT unlocks; expired JWT falls back to demo-mode with warning
-17. **Air-gapped acceptance**: deploy offline bundle on host with `iptables -P OUTPUT DROP` (loopback + tracker IPs only). Binary starts, migrations apply, events ingest end-to-end, rollups materialize, dashboard renders, backup + restore succeed — all with zero outbound traffic (skill: [`.claude/skills/air-gap-validator`](.claude/skills/air-gap-validator/README.md))
-18. **Offline build**: `go build -mod=vendor ./...` succeeds with `GOFLAGS=-mod=vendor` and no network access
-19. Manual TLS: binary serves traffic with `tls.cert_file` / `tls.key_file` pointing at internal-CA-issued PEMs; no autocert code path exercised (v1)
-20. Air-gapped GeoIP update: replace DB23 BIN + `SIGHUP` → new IPs resolve correctly without restart
-21. **Pre-pipeline fast-reject** (doc 24 §Sec 1.6): handler returns `204` on `X-Purpose: prefetch`, UA length < 16 or > 500, UA-as-IP, UA-as-UUID, non-ASCII UA — asserted with zero pipeline work (no bloom, no GeoIP, no batch write)
-22. **Cross-day fingerprint grace** (doc 24 §Sec 1.1): visitor hashed at 23:58 IRST with salt S₁ returns at 00:02 IRST — identified as *returning* via yesterday-salt lookup, not as a new visitor (skill: [`.claude/skills/blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md))
-23. **Bot detection ordering** (doc 24 §Sec 1.3): integration test emits malformed UA, prefetch header, spam referrer, outdated Chrome, and regex-match bot — each short-circuits at the expected layer; `bot_reason` column (v1.1) records which layer fired
-24. **Central tenancy helper** (Architecture Rule 8): CI lint asserts every `SELECT` in `internal/storage/` calls `whereTimeAndTenant()`; test fails if any new file bypasses the helper (skill: [`.claude/skills/tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md))
-25. **Schema time column**: ClickHouse asserts `time` is `DateTime('UTC')` (not `DateTime64`) on `events_raw` and all rollups (skill: [`.claude/skills/clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md))
-26. **Templated migration DDL** (doc 24 §Sec 2 Migration 0029): every `CREATE TABLE` migration is authored with `{{if .Cluster}}` placeholders; template renders correctly for both single-node (current) and `ReplicatedMergeTree` + `Distributed` (SaaS future) modes (skill: [`.claude/skills/clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md))
-27. **No Nullable columns** (Architecture Rule 5): CI lint asserts no `Nullable(` appears anywhere in `clickhouse/` or `internal/storage/migrate.go` (skill: [`.claude/skills/clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md))
-28. **Hostname-list lookup shape** (doc 24 §Sec 3.5): channel mapper benchmark confirms `map[string]struct{}` lookup, not `slices.Contains` — hot-path p99 stays below 50 ns/call
-29. **AI channel present on day 1** (doc 24 §Sec 3.3): referrer from `chat.openai.com` / `claude.ai` / `gemini.google.com` / `copilot.microsoft.com` / `perplexity.ai` → `channel = "AI"`
-30. **Day-of-week growth comparison** (v1.1, doc 24 §Sec 5 T2 #19): this-Tuesday-vs-last-Tuesday returns correct percentages — not this-Tuesday-vs-last-Monday
-31. **Phase A (dogfood):** statnive.com fires a pageview → visible in `demo.statnive.live` dashboard within 5 minutes; shared viewer login (`demo / demo-statnive`) gets 403 on every `/api/admin/*` route; login brute-force capped at 10 attempts/min per IP
-32. **Phase B (Filimo):** Filimo tracker at `filimo.statnive.live/tracker.js` fires → visible in `filimo.statnive.live` dashboard within 5 minutes; `iptables -P OUTPUT DROP` test passes end-to-end on Iranian DC box; backup + restore drill succeeds on the dedicated instance
-33. **Phase C (SaaS):** fresh signup (`POST /api/signup`) → tracker embed → first event appears in `app.statnive.live/s/<slug>` within 5 minutes; cross-tenant isolation — site A admin cannot query site B data even by URL manipulation of `/s/<other-slug>/…`; Polar.sh sandbox webhook (`subscription.created` signed with `X-Polar-Signature`) updates `sites.plan` and quota enforcement flips correctly; webhook handler is idempotent (replaying the same event.id does not double-apply); 6th signup/hour from same IP is rejected
-34. **Kill-9 WAL gate** (doc 27 §Gap 1): CI runs the binary, pushes 10 K events, `kill -9` at random 100 ms–2 s offset, restart, asserts `count() FROM events_raw == count of client-received 2xx` (within 0.05% event-loss SLO). 50 runs per PR. Phase 7b close gate. (skill: [`.claude/skills/wal-durability-review`](.claude/skills/wal-durability-review/README.md))
-35. **CGNAT rate-limit tiering** (doc 27 §Gap 2): k6 scenario `cgnat` sends 7 K EPS from 100 IPs simulating Irancell AS44244 — MUST NOT 429 when ASN tier wired. Scenario `ddos` sends 30 K EPS from 50 IPs — MUST 429 (`http_req_failed > 50%`). Scenario `normal` at 7 K EPS from 10 K IPs — `http_req_failed < 1%` p99 < 500 ms. Phase 10 cutover gate. (skill: [`.claude/skills/ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md))
-36. **DSAR completeness** (doc 27 §Gap 3): integration test creates synthetic `visitor_hash`, posts 100 events, calls `/api/privacy/erase`, waits for WAL drain, enumerates `system.tables` **dynamically** (no hardcoded list), asserts zero rows matching hash in every non-rollup table. New table added without erase.go entry fails this test by construction. Phase 11 signup gate. (skill: [`.claude/skills/dsar-completeness-checker`](.claude/skills/dsar-completeness-checker/README.md))
-37. **Blackout-sim green** (doc 28 §Gap 2): CI runs the vendored `-tags airgap` binary under `sudo iptables -P OUTPUT DROP` with loopback + Docker bridge whitelisted only. Asserts `/health/ready` within 30 s, dashboard loads, 50 `POST /t` ingest requests succeed, `/api/stats?range=1h` returns ≥50 pageviews (WAL → rollup works offline), S3 backup degrades gracefully (log matches `s3.*(unreachable|timeout).*continuing|degraded mode`), alerts file-sink only (no `slack|pagerduty|opsgenie` in logs). **HARD GATE** on every PR touching `cmd/**`, `internal/**`, `deploy/**`, `ops/**` after Week 18. (skill: [`.claude/skills/iranian-dc-deploy`](.claude/skills/iranian-dc-deploy/README.md))
-38. **GeoIP hot-reload under load** (doc 28 §Gap 1): integration test runs 100 concurrent lookup goroutines with `-race`; `syscall.Kill(os.Getpid(), syscall.SIGHUP)` fires 100 times in 1 s. Asserts p99 <500 ms, zero FD leak (FD count stable across 1 000 swaps), last swap wins (observe both v1 and v2 records across the cutover), zero lookup errors. Separately, 7 K EPS k6 run greps server log for IPv4/IPv6 regex — zero matches. Gates the Phase 10 Filimo paid-DB23 cutover. (skill: [`.claude/skills/geoip-pipeline-review`](.claude/skills/geoip-pipeline-review/README.md))
-39. **CH parts-ceiling + restore drill** (doc 28 §Gap 3): k6 5 min 7 K EPS against `/ingest` — max active parts per table <100, zero `RejectedInserts`, `DelayedInserts` <50, p99 `http_req_duration{kind:ingest}` <500 ms. Nightly (and every labeled PR) backup-restore drill uses `clickhouse-backup` to create+upload+restore to a parallel CH instance, asserts row-count parity for every active table AND `uniqCombined64Merge(uniq_state) FROM rollup_daily FINAL FORMAT Null` completes without error. Required before Week 23 load-rehearsal. (skill: [`.claude/skills/clickhouse-operations-review`](.claude/skills/clickhouse-operations-review/README.md))
+5. All dashboard endpoints (8 stats + 2 admin + 1 realtime) scoped by `WHERE site_id = ?`
+6. Multi-tenant isolation: site_id=A invisible in site_id=B queries
+7. Enrichment order asserted: bot event → visitor_hash populated AND is_bot=1
+8. Security: auth required, httprate 429, TLS 1.3 only, CH 127.0.0.1, hostname validation rejects foreign Origin
+9. Crash recovery: kill -9 → restart → zero event loss (WAL replay)
+10. CH outage: stop 10min → WAL buffer → resume → zero loss
+11. Disk-full: 10GB cap → 503 with clear error, existing events preserved
+12. Backup restore: row counts match exactly
+13. TLS rotation: replace PEMs + SIGHUP → new cert without restart; expiry alert <30d
+14. Tracker: install → events in dashboard <1h
+15. GDPR (SaaS): consent decline drops cookies + user_id; `/api/privacy/erase` removes visitor across raw + all v1 rollups
+16. License: demo-mode caps 10K/day; valid JWT unlocks; expired → demo-mode with warning
+17. **Air-gapped acceptance**: offline bundle on `iptables -P OUTPUT DROP` host (loopback + tracker IPs). Binary starts, migrations apply, events ingest, rollups materialize, dashboard renders, backup+restore — zero outbound (skill: [`air-gap-validator`](.claude/skills/air-gap-validator/README.md))
+18. **Offline build**: `go build -mod=vendor ./...` succeeds with `GOFLAGS=-mod=vendor`, no network
+19. Manual TLS: binary serves with `tls.{cert_file,key_file}` internal-CA PEMs; no autocert code path (v1)
+20. Air-gapped GeoIP update: replace BIN + SIGHUP → new IPs resolve without restart
+21. **Pre-pipeline fast-reject** (doc 24 §Sec 1.6): handler 204 on `X-Purpose: prefetch`, UA <16 or >500, UA-as-IP, UA-as-UUID, non-ASCII — zero pipeline work
+22. **Cross-day fingerprint grace** (doc 24 §Sec 1.1): visitor hashed 23:58 IRST salt S₁ returns 00:02 IRST → identified as returning via yesterday-salt lookup (skill: [`blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md))
+23. **Bot ordering** (doc 24 §Sec 1.3): malformed UA / prefetch / spam referrer / outdated Chrome / regex-bot short-circuit at expected layer
+24. **Central tenancy helper** (Rule 8): CI lint asserts every `SELECT` in `internal/storage/` calls `whereTimeAndTenant()` (skill: [`tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md))
+25. **Schema time column**: `time` is `DateTime('UTC')` on `events_raw` + rollups (skill: [`clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md))
+26. **Templated migration DDL** (doc 24 §Sec 2 Migration 0029): `{{if .Cluster}}` placeholders render for single-node + `ReplicatedMergeTree` + `Distributed` (skill: [`clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md))
+27. **No Nullable columns** (Rule 5): CI lint — no `Nullable(` in `clickhouse/` or `internal/storage/migrate.go` (skill: [`clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md))
+28. **Hostname lookup shape** (doc 24 §Sec 3.5): `map[string]struct{}` not `slices.Contains` — p99 <50 ns/call
+29. **AI channel day 1** (doc 24 §Sec 3.3): `chat.openai.com` / `claude.ai` / `gemini.google.com` / `copilot.microsoft.com` / `perplexity.ai` → `channel="AI"`
+30. **Day-of-week growth comparison** (v1.1, doc 24 §Sec 5 T2 #19): this-Tuesday-vs-last-Tuesday correct
+31. **Phase A (dogfood)**: statnive.com pageview → `demo.statnive.live` <5min; shared viewer 403 on `/api/admin/*`; login cap 10/min/IP
+32. **Phase B (Filimo)**: `filimo.statnive.live/tracker.js` → dashboard <5min; `iptables -P OUTPUT DROP` end-to-end on Iranian DC; backup+restore on dedicated instance
+33. **Phase C (SaaS)**: signup → tracker → first event in `app.statnive.live/s/<slug>` <5min; cross-tenant isolation (URL-manipulation blocked); Polar sandbox webhook updates `sites.plan`; idempotent; 6th signup/hr rejected
+34. **Kill-9 WAL gate** (doc 27 §Gap 1): CI 10K events → kill -9 random 100ms–2s → restart → `count() FROM events_raw == client 2xx` (within 0.05% SLO). 50 runs/PR. 7b close gate. (skill: [`wal-durability-review`](.claude/skills/wal-durability-review/README.md))
+35. **CGNAT rate-limit tiering** (doc 27 §Gap 2): k6 `cgnat` = 7K EPS from 100 IPs simulating AS44244 — MUST NOT 429. `ddos` = 30K EPS from 50 IPs — MUST 429 (>50% fail). `normal` = 7K EPS from 10K IPs — <1% fail p99 <500ms. Phase 10 cutover gate. (skill: [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md))
+36. **DSAR completeness** (doc 27 §Gap 3): synthetic `visitor_hash` → 100 events → `/api/privacy/erase` → WAL drain → `system.tables` enumerated dynamically → zero rows matching hash in every non-rollup table. New table without erase.go entry fails this test by construction. Phase 11 gate. (skill: [`dsar-completeness-checker`](.claude/skills/dsar-completeness-checker/README.md))
+37. **Blackout-sim green** (doc 28 §Gap 2): vendored `-tags airgap` binary under `iptables -P OUTPUT DROP` (loopback + Docker bridge only). `/health/ready` within 30s, dashboard loads, 50 `POST /t` succeed, `/api/stats?range=1h` ≥50 pageviews, S3 backup degrades (`s3.*(unreachable|timeout).*continuing|degraded mode`), file-sink only (no `slack|pagerduty|opsgenie`). **HARD GATE** on every PR after Week 18. (skill: [`iranian-dc-deploy`](.claude/skills/iranian-dc-deploy/README.md))
+38. **GeoIP hot-reload under load** (doc 28 §Gap 1): 100 concurrent lookup goroutines with `-race`; `SIGHUP` 100 times in 1s. p99 <500ms, zero FD leak across 1,000 swaps, last swap wins, zero lookup errors. 7K EPS k6 log grep for IPv4/IPv6 regex — zero matches. Gates Phase 10 paid-DB23 cutover. (skill: [`geoip-pipeline-review`](.claude/skills/geoip-pipeline-review/README.md))
+39. **CH parts-ceiling + restore drill** (doc 28 §Gap 3): k6 5min 7K EPS — active parts <100, zero `RejectedInserts`, `DelayedInserts` <50, p99 `http_req_duration{kind:ingest}` <500ms. Nightly + labeled-PR `clickhouse-backup` create+upload+restore → row-count parity + `uniqCombined64Merge(uniq_state) FROM rollup_daily FINAL FORMAT Null` clean. Required before Week 23 load-rehearsal. (skill: [`clickhouse-operations-review`](.claude/skills/clickhouse-operations-review/README.md))

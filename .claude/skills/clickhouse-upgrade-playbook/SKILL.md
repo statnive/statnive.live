@@ -1,13 +1,6 @@
 ---
 name: clickhouse-upgrade-playbook
-description: >
-  Advisory runbook for migrating ClickHouse from single-node MergeTree to replicated
-  cluster. Fires when `migrations/*.sql` or `migrations/**/*.tmpl` contain `Engine=`
-  or `{{if .Cluster}}`. Routes the agent to the hard-link `ATTACH PARTITION` procedure,
-  Keeper ensemble setup, and the data-migration caveat that `{{if .Cluster}}` handles
-  DDL templating but NOT data movement. No Semgrep rules — advisory only. Use
-  alongside `clickhouse-operations-review` (enforcement) and paired
-  `clickhouse-cluster-migration` skill (templating lint).
+description: Advisory runbook — CH single-node MergeTree → replicated cluster migration. Fires when `migrations/*.sql` or `migrations/**/*.tmpl` contain `Engine=` or `{{if .Cluster}}`. Routes to hard-link `ATTACH PARTITION`, Keeper ensemble setup, and the caveat that `{{if .Cluster}}` handles DDL templating but NOT data movement. No Semgrep — advisory only. Pairs with `clickhouse-operations-review` (enforcement) + `clickhouse-cluster-migration` (lint).
 license: MIT
 metadata:
   author: statnive-live

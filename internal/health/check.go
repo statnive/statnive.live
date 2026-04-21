@@ -20,12 +20,20 @@ import (
 // triage in production shows this is too eager or too lax.
 const walFillCritical = 0.80
 
+// WALSyncerStatsReporter is the subset of *ingest.GroupSyncer that
+// /healthz needs. Defined as an interface so tests can wire a stub
+// without spinning up a real syncer + filesystem.
+type WALSyncerStatsReporter interface {
+	Stats() ingest.WALSyncerStats
+}
+
 // Reporter is the runtime contract /healthz reads. The fields are pointers
 // so tests can construct one with nil for whichever signal isn't relevant.
 type Reporter struct {
-	Store *storage.ClickHouseStore
-	WAL   *ingest.WALWriter
-	Start time.Time
+	Store     *storage.ClickHouseStore
+	WAL       *ingest.WALWriter
+	WALSyncer WALSyncerStatsReporter
+	Start     time.Time
 }
 
 // Handler returns the http.Handler for GET /healthz.
@@ -64,6 +72,19 @@ func Handler(r Reporter) http.Handler {
 			if ratio >= walFillCritical {
 				body["status"] = "degraded"
 				status = http.StatusServiceUnavailable
+			}
+		}
+
+		// WAL fsync p99 — emit nil when no samples yet so a JSON consumer
+		// can distinguish "fresh start, no signal" from "everything fast".
+		// Not a 503 trigger: this is an alerting threshold, not a binary
+		// up/down signal (the fill_ratio gate already covers down-shift).
+		if r.WALSyncer != nil {
+			stats := r.WALSyncer.Stats()
+			if stats.FsyncSampleCount > 0 {
+				body["wal_fsync_p99_ms"] = float64(stats.FsyncP99.Microseconds()) / 1000.0
+			} else {
+				body["wal_fsync_p99_ms"] = nil
 			}
 		}
 

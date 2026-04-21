@@ -1,6 +1,6 @@
 ---
 name: clickhouse-cluster-migration
-description: MUST USE when writing or reviewing any migration file under `clickhouse/migrations/`. Enforces the `{{if .Cluster}}` Go-template structure from doc 24 §Migration 0029 so that single-node DDL stays ReplicatedMergeTree-ready and every `ON CLUSTER '{cluster}'` is correctly interpolated. Every migration must include a reversible down-path.
+description: MUST USE when writing or reviewing any migration file under `clickhouse/migrations/**`. Enforces `{{if .Cluster}}` Go-template structure (doc 24 §Migration 0029) — single-node DDL stays ReplicatedMergeTree-ready; `ON CLUSTER '{cluster}'` correctly interpolated; every migration has a reversible down-path.
 license: MIT
 metadata:
   author: statnive-live
