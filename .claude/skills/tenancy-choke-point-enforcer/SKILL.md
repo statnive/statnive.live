@@ -11,6 +11,8 @@ metadata:
 
 # tenancy-choke-point-enforcer
 
+> **Activation gate (Phase 1).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 1 (`internal/storage/` build-out). Until the corresponding `.github/workflows/tenancy-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Encodes `statnive-live/CLAUDE.md` **Architecture Rule 8** and **Project Goal 4** as a CI-blocking check. A single missing `WHERE site_id = ?` leaks one tenant's analytics into another tenant's dashboard — this is the bug that would end the company.
 
 ## When this skill fires

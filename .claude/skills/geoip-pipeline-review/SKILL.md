@@ -12,6 +12,8 @@ metadata:
 
 # geoip-pipeline-review
 
+> **Activation gate (Phase 8 Weeks 19–20; blocks Phase 10 paid-DB23 cutover).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 8 Weeks 19–20, after `iranian-dc-deploy` ships (`airgap-update-geoip.sh` dependency) and CC-BY-SA policy resolves (Week 19 Day 1 legal call). Until the corresponding `.github/workflows/geoip-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Encodes **CLAUDE.md § Privacy Rule 1** ("Raw IP never persisted — IP enters the pipeline only for GeoIP lookup, then is discarded before the batch writer sees the row") and the CC-BY-SA-4.0 attribution obligation for **IP2Location LITE DB23** (the only major free city-level GeoIP DB compatible with our air-gap + license posture).
 
 ## When this skill fires

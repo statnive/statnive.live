@@ -11,6 +11,8 @@ metadata:
 
 # ratelimit-tuning-review
 
+> **Activation gate (Phase 10 Filimo cutover — HARD GATE).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 10 (ASN-tiered limiter + `iptoasn.com` TSV loader + k6 scenarios `normal`/`burst`/`ddos`/`cgnat`). Until the corresponding `.github/workflows/ratelimit-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Encodes **CLAUDE.md Security #5** (rate limiting per IP via `go-chi/httprate`) and the Filimo P5-cutover requirement that 100 req/s per-IP brownouts entire Iranian apartment blocks under CGNAT. PR #6 shipped plain `httprate.LimitByRealIP(100, 1m)` — this skill is the gate that blocks Filimo cutover (Phase 10) without ASN tiering.
 
 ## When this skill fires

@@ -12,6 +12,8 @@ metadata:
 
 # iranian-dc-deploy
 
+> **Activation gate (Phase 8 Weeks 17–18 — HARD GATE on Filimo cutover).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 8 Weeks 17–18 (first skill to ship; blocks every Filimo-destined PR after Week 20). Until the corresponding `.github/workflows/blackout-sim.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Encodes **CLAUDE.md § Isolation / Air-Gapped Capability** + **CLAUDE.md § Security #1 (TLS 1.3 via manual PEM)** for the Iranian DC deployment surface. National Information Network (NIN) blackout events (2019, 2026-01-08) confirm this is not a hypothetical — intl connectivity sat at ~1–4% of baseline for 100+ days during the most recent blackout while Iranian-resident services kept serving Iranian eyeballs. Every pattern in this skill has a blackout-survivability reason.
 
 ## When this skill fires

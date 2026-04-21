@@ -14,6 +14,8 @@ metadata:
 
 # clickhouse-operations-review
 
+> **Activation gate (Phase 8 Weeks 20–22; required before Week 23 load-rehearsal).** This skill's 8 Semgrep rule bodies + backup-restore drill + parts-ceiling-after-7K-EPS CI job are scheduled for Phase 8 Weeks 20–22, overlapping Filimo rehearsal. Until the corresponding `.github/workflows/ch-ops-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Encodes the operational discipline that separates a working demo from a production cutover at 7K EPS sustained. ClickHouse/agent-skills ships **one** skill (`clickhouse-best-practices`, 28 rules in 11 categories) — all targeting schema/query/ingestion *design*. Zero operational coverage. This skill closes that gap: WAL-first writes, merge-pressure safety, backup-restore drills, disk-full handling, memory tuning for 8c/32GB, per-tenant query budgets.
 
 ## When this skill fires

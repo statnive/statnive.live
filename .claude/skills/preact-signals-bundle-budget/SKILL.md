@@ -11,6 +11,8 @@ metadata:
 
 # preact-signals-bundle-budget
 
+> **Activation gate (Phase 4 tracker + Phase 5 dashboard).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 4 (first tracker build, 1.2 KB / 600 B gz budget) and Phase 5 (first Preact component, 50 KB / 15 KB gz budget). Until the corresponding `.github/workflows/bundle-budget-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Fills the entire frontend-skill gap doc 25 calls out: "nothing targets Preact, `@preact/signals`, uPlot configuration, `go:embed`-hashed-asset workflow, or analytics-beacon/`sendBeacon` correctness." Both budgets and Preact-signals idioms live here.
 
 ## When this skill fires

@@ -11,6 +11,8 @@ metadata:
 
 # wal-durability-review
 
+> **Activation gate (Phase 7b — partially live).** Semgrep rules + kill-9 harness shipped in commit `955a935`; Phase 7b ack-after-fsync integration shipped in PR #25. Remaining wiring (WAL-cap → 503 Retry-After, CH-outage replay chaos test) is mid-implementation. Until `.github/workflows/wal-gate.yml` is fully green on main, treat the un-landed sections as **advisory-only**; enforce the already-live Semgrep rules normally.
+
 Encodes **CLAUDE.md Architecture Rule 4** ("WAL for durability, batch 500 ms / 1000 rows") and the **"zero event loss on `kill -9`"** contract implicit in PLAN.md §Phase 1. PR #14 surfaced three WAL correctness gaps that Phase 7b must close; this skill is the regression guard.
 
 ## When this skill fires

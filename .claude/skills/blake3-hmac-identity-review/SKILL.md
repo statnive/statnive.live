@@ -11,6 +11,8 @@ metadata:
 
 # blake3-hmac-identity-review
 
+> **Activation gate (Phase 1).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 1 (`internal/identity/` first ships). Until the corresponding `.github/workflows/identity-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Encodes **CLAUDE.md Privacy Rules 2, 3, 4** (lines 47-49) and the **Identity** block (line 20). Pair with the community-installed `trailofbits/skills/constant-time-analysis` skill for compiler-induced timing side-channels — this skill covers the usage correctness that timing analysis cannot detect.
 
 ## When this skill fires

@@ -11,6 +11,8 @@ metadata:
 
 # clickhouse-rollup-correctness
 
+> **Activation gate (Phase 1).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 1 (first rollup DDL ships). Until the corresponding `.github/workflows/rollup-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Extends the official `clickhouse-best-practices` skill into HyperLogLog / AggregatingMergeTree territory that the official skill explicitly does **not** cover yet. Guards the v1 rollup contract: three AggregatingMergeTree rollups, all using `AggregateFunction(uniqCombined64, FixedString(16))` for visitor dedup, all keyed by `site_id` first.
 
 ## When this skill fires

@@ -246,6 +246,54 @@ Per doc 23 §Gap Analysis, these have **no community skill coverage**. Author cu
 - **Air-gap invariant:** Skills must not embed remote fetches that execute at load time. Before adding a new skill, grep the SKILL.md for `curl`, `wget`, bare `https://` → the skill may instruct Claude to fetch at runtime, which breaks [CLAUDE.md § Isolation / Air-Gapped Capability](../CLAUDE.md#isolation--air-gapped-capability-non-negotiable).
 - **License attestation:** Each skill directory carries a `SOURCE` file (1-liner) and `LICENSE.source` file (full license text from the source repo). These are part of the repo and survive updates.
 
+### Scaffolded-skill activation convention
+
+Custom skills in this project are authored **ahead of** their enforcement phase. A skill's `SKILL.md` body describes the contract it will enforce; its Semgrep rule bodies and CI workflow land when the matching phase opens (e.g. `iranian-dc-deploy` scaffolds in Phase 0, gates from Phase 8). Without a marker, every custom skill would false-activate on every glob match across the intervening phases.
+
+**Convention.** Every custom `SKILL.md` under `.claude/skills/` whose enforcement is scheduled for a future (or currently-mid-implementation) phase prepends a blockquote activation-gate preamble immediately after the `# <skill-name>` heading. Standard shape:
+
+```markdown
+# <skill-name>
+
+> **Activation gate (Phase N, <scope>).** This skill's Semgrep rule bodies
+> and CI wiring are scheduled for Phase N (<what ships there>). Until the
+> corresponding `.github/workflows/<skill>-gate.yml` is green on main,
+> treat this skill as **advisory-only** — surface the checklist to the
+> reviewer, do not block merges, and flag any mismatch as
+> `activation-pending` rather than auto-fixing.
+
+<regular body continues here...>
+```
+
+**Scope phrasing options.** Pick whichever fits the skill's lifecycle:
+- `Phase N` alone (e.g. `Phase 1`) for skills tied to a single build phase.
+- `Phase N, Weeks X–Y` for doc-28-scheduled skills with calendar anchoring.
+- `Phase N — partially live` for skills where some rules are live and others aren't (e.g. `wal-durability-review` post-PR #25).
+- `advisory-only by design` for skills that ship no Semgrep rules (e.g. `clickhouse-upgrade-playbook`).
+
+**When to remove the preamble.** The operator drops the blockquote when the matching CI workflow is green on main. Not before — and never as part of an unrelated PR; the preamble removal is its own commit so PR review sees the activation event.
+
+**Why this, not `disabled: true` in frontmatter.** Claude Code's schema handling for unknown frontmatter keys is not documented to silently ignore. The blockquote is (a) human-readable in both Claude Code's skill-picker and GitHub rendering, (b) machine-scannable via `grep -l 'Activation gate' .claude/skills/*/SKILL.md`, (c) survives any future frontmatter schema change.
+
+**Current status (as of 2026-04-21):** all 14 custom skills carry the preamble. Inventory:
+
+| Skill | Phase | Gate state |
+|---|---|---|
+| `tenancy-choke-point-enforcer` | 1 | advisory |
+| `air-gap-validator` | 0 (ongoing) | advisory |
+| `clickhouse-rollup-correctness` | 1 | advisory |
+| `clickhouse-cluster-migration` | 1 lint + P5 upgrade | advisory |
+| `preact-signals-bundle-budget` | 4 (tracker) + 5 (dashboard) | advisory |
+| `blake3-hmac-identity-review` | 1 | advisory |
+| `wal-durability-review` | 7b | **partially live** (Semgrep + kill-9 shipped in PR #25) |
+| `ratelimit-tuning-review` | 10 | advisory (HARD GATE pending Filimo cutover) |
+| `gdpr-code-review` | 11 | advisory (HARD GATE pending SaaS signup) |
+| `dsar-completeness-checker` | 11 | advisory (HARD GATE pending SaaS signup) |
+| `iranian-dc-deploy` | 8 W17–18 | advisory (HARD GATE pending Filimo cutover) |
+| `geoip-pipeline-review` | 8 W19–20 | advisory |
+| `clickhouse-operations-review` | 8 W20–22 | advisory |
+| `clickhouse-upgrade-playbook` | 8+ / P5 | **advisory-only by design** (no Semgrep rules) |
+
 ---
 
 ## Doc 25 additions (Weeks 1–12)

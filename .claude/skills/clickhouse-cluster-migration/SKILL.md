@@ -11,6 +11,8 @@ metadata:
 
 # clickhouse-cluster-migration
 
+> **Activation gate (Phase 1 lint + P5 cluster upgrade).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 1 (`{{if .Cluster}}` templating lint at migration time). Until the corresponding `.github/workflows/cluster-templating-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Fills the gap the official `clickhouse-best-practices` skill calls out: "deeper knowledge on cluster configurations is coming later." We can't wait — SaaS scale (Phase C) flips the same binary from single-node to ReplicatedMergeTree + Distributed. Every migration ships templated from day 1.
 
 ## When this skill fires

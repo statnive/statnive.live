@@ -11,6 +11,8 @@ metadata:
 
 # gdpr-code-review
 
+> **Activation gate (Phase 11 public signup — HARD GATE).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 11 (first SaaS public signup). Until the corresponding `.github/workflows/gdpr-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Encodes **CLAUDE.md Privacy Rules 1–7** + Project Goal 1 (security first). Where `blake3-hmac-identity-review` validates the crypto *mechanics*, this skill validates the **privacy-by-design** consumption pattern — that the hash is never computed when the user has opted out, that no fingerprinting vectors creep in, that no PII leaks through slog / error strings / audit logs. Phase 11 (SaaS) is the hard gate.
 
 ## When this skill fires

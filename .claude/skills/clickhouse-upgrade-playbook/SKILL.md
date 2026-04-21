@@ -19,6 +19,8 @@ metadata:
 
 # clickhouse-upgrade-playbook
 
+> **Activation gate (Phase 8 companion + P5 cluster upgrade — advisory-only by design).** This skill ships **no Semgrep rules** — it is a runbook routed by migration-file triggers. Treat it as **advisory-only** permanently: surface the runbook to the reviewer when `Engine=` or `{{if .Cluster}}` appears; do not auto-apply any procedure. The paired `clickhouse-cluster-migration` skill handles the lint side once that skill's CI gate goes green.
+
 Reference-only runbook for the single-node → replicated-cluster migration at P5 (SaaS scale). **No Semgrep rules** — this skill advises, it doesn't gate. The paired `clickhouse-cluster-migration` skill handles the `{{if .Cluster}}` templating lint.
 
 ## When this skill fires

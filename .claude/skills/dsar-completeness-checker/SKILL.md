@@ -11,6 +11,8 @@ metadata:
 
 # dsar-completeness-checker
 
+> **Activation gate (Phase 11 public signup — HARD GATE).** This skill's integration-test harness + Semgrep rule bodies + CI wiring are scheduled for Phase 11 (first SaaS public signup, paired with `gdpr-code-review`). Until the corresponding `.github/workflows/dsar-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Encodes the **Article 17 erasure completeness** contract across every sink in the statnive-live architecture. Paired with [`gdpr-code-review`](../gdpr-code-review/README.md) — that skill owns *privacy-by-design on the ingress side*, this skill owns *erasure on the egress side*. DSAR completeness is where most analytics projects silently fail.
 
 ## When this skill fires

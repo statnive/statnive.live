@@ -11,6 +11,8 @@ metadata:
 
 # air-gap-validator
 
+> **Activation gate (Phase 0, ongoing).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 0 (release-gate integration). Until the corresponding `.github/workflows/airgap-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+
 Encodes the **CLAUDE.md Isolation** block (lines 69-86) and the **PLAN.md Air-Gapped / Isolated Deployment** section. Every network-touching feature in statnive-live must be optional and config-gated; the release gate runs the binary under `iptables -P OUTPUT DROP` and asserts all paths still work.
 
 ## When this skill fires
