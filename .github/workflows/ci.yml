@@ -184,3 +184,47 @@ jobs:
       # against the full pipeline → ClickHouse stack.
       - name: Run Vitest
         run: npm --prefix tracker test
+
+  dashboard-vitest:
+    name: Dashboard SPA (Vitest + lint + bundle-gate + web-airgap-grep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
+      - name: Install SPA devDeps
+        run: npm --prefix web ci
+
+      # Unit tests — tokens.test.ts (brand regression), api-client.test.ts
+      # (bearer + site_id wiring), Overview.test.tsx (2-tier KPI render +
+      # Conversion% computation).
+      - name: Run Vitest
+        run: npm --prefix web test
+
+      - name: Lint
+        run: npm --prefix web run lint
+
+      # Build + size-limit — fails the job if bundle exceeds 10 KB JS gz
+      # or 3 KB CSS gz (tightens to 5 KB CSS when uPlot lands in 5b).
+      - name: Build SPA
+        run: npm --prefix web run build
+
+      - name: Bundle gate
+        run: npm --prefix web run bundle-gate
+
+      # brand-grep rejects hand-rolled hex outside tokens.css;
+      # web-airgap-grep scans the built bundle for CDN URLs that could
+      # violate the air-gap invariant at runtime.
+      - name: brand-grep
+        run: make brand-grep
+
+      - name: web-airgap-grep
+        run: make web-airgap-grep
