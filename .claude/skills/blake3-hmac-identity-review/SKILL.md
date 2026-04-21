@@ -1,6 +1,6 @@
 ---
 name: blake3-hmac-identity-review
-description: MUST USE when editing `internal/identity/**`, `internal/auth/**`, or any crypto / hashing / HMAC / bcrypt path. Validates BLAKE3-128 (not 256) truncation; exact `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`; IRST (UTC+3:30, no DST) rotation boundary; `hmac.Equal` constant-time compare (never `==`); master secret env/file only (never logged).
+description: MUST USE when editing `internal/identity/**`, `internal/auth/**`, `internal/session/**`, or any crypto / identity / session / webhook-signature / bcrypt path. Validates BLAKE3-128 (not 256) truncation; exact `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`; IRST (UTC+3:30, no DST) rotation boundary; `hmac.Equal` constant-time compare across all secret-carrying equality (session tokens, Polar webhook HMAC, license JWT sig, CSRF tokens); auth-return nil-guard pattern; master secret env/file only (never logged).
 license: MIT
 metadata:
   author: statnive-live
@@ -47,6 +47,7 @@ Encodes **CLAUDE.md Privacy Rules 2, 3, 4** (lines 47-49) and the **Identity** b
 
 1. Every hash / HMAC comparison uses `hmac.Equal` or `subtle.ConstantTimeCompare`. Reject `==` or `bytes.Equal` on HMAC outputs / session tokens.
 2. Session token lookup walks the store, then constant-time-compares on match — never leaks-on-miss timing.
+3. **Broader scope (F9).** The `==` / `bytes.Equal` / `strings.Compare` deny-rule applies to any variable whose name matches `/(?i)(token|signature|sig|mac|hmac|secret|webhook_?key|session_?id|csrf|bearer|api_?key)/`. Covers: session-token equality (Phase 2b), CSRF-token equality (if ever added), Polar `X-Polar-Signature` HMAC (Phase 11), license-JWT signature bytes (Phase 10 D2), future webhook integrations. Semgrep pattern: `$A == $B` or `$A != $B` where `$A` or `$B` identifier matches the regex → require `hmac.Equal` / `subtle.ConstantTimeCompare`.
 
 ### Logging and leakage
 
