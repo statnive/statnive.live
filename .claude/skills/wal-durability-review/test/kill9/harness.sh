@@ -64,11 +64,13 @@ BIN="$(mktemp -d)/statnive-live"
 log "building binary → $BIN"
 CGO_ENABLED=0 go build -mod=vendor -o "$BIN" ./cmd/statnive-live
 
-# 3. Seed the test site row. Idempotent.
-log "seeding sites table (site_id=${SITE_ID}, hostname=${HOSTNAME})"
-docker exec "$CH_CONTAINER" clickhouse-client --port 9000 -q \
-    "INSERT INTO statnive.sites (site_id, hostname, slug, enabled) VALUES (${SITE_ID}, '${HOSTNAME}', 'wal-killtest', 1)" \
-    2>/dev/null || true
+# 3. Seed the test site row.
+# Note: we don't seed here yet — the `statnive.sites` table is created
+# by the binary's startup migrations, which haven't run on a fresh CH
+# container. Seeding before iter 1 would silently fail (table missing)
+# and then every request would get 204 unknown-hostname instead of 202.
+# The seed is run at the start of each iteration, AFTER /healthz is up
+# (which means migrations have completed). Idempotent.
 
 # Build a tiny go program that fires events at the binary. Reuses
 # test/perf/perf.go:FireEvents via the exported tag.
@@ -105,7 +107,11 @@ func main() {
         req.Header.Set("Content-Type", "text/plain")
         resp, err := client.Do(req)
         if err == nil {
-            if resp.StatusCode/100 == 2 {
+            // Only count 202 — the handler returns 204 for unknown
+            // hostnames (silent drop) and the burst-guard returns 202
+            // even when the event was rejected. We want strict "made it
+            // to the WAL via fsync ack" semantics, which is 202 only.
+            if resp.StatusCode == 202 {
                 sent++
             }
             _ = resp.Body.Close()
@@ -157,6 +163,11 @@ for iter in $(seq 1 "$ITERATIONS"); do
         fi
         sleep 0.2
     done
+
+    # Seed the test site row now that migrations have run. Idempotent.
+    docker exec "$CH_CONTAINER" clickhouse-client --port 9000 -q \
+        "INSERT INTO statnive.sites (site_id, hostname, slug, enabled) VALUES (${SITE_ID}, '${HOSTNAME}', 'wal-killtest', 1)" \
+        >/dev/null 2>&1 || true
 
     # Fire in the background.
     "$FIRE_BIN" -url "http://127.0.0.1:${PORT}/api/event" -hostname "$HOSTNAME" -count "$EVENTS" -rate 2000 > "/tmp/wal-killtest-sent-${iter}" &
