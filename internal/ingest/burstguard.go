@@ -15,7 +15,7 @@ import (
 // lazy on Allow — when the window expires, the next Allow resets the
 // entry. No background goroutine; the map grows with active visitors
 // over the past 60s window and naturally bounds at peak concurrent
-// visitor count (1.5K in the load test, ~50K at Filimo peak).
+// visitor count (1.5K in the load test, ~50K at SamplePlatform peak).
 type BurstGuard struct {
 	cap    int
 	shards [256]*burstShard

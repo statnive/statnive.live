@@ -6,7 +6,7 @@ Encodes **CLAUDE.md Stack** (line 18 — "Preact + @preact/signals + uPlot + Fra
 
 ## Research anchors
 
-- [jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md) §gap-analysis #5.
+- [jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md) §gap-analysis #5.
 - [jaan-to/docs/research/20-dev-go-clickhouse-analytics-implementation-blueprint.md](../../../../jaan-to/docs/research/20-dev-go-clickhouse-analytics-implementation-blueprint.md) §frontend + §tracker.
 - [jaan-to/docs/research/21-microsoft-clarity-codebase-review-patterns-for-self-hosted-analytics.md](../../../../jaan-to/docs/research/21-microsoft-clarity-codebase-review-patterns-for-self-hosted-analytics.md) §root-domain cookie walking.
 - `docs/tech-docs/preact-signals.md` — project-cached Context7 snapshot (note: `{signal}` vs `{signal.value}` is the zero-rerender trick).

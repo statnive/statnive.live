@@ -4,7 +4,7 @@ import "time"
 
 // TTL tiers for dashboard query cache. Doc 24 §Sec 4 pattern 9: Pirsch
 // has no query cache; our LRU tier plan is a strict improvement and
-// keeps ClickHouse load bounded at Filimo's 10–20M DAU.
+// keeps ClickHouse load bounded at SamplePlatform's 10–20M DAU.
 const (
 	// TTLRealtime — current hour. The hourly_visitors rollup updates
 	// continuously as events ingest; 10s gives the dashboard a

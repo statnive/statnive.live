@@ -1,18 +1,18 @@
 ---
 name: iranian-dc-deploy
-description: MUST USE when editing `deploy/**`, `ops/**`, `infra/**`, DNS zones, TLS/NTP config, `*http.Client` construction, `internal/license/**`, or systemd units. Enforces Iranian-DC air-gap contract (no Cloudflare, no ACME-from-Iran, Iranian NTP only, vendored deps, offline Ed25519 license, `.ir`/`.ایران` IDN bundle). Blocks Filimo-destined PRs that would fail `blackout-sim` under `iptables OUTPUT DROP`. Full 17-item checklist in body.
+description: MUST USE when editing `deploy/**`, `ops/**`, `infra/**`, DNS zones, TLS/NTP config, `*http.Client` construction, `internal/license/**`, or systemd units. Enforces Iranian-DC air-gap contract (no Cloudflare, no ACME-from-Iran, Iranian NTP only, vendored deps, offline Ed25519 license, `.ir`/`.ایران` IDN bundle). Blocks SamplePlatform-destined PRs that would fail `blackout-sim` under `iptables OUTPUT DROP`. Full 17-item checklist in body.
 license: proprietary
 metadata:
   author: statnive-live
   version: "0.1.0-scaffold"
   phase: 8
   research: "jaan-to/docs/research/28-geoip-iranian-dc-clickhouse.md §Gap 2"
-  hard_gate: "Weeks 21–24 Filimo cutover"
+  hard_gate: "Weeks 21–24 SamplePlatform cutover"
 ---
 
 # iranian-dc-deploy
 
-> **Activation gate (Phase 8 Weeks 17–18 — HARD GATE on Filimo cutover).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 8 Weeks 17–18 (first skill to ship; blocks every Filimo-destined PR after Week 20). Until the corresponding `.github/workflows/blackout-sim.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+> **Activation gate (Phase 8 Weeks 17–18 — HARD GATE on SamplePlatform cutover).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 8 Weeks 17–18 (first skill to ship; blocks every SamplePlatform-destined PR after Week 20). Until the corresponding `.github/workflows/blackout-sim.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
 
 Encodes **CLAUDE.md § Isolation / Air-Gapped Capability** + **CLAUDE.md § Security #1 (TLS 1.3 via manual PEM)** for the Iranian DC deployment surface. National Information Network (NIN) blackout events (2019, 2026-01-08) confirm this is not a hypothetical — intl connectivity sat at ~1–4% of baseline for 100+ days during the most recent blackout while Iranian-resident services kept serving Iranian eyeballs. Every pattern in this skill has a blackout-survivability reason.
 
@@ -68,4 +68,4 @@ Semgrep rules in [semgrep/rules.yaml](semgrep/rules.yaml) cover the 7 egress-gat
 
 ## Scaffold status
 
-Frontmatter + checklist + Semgrep skeleton shipped in this commit. Full Semgrep rule bodies + CI YAML + NSD config samples + test fixtures land in **Phase 8 (Weeks 17–18)** per doc 28 §Full-optimization-roadmap — the first skill to ship because every other Filimo-destined PR gates against it.
+Frontmatter + checklist + Semgrep skeleton shipped in this commit. Full Semgrep rule bodies + CI YAML + NSD config samples + test fixtures land in **Phase 8 (Weeks 17–18)** per doc 28 §Full-optimization-roadmap — the first skill to ship because every other SamplePlatform-destined PR gates against it.

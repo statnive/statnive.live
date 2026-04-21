@@ -40,7 +40,7 @@ var ErrGroupSyncerStopped = errors.New("wal group syncer stopped")
 // so retrying after a Sync error silently loses data. Postgres responded
 // by making fsync failures PANIC; we exit(1) for the same reason.
 //
-// Throughput: 100ms / 256-event batch covers Filimo's 7K EPS profile in
+// Throughput: 100ms / 256-event batch covers SamplePlatform's 7K EPS profile in
 // ~30 fsyncs/sec (one per ~33ms). Latency cost added to /api/event:
 // p50 ~50ms (half the batch interval) within CLAUDE.md's 50ms p95 budget.
 type GroupSyncer struct {

@@ -36,7 +36,7 @@ Every sub-command writes to stdout in JSON (`--output=json`, default) or human-r
 
 ### Why a CLI in v1.1, not v1
 
-- v1's tiny operator surface (Phase 8 deploy → Phase 9 dogfood → Phase 10 Filimo) needs maybe 4–5 of these commands — `secret generate`, `license issue`, `sites add`, `migrate`, `doctor`. Those can ship as discrete shell scripts in `deploy/` for v1.
+- v1's tiny operator surface (Phase 8 deploy → Phase 9 dogfood → Phase 10 SamplePlatform) needs maybe 4–5 of these commands — `secret generate`, `license issue`, `sites add`, `migrate`, `doctor`. Those can ship as discrete shell scripts in `deploy/` for v1.
 - A real CLI binds the operator UX to a single tool, which is the right shape for v1.1 once we have ≥1 self-hosted customer running their own ops.
 - Cobra adds ~200 KB to the binary. Acceptable; binary is currently <20 MB.
 
@@ -71,7 +71,7 @@ Stdio transport works on a fully isolated host (operator pipes through `claude m
 
 ```jsonc
 {
-  "site_slug": "filimo-com",   // resolved server-side to site_id; auth must permit
+  "site_slug": "SamplePlatform-com",   // resolved server-side to site_id; auth must permit
   "range": "7d",               // 1h | 1d | 7d | 30d | "2026-04-01..2026-04-18"
   "filters": { ... }           // optional; matches the Filter struct from Phase 3
 }

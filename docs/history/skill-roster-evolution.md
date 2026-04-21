@@ -4,7 +4,7 @@
 
 ## Doc 25 additions (Weeks 1–12)
 
-**Summary.** [`jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md`](../../../jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md) refines doc 23 with a vetted install matrix, an explicit blacklist, and six **mandatory** project-local custom skills that encode the 8 architecture rules from [`CLAUDE.md`](../../CLAUDE.md) as CI-blocking guardrails. 12-week install order front-loads security and tenancy foundations.
+**Summary.** [`jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md`](../../../jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md) refines doc 23 with a vetted install matrix, an explicit blacklist, and six **mandatory** project-local custom skills that encode the 8 architecture rules from [`CLAUDE.md`](../../CLAUDE.md) as CI-blocking guardrails. 12-week install order front-loads security and tenancy foundations.
 
 ### Community skills added by doc 25
 
@@ -126,7 +126,7 @@ Four `.claude/skills/*` directories scaffolded; Semgrep rule bodies + test fixtu
 | Skill | Architecture touchpoint | Trigger | Required before |
 |---|---|---|---|
 | [`wal-durability-review`](../../.claude/skills/wal-durability-review/README.md) | Architecture Rule 4 + kill-9 contract | `internal/ingest/{wal,consumer}.go`; `.Sync()` / `.TruncateFront()` | Phase 7b — fix 3 WAL gaps from PR #14 |
-| [`ratelimit-tuning-review`](../../.claude/skills/ratelimit-tuning-review/README.md) | Security #5 + CGNAT SLO | `internal/ratelimit/**`, `httprate` / `x/time/rate`, middleware chain | **Phase 10 Filimo cutover — HARD GATE** |
+| [`ratelimit-tuning-review`](../../.claude/skills/ratelimit-tuning-review/README.md) | Security #5 + CGNAT SLO | `internal/ratelimit/**`, `httprate` / `x/time/rate`, middleware chain | **Phase 10 SamplePlatform cutover — HARD GATE** |
 | [`gdpr-code-review`](../../.claude/skills/gdpr-code-review/README.md) | Privacy Rules 1–9 + GDPR Art. 4(2), 17, 21 | `internal/identity/**`, `internal/audit/**`, `/api/privacy/*`, tracker JS | **Phase 11 public signup — HARD GATE** |
 | [`dsar-completeness-checker`](../../.claude/skills/dsar-completeness-checker/README.md) | GDPR Art. 17 sink matrix | New migration + `erase.go` + audit sinks | **Phase 11 public signup — HARD GATE** (pair) |
 
@@ -140,7 +140,7 @@ Four `.claude/skills/*` directories scaffolded; Semgrep rule bodies + test fixtu
 ### 3-phase schedule
 
 - **Phase 7b (now)** — author Semgrep body for `wal-durability-review`; wire kill-9 CI gate; fix 3 WAL gaps surfaced in PR #14.
-- **Phase 10 (Filimo cutover)** — author ASN-tiered limiter in `internal/ratelimit/tier.go`; wire `iptoasn.com` TSV loader; ship k6 scenarios `normal` / `burst` / `ddos` / `cgnat`.
+- **Phase 10 (SamplePlatform cutover)** — author ASN-tiered limiter in `internal/ratelimit/tier.go`; wire `iptoasn.com` TSV loader; ship k6 scenarios `normal` / `burst` / `ddos` / `cgnat`.
 - **Phase 11 (SaaS public signup)** — author `gdpr-code-review` + `dsar-completeness-checker` Semgrep bodies; integration test enumerates `system.tables` dynamically; DPA draft committed at `docs/dpa-draft.md`; weekly rollup rebuild cron scheduled.
 
 ### Follow-ups (out of scope for the doc-27 install PR)
@@ -163,7 +163,7 @@ Doc 28 §Gap 1 establishes that **every major free city-level GeoIP DB is CC-BY-
 
 **Resolution** (shipped in [CLAUDE.md § License Rules](../../CLAUDE.md#license-rules-critical) — commit `4d26275`): carve-out amendment for *non-linked data files only*. GeoIP BIN databases are data, not linked code — the binary surface gate does not apply. Attribution is delivered in three surfaces (`LICENSE-third-party.md` + `/about` JSON + dashboard footer) enforced by the [`geoip-pipeline-review`](../../.claude/skills/geoip-pipeline-review/README.md) skill's Semgrep rule `geoip-attribution-string-present`.
 
-**Alternative (Phase 10 Filimo):** budget for paid IP2Location DB23 Site License — attribution waived per commercial terms. Price is sales-gated; comparable DBs range $99–$980/yr.
+**Alternative (Phase 10 SamplePlatform):** budget for paid IP2Location DB23 Site License — attribution waived per commercial terms. Price is sales-gated; comparable DBs range $99–$980/yr.
 
 ### Roster correction — ClickHouse/agent-skills is 1 skill, not 6
 
@@ -180,8 +180,8 @@ Four `.claude/skills/*` directories scaffolded; Semgrep rule bodies + CI wiring 
 
 | Skill | Architecture touchpoint | Trigger | Required before |
 |---|---|---|---|
-| [`iranian-dc-deploy`](../../.claude/skills/iranian-dc-deploy/README.md) | Isolation + Security #1 (TLS manual PEM) + OFAC 31 CFR 560.540(b)(3) | `deploy/**`, `ops/**`, `infra/**`, DNS zones, TLS/NTP/systemd, `*http.Client`, `internal/license/**` | **Weeks 21–24 Filimo cutover — HARD GATE.** Blocks every Filimo-destined PR after Week 20. |
-| [`geoip-pipeline-review`](../../.claude/skills/geoip-pipeline-review/README.md) | Privacy Rule 1 (raw IP never persisted) + CC-BY-SA carve-out | `internal/enrich/geoip.go`, `**/*ip2location*`, `cmd/**/main.go`, `internal/about/**`, `LICENSE-third-party.md` | **Phase 10 Filimo paid-DB23 cutover.** CC-BY-SA policy call Week 19 Day 1. |
+| [`iranian-dc-deploy`](../../.claude/skills/iranian-dc-deploy/README.md) | Isolation + Security #1 (TLS manual PEM) + OFAC 31 CFR 560.540(b)(3) | `deploy/**`, `ops/**`, `infra/**`, DNS zones, TLS/NTP/systemd, `*http.Client`, `internal/license/**` | **Weeks 21–24 SamplePlatform cutover — HARD GATE.** Blocks every SamplePlatform-destined PR after Week 20. |
+| [`geoip-pipeline-review`](../../.claude/skills/geoip-pipeline-review/README.md) | Privacy Rule 1 (raw IP never persisted) + CC-BY-SA carve-out | `internal/enrich/geoip.go`, `**/*ip2location*`, `cmd/**/main.go`, `internal/about/**`, `LICENSE-third-party.md` | **Phase 10 SamplePlatform paid-DB23 cutover.** CC-BY-SA policy call Week 19 Day 1. |
 | [`clickhouse-operations-review`](../../.claude/skills/clickhouse-operations-review/README.md) | Architecture Rules 1, 2, 4, 5 + operational defaults | `migrations/*.sql`, `internal/ingest/**`, `internal/query/**`, `config/ch*`, `prometheus/*.rules.yml`, `deploy/backup/**` | **Week 23 load-rehearsal.** Backup-restore drill + parts-ceiling gate. |
 | [`clickhouse-upgrade-playbook`](../../.claude/skills/clickhouse-upgrade-playbook/README.md) | `{{if .Cluster}}` scope (DDL only, NOT data migration) | `migrations/*.sql`, `migrations/**/*.tmpl` with `Engine=` or `{{if .Cluster}}` | **P5 cluster upgrade.** Advisory only — no Semgrep rules. Paired with `clickhouse-operations-review`. |
 
@@ -199,10 +199,10 @@ Also mirrored in [CLAUDE.md § Anti-patterns](../../CLAUDE.md#anti-patterns-doc-
 
 ### 3-phase schedule (doc 28 §Full-optimization-roadmap)
 
-- **Weeks 17–18 — `iranian-dc-deploy` first.** Highest dependency chain: blocks every Filimo-destined PR after Week 20. DNS + TLS + blackout-sim CI must be green before any Filimo-specific feature work lands.
+- **Weeks 17–18 — `iranian-dc-deploy` first.** Highest dependency chain: blocks every SamplePlatform-destined PR after Week 20. DNS + TLS + blackout-sim CI must be green before any SamplePlatform-specific feature work lands.
 - **Weeks 19–20 — `geoip-pipeline-review`.** Depends on `iranian-dc-deploy` (`airgap-update-geoip.sh` lives there). Block Phase 10 paid-DB23 cutover on green Semgrep + hot-reload integration + IP-leak log grep + attribution UI shipped. **CC-BY-SA policy resolution Week 19 Day 1.**
-- **Weeks 20–22 (overlaps Filimo rehearsal) — `clickhouse-operations-review` + `clickhouse-upgrade-playbook` paired.** Must be green before Week 23 load-rehearsal at 7K EPS. Backup-restore drill + parts-ceiling CI are the two gates Filimo operations will watch.
-- **Weeks 21–24 — Filimo cutover.** Skills act as merge-gates. No custom-skill work during this window; fix bugs only.
+- **Weeks 20–22 (overlaps SamplePlatform rehearsal) — `clickhouse-operations-review` + `clickhouse-upgrade-playbook` paired.** Must be green before Week 23 load-rehearsal at 7K EPS. Backup-restore drill + parts-ceiling CI are the two gates SamplePlatform operations will watch.
+- **Weeks 21–24 — SamplePlatform cutover.** Skills act as merge-gates. No custom-skill work during this window; fix bugs only.
 
 ### Follow-ups (out of scope for the doc-28 install PR)
 
@@ -210,7 +210,7 @@ Also mirrored in [CLAUDE.md § Anti-patterns](../../CLAUDE.md#anti-patterns-doc-
 - Author `ops/cert-forge/` Hetzner box provisioning + ACME DNS-01 automation.
 - Register `statnive.ir` + `.ایران` IDN bundle at IRNIC (Pars.ir or Gandi; US persons excluded from Gandi per T&Cs).
 - Quote Asiatech IRR pricing across AT-VPS-B1 / AT-VPS-G2 / AT-VPS-A1 / dedicated 8c/32GB tiers.
-- Quote paid IP2Location DB23 Site License for Phase 10 (Filimo).
+- Quote paid IP2Location DB23 Site License for Phase 10 (SamplePlatform).
 - Verify Bunny DNS AXFR-out support (likely unsupported; ClouDNS as AXFR primary instead).
 - Place Ed25519 license-signing keypair on offline YubiKey in a non-US, non-Iran jurisdiction (operator decision).
 - Decide MiravaOrg/Mirava licence (UNCONFIRMED); wrap functionality in-house if not permissive.

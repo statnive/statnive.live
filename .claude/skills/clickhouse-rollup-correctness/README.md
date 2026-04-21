@@ -6,7 +6,7 @@ Encodes **CLAUDE.md Architecture Rule 2** (line 26) and the Database section at 
 
 ## Research anchors
 
-- [jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md) §gap-analysis #3 — extends `clickhouse-best-practices` into combinator-correctness territory.
+- [jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md) §gap-analysis #3 — extends `clickhouse-best-practices` into combinator-correctness territory.
 - [jaan-to/docs/research/20-dev-go-clickhouse-analytics-implementation-blueprint.md](../../../../jaan-to/docs/research/20-dev-go-clickhouse-analytics-implementation-blueprint.md) §MV.
 - [jaan-to/docs/research/24-pirsch-pattern-extraction-reference-only.md](../../../../jaan-to/docs/research/24-pirsch-pattern-extraction-reference-only.md) §Sec 2 Migration 0012 (`DateTime` vs `DateTime64(3)`).
 

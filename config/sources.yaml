@@ -40,7 +40,7 @@ sources:
   - {name: Namasha,    channel: Video, domains: [namasha.com]}
   - {name: Vimeo,      channel: Video, domains: [vimeo.com]}
   - {name: Twitch,     channel: Video, domains: [twitch.tv]}
-  - {name: Filimo,     channel: Video, domains: [filimo.com]}
+  - {name: SamplePlatform,     channel: Video, domains: [SamplePlatform.com]}
   - {name: Namava,     channel: Video, domains: [namava.ir]}
 
   # ---------- Email ----------

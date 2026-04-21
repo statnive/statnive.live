@@ -6,7 +6,7 @@ Encodes the **CLAUDE.md Database** line "Migrations use `{{if .Cluster}}` Go tem
 
 ## Research anchors
 
-- [jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md) §gap-analysis #4.
+- [jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md) §gap-analysis #4.
 - [jaan-to/docs/research/24-pirsch-pattern-extraction-reference-only.md](../../../../jaan-to/docs/research/24-pirsch-pattern-extraction-reference-only.md) §Sec 2 Migration 0029 (authoritative source).
 
 ## Implementation phase

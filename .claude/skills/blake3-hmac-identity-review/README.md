@@ -10,7 +10,7 @@ Cross-references **Security #11** (user_id pre-hashed with SHA-256) and **Privac
 
 ## Research anchors
 
-- [jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md) §gap-analysis #6.
+- [jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md) §gap-analysis #6.
 - [jaan-to/docs/research/22-statnive-ingestion-pipeline-10-critical-gaps-drop-in-go-code.md](../../../../jaan-to/docs/research/22-statnive-ingestion-pipeline-10-critical-gaps-drop-in-go-code.md) §GAP 6 (salt rotation) + §GAP 9 (BLAKE3-128 visitor hash).
 - [jaan-to/docs/research/24-pirsch-pattern-extraction-reference-only.md](../../../../jaan-to/docs/research/24-pirsch-pattern-extraction-reference-only.md) §Sec 1.1 (cross-day fingerprint grace — exactly one day back).
 

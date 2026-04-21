@@ -83,7 +83,7 @@ Full bodies in [`semgrep/rules.yaml`](semgrep/rules.yaml) (verbatim from doc 28 
 
 **Resolution (shipped in the CLAUDE.md update commit that follows this scaffold):** amend § License Rules with a CC-BY-SA carve-out for **non-linked data files** (GeoIP BIN databases). The binary surface gate stays strictly MIT/Apache/BSD/ISC. Attribution obligation is satisfied by this skill's 3-surface delivery matrix.
 
-**If leadership rejects the carve-out:** budget for paid IP2Location DB23 Site License at Phase 10 (Filimo cutover). Price gated behind sales contact; comparable DBs range $99–$980/yr.
+**If leadership rejects the carve-out:** budget for paid IP2Location DB23 Site License at Phase 10 (SamplePlatform cutover). Price gated behind sales contact; comparable DBs range $99–$980/yr.
 
 ## Go patterns (canonical)
 

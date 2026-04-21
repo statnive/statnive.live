@@ -6,7 +6,7 @@ Encodes **CLAUDE.md Isolation block** (lines 69-86) and **Project Goal 5**. Matc
 
 ## Research anchors
 
-- [jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md) §gap-analysis #2.
+- [jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md) §gap-analysis #2.
 - [jaan-to/docs/research/14-data-high-performance-standalone-analytics-architecture.md](../../../../jaan-to/docs/research/14-data-high-performance-standalone-analytics-architecture.md) §air-gap.
 - [jaan-to/docs/research/20-dev-go-clickhouse-analytics-implementation-blueprint.md](../../../../jaan-to/docs/research/20-dev-go-clickhouse-analytics-implementation-blueprint.md) §deploy.
 

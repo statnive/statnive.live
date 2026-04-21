@@ -52,18 +52,18 @@ Iranian self-hosted deployments are exempt (no EU visitors / data stays on custo
 | Phase C first paying tier (~10 customers) | Hetzner AX41 (6c/64GB/2×512GB) | **~€39** | **~€468** |
 | Phase C growth (~50–100 customers) | Hetzner AX42 (8c/64GB/1TB) | **€46** | **€552** |
 | Phase C scale (100+ customers) | Hetzner AX102 (16c/128GB/4TB) | **€104** | **€1,248** |
-| Filimo (Phase B) | 8c/32GB/1TB NVMe Iranian DC (Asiatech / Shatel / Afranet) | **~€180** | **~€2,160** |
+| SamplePlatform (Phase B) | 8c/32GB/1TB NVMe Iranian DC (Asiatech / Shatel / Afranet) | **~€180** | **~€2,160** |
 
 **Notes:**
 - **Start small:** CX32 (~€13/mo) handles statnive.com dogfood traffic (<100K PV/mo) for ~400× less cost than AX42. Upgrade to AX42 when SaaS load demands it. Saves ~€430/yr in year 1.
 - Iranian DCs are quote-based (not public pricing). Upfront CAPEX on custom bare-metal builds; monthly figure is colocation + bandwidth only.
 - **Customer Iranian DC sizing is phase-dependent**, not a single number. P1/P2 (StreamCo MIN, web only) runs on an Asiatech G2 standard VPS (~28M Rial/mo). P3 (+iOS) needs bandwidth upgrade or small dedicated. P4/P5 (StreamCo MAX, full fidelity) is a 2–3 node cluster. See the 5-phase table in PLAN.md § Phase 10 and [`../../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../../jaan-to/outputs/capacity-planning-standalone-analytics.md) for monthly bandwidth / disk / EPS per sub-phase.
 - **Bandwidth envelope by sub-phase** (StreamCo profile, at 300 B/event optimized): P1 ~22 GB/mo (MIN), P2 ~105 GB/mo, P3 ~420 GB/mo, P4 ~900 GB/mo, P5 ~1.2 TB/mo (MAX). All Asiatech standard VPS tiers cap at 150 GB/mo — upgrade conversation lands at P3, not at initial cutover.
-- IP2Location paid DB23 subscription only on D2 (Filimo) in v1. LITE DB23 on D1 (free, attribution required).
+- IP2Location paid DB23 subscription only on D2 (SamplePlatform) in v1. LITE DB23 on D1 (free, attribution required).
 
 ## Air-Gapped / Isolated Deployment
 
-The final platform runs as a **single, self-contained binary on one server with zero required outbound connections**. This is a core product requirement, not an edge case — Filimo's Iranian DC is assumed internet-restricted, and enterprise self-hosted customers may deploy behind corporate firewalls.
+The final platform runs as a **single, self-contained binary on one server with zero required outbound connections**. This is a core product requirement, not an edge case — SamplePlatform's Iranian DC is assumed internet-restricted, and enterprise self-hosted customers may deploy behind corporate firewalls.
 
 ### What ships inside the binary (via `go:embed`)
 
@@ -78,7 +78,7 @@ The final platform runs as a **single, self-contained binary on one server with 
 
 - `statnive-live` binary (`CGO_ENABLED=0` where possible — one file, no runtime deps)
 - `vendor/` tarball (for buildable-from-source audits only; not required to run)
-- `IP2LOCATION-LITE-DB23.BIN` (or licensed DB23 BIN for Filimo)
+- `IP2LOCATION-LITE-DB23.BIN` (or licensed DB23 BIN for SamplePlatform)
 - `clickhouse-backup` + `age` binaries
 - `schema.sql` + `migrations/`
 - `deploy/` scripts (systemd, iptables, backup, airgap-install, airgap-update-geoip)
@@ -125,4 +125,4 @@ The final platform runs as a **single, self-contained binary on one server with 
 - Linux kernel 5.x+, systemd, ClickHouse 24+ (also shipped in the bundle)
 - **Internal NTP source** — IRST salt correctness depends on accurate clock
 - Sufficient disk (plan ≥100 GB for WAL + CH data at 7K EPS for 90 days)
-- Optional: internal CA + root cert distributed to tracker-embedding clients (for Filimo's corporate trust store)
+- Optional: internal CA + root cert distributed to tracker-embedding clients (for SamplePlatform's corporate trust store)

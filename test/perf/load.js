@@ -1,6 +1,6 @@
 // k6 load script — 7K EPS sustained against /api/event for 5 minutes.
 //
-// Filimo's peak-hour traffic at 10–20M DAU lands around 7K EPS per
+// SamplePlatform's peak-hour traffic at 10–20M DAU lands around 7K EPS per
 // PLAN.md doc 16. This script proves the binary holds at that rate
 // with the analytics-invariant budget:
 //   - http_req_failed rate < 0.001  (< 0.1% errors)

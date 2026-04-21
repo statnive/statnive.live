@@ -108,7 +108,7 @@ Must be present on **every** dashboard route, not just `/about`. CSS ensures it 
 
 ## Paid DB23 Site License — attribution waived
 
-If leadership budgets the paid IP2Location DB23 Site License at Phase 10 (Filimo cutover), attribution is waived per IP2Location commercial terms. The three surfaces become optional. The skill's Semgrep rule `geoip-attribution-string-present` is gated by a build tag `licensed_db23` — when present, the rule does not fire.
+If leadership budgets the paid IP2Location DB23 Site License at Phase 10 (SamplePlatform cutover), attribution is waived per IP2Location commercial terms. The three surfaces become optional. The skill's Semgrep rule `geoip-attribution-string-present` is gated by a build tag `licensed_db23` — when present, the rule does not fire.
 
 ```go
 // +build licensed_db23

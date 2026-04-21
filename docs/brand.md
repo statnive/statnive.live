@@ -11,7 +11,7 @@ Every public surface that carries the statnive.live name:
 - **statnive.live root** — marketing landing page (Phase 9 + Phase 11). Hero uses the summit mark + Persian Teal accent on cream; CTAs in serif.
 - **demo.statnive.live** — public demo dashboard (Phase 9). Same surface as tenant dashboards but with the "Public demo" banner from Phase A.
 - **app.statnive.live/s/&lt;slug&gt;** — tenant dashboards (Phase 11). The Preact SPA from Phase 5 owns the implementation; brand tokens shipped as CSS custom properties so per-tenant white-label (a v2 upsell) is a token swap, not a refactor.
-- **filimo.statnive.live** — Filimo dedicated dashboard (Phase 10). Same brand by default; Filimo can request white-label co-branding under v2.
+- **SamplePlatform.statnive.live** — SamplePlatform dedicated dashboard (Phase 10). Same brand by default; SamplePlatform can request white-label co-branding under v2.
 - **README + docs site** — when we eventually publish operator docs, they use the same palette + Fraunces wordmark.
 
 ## Tokens to ship as CSS custom properties

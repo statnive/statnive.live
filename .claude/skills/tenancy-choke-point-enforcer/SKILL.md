@@ -6,7 +6,7 @@ metadata:
   author: statnive-live
   version: "0.1.0-scaffold"
   phase: 1
-  research: "jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md §gap-analysis #1; doc 24 §Sec 4 pattern 6"
+  research: "jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md §gap-analysis #1; doc 24 §Sec 4 pattern 6"
 ---
 
 # tenancy-choke-point-enforcer

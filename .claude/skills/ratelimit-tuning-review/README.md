@@ -2,7 +2,7 @@
 
 ## Architecture rule
 
-Encodes **CLAUDE.md Security #5** (rate limiting per IP via `go-chi/httprate`, 100 req/s, burst 200, NAT-aware) plus the doc-27 addition that the plain flat-per-IP config is unsafe for Iranian CGNAT traffic. The skill is the **hard gate on Phase 10 (Filimo Iranian VPS cutover)** — ASN tiering must ship before the first byte of Filimo traffic routes through.
+Encodes **CLAUDE.md Security #5** (rate limiting per IP via `go-chi/httprate`, 100 req/s, burst 200, NAT-aware) plus the doc-27 addition that the plain flat-per-IP config is unsafe for Iranian CGNAT traffic. The skill is the **hard gate on Phase 10 (SamplePlatform Iranian VPS cutover)** — ASN tiering must ship before the first byte of SamplePlatform traffic routes through.
 
 ## Research anchors
 
@@ -14,9 +14,9 @@ Encodes **CLAUDE.md Security #5** (rate limiting per IP via `go-chi/httprate`, 1
 ## Implementation phase
 
 - **Phase 2a** (already shipped in PR #6) — skill is a regression guard against any `middleware.RealIP` / XFF-left / flat-per-IP regression.
-- **Phase 10 (Filimo cutover)** — **hard gate**. ASN tiering + compound-key + `iptoasn.com` TSV loader must ship before routing the first Filimo pageview.
+- **Phase 10 (SamplePlatform cutover)** — **hard gate**. ASN tiering + compound-key + `iptoasn.com` TSV loader must ship before routing the first SamplePlatform pageview.
 
-## Filimo P5 config (calibrated per doc 27 §line 63)
+## SamplePlatform P5 config (calibrated per doc 27 §line 63)
 
 ```go
 // internal/ratelimit/tier.go

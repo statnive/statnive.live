@@ -6,7 +6,7 @@ metadata:
   author: statnive-live
   version: "0.1.0-scaffold"
   phase: 0
-  research: "jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md §gap-analysis #2; CLAUDE.md §Isolation; PLAN.md §Air-Gapped / Isolated Deployment"
+  research: "jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md §gap-analysis #2; CLAUDE.md §Isolation; PLAN.md §Air-Gapped / Isolated Deployment"
 ---
 
 # air-gap-validator

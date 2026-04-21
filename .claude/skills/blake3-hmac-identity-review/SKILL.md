@@ -6,7 +6,7 @@ metadata:
   author: statnive-live
   version: "0.1.0-scaffold"
   phase: 1
-  research: "jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md §gap-analysis #6; CLAUDE.md §Privacy + §Identity"
+  research: "jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md §gap-analysis #6; CLAUDE.md §Privacy + §Identity"
 ---
 
 # blake3-hmac-identity-review
