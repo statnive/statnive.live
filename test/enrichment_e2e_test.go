@@ -227,7 +227,9 @@ func newTestPipelineServer(t *testing.T, ctx context.Context, store *storage.Cli
 	}
 	t.Cleanup(func() { _ = wal.Close() })
 
-	saltMgr, err := identity.NewSaltManager([]byte(fmt.Sprintf("test-secret-%s-32-bytes-padding", t.Name())))
+	masterSecret := []byte(fmt.Sprintf("test-secret-%s-32-bytes-padding", t.Name()))
+
+	saltMgr, err := identity.NewSaltManager(masterSecret)
 	if err != nil {
 		t.Fatalf("salt: %v", err)
 	}
@@ -266,10 +268,11 @@ func newTestPipelineServer(t *testing.T, ctx context.Context, store *storage.Cli
 	router.Group(func(r chi.Router) {
 		r.Use(ingest.FastRejectMiddleware(nil))
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
-			Pipeline: pipeline,
-			WAL:      groupSyncer,
-			Sites:    sites.New(store.Conn()),
-			Logger:   logger,
+			Pipeline:     pipeline,
+			WAL:          groupSyncer,
+			Sites:        sites.New(store.Conn()),
+			MasterSecret: masterSecret,
+			Logger:       logger,
 		}))
 	})
 

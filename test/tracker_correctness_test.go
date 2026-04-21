@@ -140,9 +140,11 @@ func TestTrackerCorrectness_PayloadsLandInClickHouse(t *testing.T) {
 	// before write — Privacy Rule 4).
 	var hashedRows uint64
 
+	// length-64 confirms the hash path ran for the identified payload
+	// (raw user_id → SHA-256 hex before EnrichedEvent).
 	row := store.Conn().QueryRow(ctx,
 		`SELECT count() FROM statnive.events_raw
-		 WHERE site_id = ? AND user_id != '' AND length(user_id) = 64`,
+		 WHERE site_id = ? AND user_id_hash != '' AND length(user_id_hash) = 64`,
 		trackerSiteID,
 	)
 	if scanErr := row.Scan(&hashedRows); scanErr != nil {
