@@ -2,7 +2,7 @@
 
 ## Context
 
-Fifteen research documents (docs 14–28), 500+ sources, 2,000+ lines of drop-in Go code. Architecture, features, schema, security, and Iranian-DC operational decisions are finalized. Docs 24 (AGPL-safe Pirsch extraction), 25 (skill install matrix), 27 (three-gap closure — WAL / CGNAT / GDPR-on-HLL), 28 (final-three-gap closure — GeoIP pipeline / Iranian DC deploy / ClickHouse ops) drive the Week 17+ schedule.
+Sixteen research documents (docs 14–29), 500+ sources, 2,000+ lines of drop-in Go code. Architecture, features, schema, security, and Iranian-DC operational decisions are finalized. Docs 24 (AGPL-safe Pirsch extraction), 25 (skill install matrix), 27 (three-gap closure — WAL / CGNAT / GDPR-on-HLL), 28 (final-three-gap closure — GeoIP pipeline / Iranian DC deploy / ClickHouse ops), 29 (production load-simulation gate — 5-phase graduation matrix + generator_seq oracle + 6-scenario chaos) drive the Week 17+ schedule.
 
 **statnive-live** is the standalone analytics platform (separate from the WordPress plugin "statnive"). Targets Iranian high-traffic sites; Filimo is first customer.
 
@@ -73,8 +73,8 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 | **3b — Dashboard HTTP layer** | ✅ Complete | PR #12. 8 stat handlers + realtime + IRST Filter + bearer-token stub + WITH FILL. |
 | **3c — Admin CRUD** | ⏳ Pending | `/api/admin/users`, `/api/admin/goals`. Needs Phase 2b. |
 | **4 — Tracker JS** | ✅ Complete | PR #21. 1394 B min / 687 B gz + Go embed at `/tracker.js`; `statnive.track()` + `statnive.identify(uid)` end-to-end (raw uid cleared). Sec-GPC + DNT + webdriver + _phantom short-circuits BEFORE send. 15 Vitest + 6 Go handler tests; size gate in `make audit`. |
-| **5 — Dashboard frontend** | 🔜 Next | Preact SPA + uPlot + Frappe. Unit-side of Phase 7b2 green (TLS rotation + fsync p99 metric run in `make test`); integration-side (real-tracker correctness + PII grep + 3 migrated integration tests + tracker payload-golden Vitest) is shipped + compile-clean but not yet executing in CI — Phase 7b2-completion wires it. |
-| **7b2-completion — execute the 7b2 integration tests** | 🔜 Next | Wires `make test-integration` + `npm --prefix tracker test` into CI as new jobs. Same docker-compose-CH-service pattern as `wal-killtest-smoke` (Phase 7b2). Closes the "shipped vs executed" gap before Phase 5 starts adding code paths that could regress these tests undetected. |
+| **5 — Dashboard frontend** | 🔜 Next | Preact SPA + uPlot + Frappe. Unblocked by Phase 7b2 + Phase 7b2-completion (every Phase 7b2 deliverable now actually executing in CI per PR — fixed 2 latent bugs the wiring exposed: `user_id` → `user_id_hash` schema reference, missing `HandlerConfig.MasterSecret` in test harness). |
+| **7b2-completion — execute the 7b2 integration tests** | ✅ Complete | PR #28. New CI jobs: `integration-tests` (docker-compose CH + `make test-integration`) + `tracker-vitest` (Node 20 + `npm --prefix tracker test`). All 5 CI jobs green: build-test-lint, licenses, wal-killtest-smoke, integration-tests, tracker-vitest. |
 | **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, `/healthz`, env override done. Admin-user + Goal/Funnel CRUD wait on Phase 2/3. |
 | **7a — Backend solidity gate** | ✅ Complete | PR #14. Burst guard (~50 ns/op) + bench suite + crash/CH-outage/disk-full tests + k6 7K EPS + WAL replay + viper env fix. |
 | **7c — Optimization & hardening** | ✅ Complete | PR #18. Channel hot path -13% (1 alloc/op); modern Go (`wg.Go`, range-over-int, `b.Loop()`); dead drift-check removed; CI fixes (vendor-check CRLF, license-check GOFLAGS, golangci-lint v2.5 `--new-from-rev`). Audit evidence at `audit/{sec,ch,airgap}-findings.md`; `bench.out` baseline. |
@@ -82,6 +82,7 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 | **7b1b — WAL integration + perf-test** | ✅ Complete | PR #25. Pipeline synchronous; handler calls `Pipeline.Enrich` + `GroupSyncer.AppendAndWait` before 202. Consumer acks only after CH commit, 100/500/2000ms backoff, 30s drain. `BackpressureMiddleware` → 503 + `Retry-After: 5` at `wal_fill_ratio ≥ 0.80`. WAL replay emits `wal_replay` / `wal_replay_done` + `EventWALCorruptSkipped`. Same-filesystem boot check; LastIndex monotonic guard. `wal-durability-review` body: 4 Semgrep rules + 8 fixtures + 50-iter kill-9 harness. 0.05% loss SLO tightened. Closes items #1,#3,#4,#8,#9,#10 (#2,#5 in PR #23). |
 | **7b2 — Real-traffic verification + drills** | 🔜 Next | Real-tracker correctness; backup restore drill; manual TLS rotation drill; integration-level PII grep. Plus 7b1b follow-ups: `make wal-killtest` CI wiring, `wal_fsync_duration_seconds` p99 on `/healthz`. |
 | **7d — Lint baseline cleanup** | ⏳ Pending | ~40 pre-existing findings on main (errcheck, gosec G302/G304, gofmt, intrange/goconst, gocyclo). Install + baselines: govulncheck, CodeQL+Semgrep, go-licenses. |
+| **7e — Load-simulation gate scaffolding** | ⏳ Pending | `test/perf/gate/` Locust harness + k6 CI cross-check + Vegeta/wrk2 breakpoint, 6-scenario chaos matrix, observability VPS, generator_seq schema migration 003. Doc 29 §8 W1–W5. HARD GATE on Phase 10 P1 cutover. |
 | **8 — Deployment & launch** | ⏳ Pending | Hetzner CX32 staging, airgap-bundle, monitoring, runbook, v1 launch. |
 | **9 — Phase A dogfood** | ⏳ Pending | statnive.com → demo.statnive.live. |
 | **10 — Phase B Filimo** | ⏳ Pending | Iranian DC bare metal, paid DB23 GeoIP. |
@@ -112,7 +113,7 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 - [x] `storage/migrate.go` — numbered migrations, `schema_migrations(version, dirty, sequence)`, `{{if .Cluster}}` templates from day 1. Advisory locks deferred.
 - [x] `enrich/` — GeoIP (LITE DB23 no-op fallback), medama-io UA, 17-step channel tree, isbot + `crawler-user-agents.json`, 18MB bloom. Hostnames via `map[string]struct{}` (~100× speedup).
 - [x] `identity/` — BLAKE3-128 + `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`. Cross-day fingerprint grace lookup.
-- [ ] k6 load test (Phase 7): P1/P2 ~1,300 peak EPS → P3+ ~9K peak / ~18K spike (StreamCo MAX).
+- [ ] k6 load test (Phase 7): P1 ~300 / P2 ~1,000 / P3 ~4,000 / P4 ~9,000 (18K match) / P5 ~40,000 peak EPS per doc 29 §4. Smoke only in CI; per-phase graduation gate runs in Phase 7e.
 - [ ] Crash recovery test (Phase 7): kill-9 → WAL replay → zero loss.
 - [x] Integration tests: bot UA → is_bot=1 + visitor_hash (`test/enrichment_e2e_test.go`); 10-case fast-reject table; cross-day grace.
 
@@ -158,7 +159,7 @@ Flat `internal/storage/queries.go` (one Go function per endpoint) — we do NOT 
 - [x] **Sec-GPC + DNT short-circuit BEFORE the request fires** (doc 27 Privacy Rule #9).
 - [x] Served via `go:embed` (`internal/tracker/tracker.go`).
 - [x] Cross-day returning visitors validated via `_statnive` cookie round-trip.
-- [partial] Real-tracker integration test → rollup verification — Phase 7b2 shipped the payload-golden contract (Vitest captures sendBeacon body in `tracker/test/payload-golden.test.mjs`; Go integration test replays each payload through the full pipeline → ClickHouse in `test/tracker_correctness_test.go`). **Vitest passes locally; Go integration test is `//go:build integration` and `make test-integration` is not yet wired into CI** — Phase 7b2-completion closes the execution gap.
+- [x] Real-tracker integration test → rollup verification — Phase 7b2 shipped the payload-golden contract (Vitest captures sendBeacon body in `tracker/test/payload-golden.test.mjs`; Go integration test replays each payload through the full pipeline → ClickHouse in `test/tracker_correctness_test.go`). Phase 7b2-completion (PR #28) wires both into CI — `tracker-vitest` job runs the Vitest; `integration-tests` job runs the Go replay against docker-compose ClickHouse.
 
 **Deferred to v1.1:** engagement ping (10s heartbeat), throttle-with-last-event, base36 date, envelope+payload separation.
 
@@ -194,9 +195,26 @@ Brand tokens from [`docs/brand.md`](docs/brand.md) — `web/src/tokens.css` impo
 - [partial] Backup restore — Phase 7b2 ships the manual SOP at [`docs/runbook.md`](docs/runbook.md) § Backup & restore; CI automation (`deploy/backup/drill.sh` + dedicated job) lands in Phase 2c.
 - [x] Manual TLS rotation test — Phase 7b2 ([`internal/cert/rotation_e2e_test.go`](internal/cert/rotation_e2e_test.go) — atomic.Pointer hot-swap regression + fail-closed on corrupt PEM).
 - [x] CH outage buffer-and-drain test (10s in-test; 10min in runbook)
-- [partial] Integration-level PII grep — Phase 7b2 shipped [`test/pii_leak_test.go`](test/pii_leak_test.go) (byte-scans WAL segments + audit.jsonl + `events_raw` for raw user_id/IP probes; pins Privacy Rules 1 + 4). **Compile-clean; not yet executing in CI** — `make test-integration` not wired (Phase 7b2-completion closes).
+- [x] Integration-level PII grep — Phase 7b2 shipped [`test/pii_leak_test.go`](test/pii_leak_test.go) (byte-scans WAL segments + audit.jsonl + `events_raw` for raw user_id/IP probes; pins Privacy Rules 1 + 4); Phase 7b2-completion (PR #28) executes it per PR via the new `integration-tests` job. Latent `user_id` vs `user_id_hash` column drift fixed in the same PR.
 - [x] WAL fsync p99 surfaced via `/healthz` — Phase 7b2 closes [`wal-durability-review`](.claude/skills/wal-durability-review/README.md) item 7 (last open of 10).
 - [x] Kill-9 WAL CI gate — Phase 7b1b shipped harness; Phase 7b2 wires `make wal-killtest` 5-iter smoke into per-PR CI + nightly 50-iter on main.
+- [ ] **Generator_seq oracle schema** (doc 29 §6.1) — migration `003_load_gate_columns.sql` adds `test_run_id` (UUID), `test_generator_seq` (UInt64), `generator_node_id` (UInt16), `send_ts` (DateTime64(3)) to `events_raw` with typed `DEFAULT` sentinels (not Nullable — Rule 5 carve-out in CLAUDE.md); projection `proj_oracle` for sub-second per-run aggregations. Phase 7e prerequisite — scaffolded alongside Locust harness.
+- [ ] **PII wire-scan migration to Vector.dev + VRL** (doc 29 §3.4, §6.3) — supersedes one-shot [`test/pii_leak_test.go`](test/pii_leak_test.go) with live <1s detection at 15K+ EPS via VRL regex (ipv4/ipv6/email/user_id). Halts graduation gate on `rate() > 0`. Phase 7e deliverable.
+
+### Phase 7e: Load-simulation gate scaffolding (Weeks 17–20, overlaps Phase 8)
+
+**Guardrail (scheduled):** `load-gate-harness` skill — triggers on `test/perf/gate/**`, `test/perf/chaos/**`, `test/perf/generator/**`, `deploy/observability/**`. Advisory during scaffolding; HARD GATE on Phase 10 P1 cutover.
+
+Canonical spec: [`../jaan-to/docs/research/29-Production-load-simulation-gate-statnive-live-asiatech-tehran.md`](../jaan-to/docs/research/29-Production-load-simulation-gate-statnive-live-asiatech-tehran.md). Schedule maps to doc 29 §8 W1–W5.
+
+- [ ] **W1–W2** — ClickHouse migration `003_load_gate_columns.sql` applied on staging; verify sparse-column storage overhead ≈ zero on 100M-row synthetic; projection `proj_oracle` MATERIALIZEd.
+- [ ] **W3** — Stand up Locust master + 3 FastHttpUser workers on Asiatech (`test/perf/gate/locust-master.py`, `locustfile.py`, worker manifests). Replicate existing k6 scenarios (`test/perf/load.js`) into Locust Python; cross-check p99 within 5% of k6.
+- [ ] **W4** — Observability VPS on separated AT-VPS (rack/AZ distinct from generators + target): Prometheus + Grafana + Grafana Pyroscope (AGPL-3.0 server, Apache-2.0 SDK) + Loki + Vector.dev + Parca + Falco. All container images mirrored to internal registry. `strace -f -e trace=connect` burn-in under `iptables -A OUTPUT -j DROP` except observability VLAN confirms no outbound.
+- [ ] **W5** — Six chaos scripts (`test/perf/chaos/A_bgp_cut.sh` … `F_clock_skew.sh`) per doc 29 §5.1–§5.6 — Ansible playbooks or bash. Dry-run each scenario on isolated 2-node test bed; capture oracle-SQL output for every scenario.
+- [ ] **Makefile targets** — `make load-gate PHASE=Px` (runs 72h soak + 6-chaos + breakpoint), `make soak-72h`, `make chaos-matrix`, `make breakpoint`, `make oracle-scan`.
+- [ ] **Synthesizer** (`test/perf/generator/main.go`) — Go program emitting generator_seq quadruple per event; supports replay from Filimo anonymized NDJSON export + synthetic fill. Kernel tuning applied per doc 29 §3.2 sysctl table on every generator node.
+- [ ] **Replay-attestation template** — `docs/replay-attestation-template.md`; Filimo analytics owner signs a per-phase export statement (regex-scrub spec + salt rotation + auto-delete kill-switch).
+- [ ] **Acceptance:** P1 dry-run on 2-node test bed passes all 6 chaos scenarios + 0→450 EPS breakpoint + oracle SQL returns zero loss/duplicates before Phase 10 Week 21 begins.
 
 ### Phase 8: Deployment & Launch (Weeks 17–18)
 
@@ -250,7 +268,7 @@ Per-phase Iranian DC sizing:
 - [ ] Seed `sites` with Filimo hostnames (`filimo.com`, `www.filimo.com`, CDN subdomains)
 - [ ] Admin user → secure channel (Signal / in-person / PGP)
 - [ ] Filimo pastes `<script src="https://filimo.statnive.live/tracker.js" defer></script>` + root-domain cookie walking (Clarity pattern, doc 21)
-- [ ] Acceptance: k6 ~1,300 peak EPS Persian URLs/UAs, p99 <500ms; air-gap test end-to-end; smoke confirms live traffic <1h; backup+restore. Higher-EPS gates (7K/18K MAX) deferred to P3/P5.
+- [ ] Acceptance per sub-phase (doc 29 §4): P1 72h soak @ 240 EPS + 6-scenario chaos + 0→450 EPS breakpoint → binary SLO sign-off before Filimo web cutover; P2/P3/P4/P5 repeat the gate at their respective envelopes (1K / 4K / 9K-18K match / 40K peak) before onboarding each app. PII wire-scan `rate()` = 0 throughout. Air-gap end-to-end + backup+restore remain prerequisite (§17 / §37).
 
 ### Phase 11: International SaaS self-serve (Weeks 26–30)
 
@@ -337,7 +355,7 @@ D1 Hetzner CX32 (~€13/mo). DNS A/AAAA for `statnive.live`, `demo.statnive.live
 
 Cutover scope = **Filimo web only** (P1 onboarding, ~200K DAU / 3M views/day). D2 initial = Asiatech G1/G2 VPS (~15–28M Rial/mo). Graduates to dedicated bare-metal at P3 (~3mo post-cutover, +iOS). Hardware per sub-phase table in Phase 10. Install = offline bundle (`make airgap-bundle`) → SCP via bastion → verify SHA256+Ed25519 → `deploy/airgap-install.sh`. DNS `CNAME filimo.statnive.live → <Iranian-DC-IP>` (Cloudflare proxy **OFF**). Manual PEM (Filimo internal CA preferred, or self-signed w/ distributed root), quarterly. Upgrade to paid IP2Location DB23. License JWT + age-encrypted key. Config: `audit.sink=file`, `license.phone_home=false`. Seed Filimo hostnames. Admin via secure channel. Tracker `<script src="https://filimo.statnive.live/tracker.js" defer></script>` + root-domain cookie walking. Firewall: `iptables -P OUTPUT DROP` except loopback, CH localhost, tracker client IPs, DNS, NTP.
 
-**Acceptance (P1 StreamCo MIN):** k6 ~1,300 peak EPS (Persian URLs / Iranian UAs), p99 <500ms; air-gap test end-to-end; customer web smoke <1h; monthly backup+restore. Higher-EPS gates (7K/18K MAX) deferred to P3/P5 graduation.
+**Acceptance (P1 StreamCo MIN) — doc 29 §4.1 graduation gate:** 72h soak @ 240 EPS with diurnal curve, 6-scenario chaos matrix (BGP cut / mobile curfew / DPI RST / Tehran-IX degrade / Asiatech DC outage / clock skew), 0→450 EPS breakpoint. Every SLO green (server loss ≤0.05%, client loss ≤0.5%, duplicates ≤0.1%, attribution ≥99.5%, PII wire-scan rate()=0, p99<500ms, TTFB overhead ≤+25ms). Air-gap end-to-end + monthly backup+restore remain prerequisite. P2/P3/P4/P5 repeat the gate at 1K/4K/9K-18K/40K peak EPS before onboarding each successive app.
 
 ### Phase C — International SaaS self-serve (Weeks 25–29)
 
@@ -396,3 +414,11 @@ Context7-cached per-library API references (14 libs, 2026-04-17 snapshot). Full 
 37. **Blackout-sim green** (doc 28 §Gap 2): vendored `-tags airgap` binary under `iptables -P OUTPUT DROP` (loopback + Docker bridge only). `/health/ready` within 30s, dashboard loads, 50 `POST /t` succeed, `/api/stats?range=1h` ≥50 pageviews, S3 backup degrades (`s3.*(unreachable|timeout).*continuing|degraded mode`), file-sink only (no `slack|pagerduty|opsgenie`). **HARD GATE** on every PR after Week 18. (skill: [`iranian-dc-deploy`](.claude/skills/iranian-dc-deploy/README.md))
 38. **GeoIP hot-reload under load** (doc 28 §Gap 1): 100 concurrent lookup goroutines with `-race`; `SIGHUP` 100 times in 1s. p99 <500ms, zero FD leak across 1,000 swaps, last swap wins, zero lookup errors. 7K EPS k6 log grep for IPv4/IPv6 regex — zero matches. Gates Phase 10 paid-DB23 cutover. (skill: [`geoip-pipeline-review`](.claude/skills/geoip-pipeline-review/README.md))
 39. **CH parts-ceiling + restore drill** (doc 28 §Gap 3): k6 5min 7K EPS — active parts <100, zero `RejectedInserts`, `DelayedInserts` <50, p99 `http_req_duration{kind:ingest}` <500ms. Nightly + labeled-PR `clickhouse-backup` create+upload+restore → row-count parity + `uniqCombined64Merge(uniq_state) FROM rollup_daily FINAL FORMAT Null` clean. Required before Week 23 load-rehearsal. (skill: [`clickhouse-operations-review`](.claude/skills/clickhouse-operations-review/README.md))
+40. **Generator_seq oracle** (doc 29 §6.1): every synthesized event carries `(test_run_id, generator_node_id, test_generator_seq, send_ts)`; one ClickHouse query per run (loss / duplicates / ordering / latency) runs in <60s. Projection `proj_oracle` ORDER BY `(test_run_id, generator_node_id, test_generator_seq)` MATERIALIZEd on staging CH. (skill scheduled: `load-gate-harness`, Phase 7e)
+41. **Per-phase graduation gate** (doc 29 §4): 72h soak + 6-scenario chaos + breakpoint 150% passes every SLO before tracker points at that phase. Binary sign-off ceremony with Filimo analytics owner per sub-phase. No hand-wavy partial pass; any single SLO breach halts the gate.
+42. **6-scenario chaos matrix** (doc 29 §5): A BGP cut (iptables NIN-only, 6h), B mobile curfew (tc netem 80% loss on mobile-AS srcs, 8h), C DPI RST (xt_tls on flagged SNI, 4h), D Tehran-IX degrade (iptables drop 185.1.77.0/24 + 60ms netem, 3h), E Asiatech DC partial outage (iptables drop DC subnet, 1h), F clock skew (block UDP 123 + date-drift, 4h). Each scenario ships with its tc/netem/iptables/xt_tls script AND its oracle SQL.
+43. **Breakpoint ramp** (doc 29 §4): 0 → 150% of phase peak EPS over 30 min locates the failure knee above SLO ceiling. Not required to pass SLO above 100%; required to identify the knee for capacity planning and confirm graceful degradation.
+44. **Production-replay protocol** (doc 29 §9 open item 4): one anonymized NDJSON export per phase from Filimo; cleanroom attestation signed by Filimo analytics owner (regex-scrub spec + salt rotation per phase + auto-delete kill-switch post-sign-off); chain-of-custody from Filimo bucket to statnive staging documented.
+45. **PII wire-scan via Vector.dev + VRL** (doc 29 §3.4, §6.3): live <1s detection at 15K+ EPS (ipv4 / ipv6 / email / user_id regex redact); Loki stream `pii_leak=true`; Alertmanager fires on `rate() > 0` → gate halts. Supersedes one-shot [`test/pii_leak_test.go`](test/pii_leak_test.go) byte-scan.
+46. **Staging cost envelope** (doc 29 §7): ≤40% of production monthly cost, billing-average — warm AT-VPS-B1 between gates; prod-parity during 72h hot window; ≤150% burst during breakpoint. All five phases satisfy the envelope at 17–37% per §7 table. Teardown scripted, not manual.
+47. **Observability VPS separation** (doc 29 §3.2): Prometheus + Grafana + Pyroscope + Loki + Vector.dev on a dedicated AT-VPS on isolated rack/AZ from generators + target. Verified by `strace -f -e trace=connect` burn-in under `iptables -A OUTPUT -j DROP` except observability VLAN. Prevents softirq contention at peak from manifesting as phantom server-side regressions.
