@@ -11,7 +11,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"testing"
@@ -29,11 +28,24 @@ const (
 	sharedUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120 IsolationProbe"
 )
 
+// testLogWriter bridges slog → *testing.T.Log so pipeline / consumer /
+// WAL log output appears in CI test output (otherwise with the Discard
+// handler we're debugging blind when events get 2xx but don't land).
+type testLogWriter struct{ t *testing.T }
+
+func (w testLogWriter) Write(p []byte) (int, error) {
+	w.t.Log(string(p))
+	return len(p), nil
+}
+
 func TestMultitenantVisitorHashSeparation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// Temporarily log to stderr (via t.Log path below) to debug the
+	// PR #29 CI flake where events get 2xx but don't land in CH.
+	// Remove after the flake root cause is identified + fixed.
+	logger := slog.New(slog.NewTextHandler(testLogWriter{t}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	store, err := storage.NewClickHouseStore(ctx, storage.Config{
 		Addrs:    []string{clickhouseAddr()},
