@@ -1,0 +1,46 @@
+name: wal-killtest-nightly
+
+# Nightly 50-iteration kill-9 hard gate (Phase 7b1b doc 27 §Gap 1, wired
+# into CI by Phase 7b2). Asserts CH count >= sent * (1 - 0.0005) after
+# 50 random-offset SIGKILLs. Slow (~30 min); kept out of the per-PR job
+# because every PR runs the 5-iter smoke instead.
+#
+# Failure here means the WAL durability contract regressed since the last
+# green nightly — investigate before the next release.
+
+on:
+  schedule:
+    # 03:00 UTC daily — outside the workday for both US + EU contributors.
+    - cron: '0 3 * * *'
+  workflow_dispatch: {}  # operator-triggered re-runs
+
+permissions:
+  contents: read
+
+jobs:
+  wal-killtest-full:
+    name: WAL durability — kill-9 50-iter hard gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Boot ClickHouse via docker-compose
+        run: docker compose -f deploy/docker-compose.dev.yml up -d clickhouse
+
+      - name: Build binary
+        run: make build
+
+      - name: Run kill-9 hard gate (50 iterations, ~30 min)
+        run: make wal-killtest-full
+
+      - name: Tear down ClickHouse
+        if: always()
+        run: docker compose -f deploy/docker-compose.dev.yml down -v

@@ -79,3 +79,35 @@ jobs:
       # our own code; the project LICENSE at the repo root applies).
       - name: Check licenses (PLAN.md License Rules)
         run: go-licenses check ./internal/... ./cmd/... --disallowed_types=forbidden,restricted --ignore github.com/statnive/statnive.live
+
+  wal-killtest-smoke:
+    name: WAL durability — kill-9 5-iter smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # The kill-9 harness (.claude/skills/wal-durability-review/test/kill9/harness.sh)
+      # uses `docker compose up -d clickhouse` + `docker exec` against the
+      # configured container name. Boot it here so the harness picks up
+      # the running container instead of trying to compose-up itself
+      # (which works on the GHA runner but is cleaner with explicit step).
+      - name: Boot ClickHouse via docker-compose
+        run: docker compose -f deploy/docker-compose.dev.yml up -d clickhouse
+
+      - name: Build binary
+        run: make build
+
+      - name: Run kill-9 smoke (5 iterations, ~1 min)
+        run: make wal-killtest
+
+      - name: Tear down ClickHouse
+        if: always()
+        run: docker compose -f deploy/docker-compose.dev.yml down -v
