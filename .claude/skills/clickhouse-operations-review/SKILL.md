@@ -1,6 +1,6 @@
 ---
 name: clickhouse-operations-review
-description: MUST USE when writing or reviewing code under `migrations/*.sql`, `internal/ingest/**`, `internal/query/**`, `internal/wal/**`, `config/ch*.go`, `config/clickhouse/**`, `prometheus/*.rules.yml`, or `deploy/backup/**`. Enforces ClickHouse operational discipline — WAL-first writes (no direct `INSERT INTO events`), `OPTIMIZE FINAL` banned without `PARTITION`, `async_insert=1` restricted to `/ingest-fallback` + `ingest_fallback` user profile, every customer SELECT carries `SETTINGS max_execution_time`, parts-ceiling alert at 100 active/table (before CH's `parts_to_delay_insert=150`), disk alert at 85% warn / 90% page, every `Nullable(...)` migration column needs `-- NULLABLE-OK:` justification. Complements `clickhouse-best-practices` (schema/query design); this skill is the *operational* layer.
+description: MUST USE when editing `migrations/*.sql`, `internal/ingest/**`, `internal/query/**`, `internal/wal/**`, `config/ch*.go`, `config/clickhouse/**`, `prometheus/*.rules.yml`, or `deploy/backup/**`. Enforces WAL-first writes (no direct `INSERT INTO events`), `OPTIMIZE FINAL` ban without `PARTITION`, `async_insert=1` only in `/ingest-fallback`, every customer SELECT carries `SETTINGS max_execution_time`, parts ceiling at 100 active/table, disk 85% warn / 90% page, `Nullable(...)` requires `-- NULLABLE-OK:`. Complements `clickhouse-best-practices` (design); this is the ops layer. Full 11-item body.
 license: MIT
 metadata:
   author: statnive-live

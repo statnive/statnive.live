@@ -1,6 +1,6 @@
 ---
 name: air-gap-validator
-description: MUST USE before adding a Go dependency, introducing network code, or embedding frontend/tracker assets. Enforces the statnive-live Isolation rule — the binary MUST run with zero required outbound connections under `iptables -P OUTPUT DROP`. Rejects new deps that do DNS/HTTP at runtime, CDN imports in web/ or tracker/, telemetry calls, and font/script URLs pointing outside the embedded bundle.
+description: MUST USE before adding a Go dep, introducing network code, or embedding frontend/tracker assets. Enforces Isolation — binary runs under `iptables -P OUTPUT DROP` with zero required outbound. Rejects runtime DNS/HTTP, CDN imports in `web/`/`tracker/`, telemetry, external font/script URLs. Full checklist in body.
 license: MIT
 metadata:
   author: statnive-live

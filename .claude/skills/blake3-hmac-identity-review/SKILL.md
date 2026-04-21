@@ -1,6 +1,6 @@
 ---
 name: blake3-hmac-identity-review
-description: MUST USE when writing or reviewing code in `internal/identity/`, `internal/auth/`, or any crypto / hashing / HMAC / bcrypt path. Validates BLAKE3-128 (not BLAKE3-256) output truncation; enforces `HMAC(master_secret, site_id || YYYY-MM-DD IRST)` exactly; daily salt rotation at the correct IRST (UTC+3:30, no DST) midnight boundary; `hmac.Equal` constant-time compare everywhere (never `==`); master secret read only from env / file, never logged.
+description: MUST USE when editing `internal/identity/**`, `internal/auth/**`, or any crypto / hashing / HMAC / bcrypt path. Validates BLAKE3-128 (not 256) truncation; exact `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`; IRST (UTC+3:30, no DST) rotation boundary; `hmac.Equal` constant-time compare (never `==`); master secret env/file only (never logged).
 license: MIT
 metadata:
   author: statnive-live

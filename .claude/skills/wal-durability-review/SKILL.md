@@ -1,6 +1,6 @@
 ---
 name: wal-durability-review
-description: MUST USE when writing or reviewing code that touches `internal/ingest/wal.go`, `internal/ingest/consumer.go`, tidwall/wal imports, or any `.Sync()` / `.Flush()` / `.WriteBatch()` / `.TruncateFront()` call. Enforces fsync-before-ack semantics, Sync-error-is-terminal (os.Exit on EIO per fsyncgate 2018), `TruncateFront` only after the ClickHouse commit, and the presence of a kill-9 CI gate. tidwall/wal does NOT CRC individual records in binary format — replay is best-effort, this skill guards the surrounding invariants.
+description: MUST USE when editing `internal/ingest/{wal,consumer,walgroup}.go`, tidwall/wal imports, or any `.Sync()` / `.Flush()` / `.WriteBatch()` / `.TruncateFront()` call. Enforces fsync-before-ack, Sync-error-is-terminal (os.Exit on EIO per fsyncgate 2018), `TruncateFront` only after CH commit, kill-9 CI gate. tidwall/wal does NOT CRC records — this skill guards surrounding invariants.
 license: MIT
 metadata:
   author: statnive-live

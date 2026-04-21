@@ -1,6 +1,6 @@
 ---
 name: gdpr-code-review
-description: MUST USE when writing or reviewing code under `internal/identity/**`, `internal/audit/**`, any handler matching `/api/privacy/*`, any file importing `blake3` or `hmac`, or the JS tracker under `tracker/`. Validates Sec-GPC + consent-decline short-circuits the hash path (not after), salt file is **deleted** at rotation (not overwritten), no fingerprinting vectors (canvas / WebGL / font-enum / device-memory), screen resolution bucketed, city population-gated, no raw IP / raw user_id / master secret in any slog field or error message, and no MD5 / SHA-1 anywhere in the codebase. Pairs with BehiSecc/sanitize for last-mile PII grep over log output.
+description: MUST USE when editing `internal/identity/**`, `internal/audit/**`, `/api/privacy/*` handlers, files importing `blake3`/`hmac`, or `tracker/**`. Validates Sec-GPC + consent-decline short-circuit BEFORE hash (not after); salt file deleted (not overwritten); no canvas/WebGL/font-enum/device-memory fingerprinting; resolution bucketed; no raw IP / raw user_id / master_secret in slog; no MD5/SHA-1 anywhere. Full 12-item body.
 license: MIT
 metadata:
   author: statnive-live

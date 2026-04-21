@@ -1,6 +1,6 @@
 ---
 name: dsar-completeness-checker
-description: MUST USE when writing or reviewing any SQL migration file, any new file under `internal/audit/**`, any change to `internal/privacy/erase.go`, or any change to the `Store` interface in `internal/storage/store.go`. Enforces the DSAR sink matrix — every `CREATE TABLE` in migrations must have a matching erase-path entry in `erase.go`, every new slog sink must be PII-grep-tested, and the erase integration test must enumerate `system.tables` DYNAMICALLY (no hardcoded table list) so new tables fail the test by construction if not added to the erase path.
+description: MUST USE when editing any SQL migration, `internal/audit/**`, `internal/privacy/erase.go`, or `internal/storage/store.go` (Store interface). Enforces DSAR sink matrix — every `CREATE TABLE` has a matching entry in `erase.go`; every new slog sink is PII-grep-tested; erase integration test enumerates `system.tables` DYNAMICALLY so new tables fail by construction if not added to the erase path.
 license: MIT
 metadata:
   author: statnive-live

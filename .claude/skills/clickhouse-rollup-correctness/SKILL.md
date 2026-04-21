@@ -1,6 +1,6 @@
 ---
 name: clickhouse-rollup-correctness
-description: MUST USE when writing or reviewing ClickHouse AggregatingMergeTree rollups, materialized views, or `uniqCombined64` state-merge code. Enforces the -State / -Merge / -MergeState combinator discipline, FixedString(16) identity-hash column type, three-rollup naming (hourly_visitors, daily_pages, daily_sources in v1), and refuses Nullable anywhere. Flags chained-MV footguns (CH issues #58062 and #19753).
+description: MUST USE when writing or reviewing `AggregatingMergeTree` rollups, MVs, or `uniqCombined64` state-merge code. Enforces -State / -Merge / -MergeState discipline, `FixedString(16)` identity-hash column, three-rollup v1 naming (`hourly_visitors`, `daily_pages`, `daily_sources`), Nullable ban. Flags chained-MV footguns (CH #58062, #19753).
 license: MIT
 metadata:
   author: statnive-live

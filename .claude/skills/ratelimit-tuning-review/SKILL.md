@@ -1,6 +1,6 @@
 ---
 name: ratelimit-tuning-review
-description: MUST USE when writing or reviewing code under `internal/ratelimit/**`, `internal/ingest/handler.go`, imports of `go-chi/httprate` or `golang.org/x/time/rate`, or the main.go middleware wiring. Enforces CGNAT-aware tiering (Iranian AS44244 / AS197207 / AS57218 on a compound `(ip, site_id)` key at 1 K req/s; 100/s fallback; 25 K/s per-site global cap), trusted-proxy CIDR list for `middleware.RealIP`, XFF parsed right-to-left (never left-to-right), audit emit on every 429, and `MaxBytesReader(8<<10)` on ingest. Uses `iptoasn.com` public-domain TSV for ASN lookup — MaxMind GeoLite2 and IPLocate are CC-BY-SA and VIOLATE CLAUDE.md License Rules.
+description: MUST USE when editing `internal/ratelimit/**`, `internal/ingest/handler.go`, imports of `go-chi/httprate` / `x/time/rate`, or main.go middleware wiring. Enforces CGNAT-aware tiering (AS44244/AS197207/AS57218 on `(ip, site_id)` at 1K req/s; 100/s fallback; 25K/s per-site cap), trusted-proxy CIDRs for `middleware.RealIP`, XFF right-to-left parse, audit on every 429, `MaxBytesReader(8<<10)`. ASN via `iptoasn.com` (MaxMind / IPLocate rejected — CC-BY-SA).
 license: MIT
 metadata:
   author: statnive-live

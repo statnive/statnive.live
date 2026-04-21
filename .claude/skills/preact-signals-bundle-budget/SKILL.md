@@ -1,6 +1,6 @@
 ---
 name: preact-signals-bundle-budget
-description: MUST USE when reviewing or changing frontend code under `web/` or `tracker/`. Enforces the ~50KB-min / ~15KB-gz dashboard bundle budget and ~1.2KB-min / ~600B-gz tracker budget via `size-limit`. Validates Preact + @preact/signals idioms (no React-style useState/useEffect in signal contexts), flags barrel imports, rejects any dependency adding >5KB, prevents accidental CDN imports (reinforces air-gap).
+description: MUST USE when editing `web/**` or `tracker/**`. Enforces dashboard bundle ~50KB min / ~15KB gz + tracker ~1.2KB min / ~600B gz via `size-limit`. Validates Preact + @preact/signals idioms (no React useState/useEffect in signal contexts), flags barrel imports, rejects >5KB deps, prevents CDN imports (reinforces air-gap).
 license: MIT
 metadata:
   author: statnive-live
