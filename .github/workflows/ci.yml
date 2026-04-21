@@ -133,6 +133,16 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # Node is required because make test-integration depends on make
+      # web-build: integration-tagged tests compile internal/dashboard/spa
+      # which //go:embed all:dist/*, so dist/ must exist before go test.
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
       - name: Vendor check
         run: make vendor-check
 

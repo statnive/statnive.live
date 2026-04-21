@@ -23,8 +23,10 @@ build: web-build
 test:
 	$(GO) test -mod=vendor -race -timeout 60s $(PKG)
 
-## test-integration: Run integration tests (requires `docker compose up -d clickhouse`)
-test-integration:
+## test-integration: Run integration tests (requires `docker compose up -d clickhouse`).
+## Depends on web-build so //go:embed all:dist/* in internal/dashboard/spa has
+## files to embed — integration-tagged tests compile every package in the tree.
+test-integration: web-build
 	$(GO) test -mod=vendor -race -tags=integration -timeout 120s ./test/...
 
 ## lint: Run golangci-lint + tenancy-grep gate
