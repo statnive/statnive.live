@@ -1,7 +1,7 @@
 # statnive-live
 
 > **statnive.live** — High-performance, privacy-aware analytics for high-traffic websites.
-> Self-hosted or SaaS. First customer: Filimo (10-20M DAU).
+> Self-hosted or SaaS. First customer: SamplePlatform (10-20M DAU).
 
 ## Project Goals
 
@@ -28,7 +28,7 @@
 4. **Client-side batching in Go** — WAL for durability, batch 500ms / 1000 rows. Async inserts are safety valve only.
 5. **No Nullable columns** — use `DEFAULT ''` or `DEFAULT 0`. Nullable costs 10–200% on aggregations (doc 20 measured 2× on `Nullable(Int8)`). **Carve-out for test-instrumentation columns** (`test_run_id`, `test_generator_seq`, `generator_node_id`, `send_ts`): use typed `DEFAULT` sentinels (UUID zero / UInt64 0 / UInt16 0 / DateTime64(3) 0) to preserve the sparse-serialization path at >93.75% defaults, which doc 29 §6.1 proves is ~zero-cost in production. Never ship `Nullable(` for analytics columns.
 6. **Enrichment order is locked** — per event: identity → bloom → GeoIP → UA → bot → channel (doc 22 §GAP 1, asserted in integration tests). **Pre-pipeline fast-reject gate** (doc 24 §Sec 1 item 6): UA length 16–500, non-ASCII UA, IP-as-UA, UUID-as-UA, `X-Purpose`/`X-Moz` prefetch → `204`. In-pipeline bot layering is cheap-first (prefetch → UA shape → referrer spam → browser-version floor → UA keyword/regex blacklist).
-7. **Defer before building** — if a feature isn't required for the 5 Project Goals or Filimo's first 90 days, it ships in v1.1 or v2. Applies to multi-sink alerts, DLQ tooling, subdomain-per-tenant routing, Polar customer portal, and anything else not load-bearing.
+7. **Defer before building** — if a feature isn't required for the 5 Project Goals or SamplePlatform's first 90 days, it ships in v1.1 or v2. Applies to multi-sink alerts, DLQ tooling, subdomain-per-tenant routing, Polar customer portal, and anything else not load-bearing.
 8. **Central tenancy choke point** — every dashboard SQL path goes through `internal/storage/queries.go:whereTimeAndTenant()` (doc 24 §Sec 4 pattern 6). `WHERE site_id = ?` is the first clause. `ORDER BY` / `PARTITION BY` lead with `site_id`. Any new query skipping this helper is a CI failure.
 
 ## License Rules (Critical)
@@ -70,7 +70,7 @@ Extended operational detail (fallback CA list, full systemd option list, LUKS I/
 10. Audit log (JSONL via `slog`, append-only, **file sink only** in v1). Syslog / remote sinks = v1.1.
 11. User ID hashed before storage (SHA-256 of `master_secret || site_id || user_id`; never log raw user_id).
 12. systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`) + tracker via `go:embed` (first-party, no external CDN, ad-blocker-resistant).
-13. **CGNAT-aware rate-limit tiering** — Iranian ASN (AS44244 Irancell / AS197207 MCI / AS57218 RighTel) on compound `(ip, site_id)` key at 1 K req/s sustained / 2 K burst; default 100/s fallback elsewhere; per-`site_id` global cap at 25 K req/s. ASN DB is **`iptoasn.com`** public-domain TSV (MaxMind GeoLite2 + IPLocate are CC-BY-SA — rejected per § License Rules). Enforced by [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md); **hard gate on Phase 10 Filimo cutover**.
+13. **CGNAT-aware rate-limit tiering** — Iranian ASN (AS44244 Irancell / AS197207 MCI / AS57218 RighTel) on compound `(ip, site_id)` key at 1 K req/s sustained / 2 K burst; default 100/s fallback elsewhere; per-`site_id` global cap at 25 K req/s. ASN DB is **`iptoasn.com`** public-domain TSV (MaxMind GeoLite2 + IPLocate are CC-BY-SA — rejected per § License Rules). Enforced by [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md); **hard gate on Phase 10 SamplePlatform cutover**.
 
 ## Isolation / Air-Gapped Capability (Non-Negotiable)
 
@@ -118,7 +118,7 @@ The `make test` / `make test-integration` / `make lint` / `npm run test` suite i
 
 ## Feature Scope
 
-Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across 20 weeks (docs 17/18/24). v1 = Filimo first 90 days + 5 Project Goals; polish → v1.1; product expansion → v2.
+Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across 20 weeks (docs 17/18/24). v1 = SamplePlatform first 90 days + 5 Project Goals; polish → v1.1; product expansion → v2.
 
 **Deliberate skips / Never:**
 - **ClickHouse cluster at v1** — single-node is the rule; migrations Distributed-ready from day 1 per [`clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md).
@@ -205,10 +205,11 @@ Enforced by custom-skill Semgrep rules. Human-facing mirror so PR review can rej
 - **No AGPL linked into the binary; CC-BY-SA only via the § License Rules data-file carve-out** — OS daemons (chrony, acme.sh, knot, bind) are operator-installed, outside binary boundary. GeoIP BIN qualifies as non-linked data.
 - **`{{if .Cluster}}` is DDL templating only, NOT cluster-upgrade automation** — data migration from MergeTree → ReplicatedMergeTree is manual via hard-link `ATTACH PARTITION`. See [`clickhouse-upgrade-playbook`](.claude/skills/clickhouse-upgrade-playbook/README.md).
 - **Never ArvanCloud** — sanctioned + 2022 breach. Asiatech primary, ParsPack / Shatel backup.
+- **Never default-enable exception-telemetry as a tracker event type** — doc 30 observed a reference-platform at 1.2B `app_exception` events over 192 days (73/sec sustained; 1-per-1.5-sessions). statnive-live's tracker ships any exception-telemetry as opt-in with 10/session cap + 1-in-10 sampling + server-side tenant quota. Otherwise the design-ceiling event budget gets consumed by crash-log noise rather than user behavior.
 
 ## Single Source of Truth
 
-`../statnive-workflow/jaan-to/docs/research/` (docs 14–29) is canonical for every architecture, feature, and threat-model decision. Do **not** restate research conclusions here or in skill prompts — reference by doc number and section. When a decision changes, update the research doc; this file references and never duplicates.
+`../statnive-workflow/jaan-to/docs/research/` (docs 14–30) is canonical for every architecture, feature, and threat-model decision. Do **not** restate research conclusions here or in skill prompts — reference by doc number and section. When a decision changes, update the research doc; this file references and never duplicates.
 
 ## Enforcement
 
@@ -216,11 +217,12 @@ Integration tests that pin the invariants in this file — full 6-test matrix + 
 
 ## Research Documents
 
-Canonical source: `../statnive-workflow/jaan-to/docs/research/` (docs 14–29, 500+ sources).
+Canonical source: `../statnive-workflow/jaan-to/docs/research/` (docs 14–30, 500+ sources).
 
 - **Doc 23** — initial Claude Code tooling (30 skills + 4 MCP servers).
 - **Doc 24** — AGPL-safe Pirsch extraction (pre-pipeline fast-reject, cross-day grace, cheap-first bot ordering, reject mutable-row engines, `DateTime` not `DateTime64`, templated DDL, 17-step channel tree, `Filter → Store → queryBuilder`, `whereTimeAndTenant`). Zero Pirsch code ported.
 - **Doc 25** — Claude-skills install matrix + custom-skill catalog + explicit blacklist.
 - **Doc 27** — three-gap closure: WAL durability (fsyncgate, ack-after-fsync), CGNAT rate limit (Iranian ASN, iptoasn.com), GDPR-on-HLL (Recital 26 + C-413/23).
 - **Doc 28** — final-three-gap closure: GeoIP pipeline / Iranian DC deploy / ClickHouse ops + upgrade playbook.
-- **Doc 29** — production load-simulation gate on Asiatech Tehran: generator_seq oracle, 6-scenario chaos matrix (BGP cut / mobile curfew / DPI RST / Tehran-IX degrade / Asiatech DC outage / clock skew), 5-phase pre-cutover graduation matrix, Locust (primary) + k6 (CI cross-check) + Vegeta + wrk2 tool stack, Prometheus + Grafana + Pyroscope + Vector.dev + Parca + Falco observability stack, ≤40% cost envelope, Filimo anonymized-replay protocol.
+- **Doc 29** — production load-simulation gate on Asiatech Tehran: generator_seq oracle, 6-scenario chaos matrix (BGP cut / mobile curfew / DPI RST / Tehran-IX degrade / Asiatech DC outage / clock skew), 5-phase pre-cutover graduation matrix, Locust (primary) + k6 (CI cross-check) + Vegeta + wrk2 tool stack, Prometheus + Grafana + Pyroscope + Vector.dev + Parca + Falco observability stack, ≤40% cost envelope, SamplePlatform anonymized-replay protocol.
+- **Doc 30** — GA4 calibration delta (2026-04-20): 192-day current-state observation of SamplePlatform traffic, used as **load-shape realism overlay** for doc 29's graduation gate. Adds: scenario G (international-egress) chaos matrix extension, long-session memory-leak soak (1000 VUs × 6h × 1080 @ 20s pings), diaspora-cohort load mix + SLO segmentation (62% Iran / 38% non-Iran), bimodal events-per-session (15% iPhone short / 40% Android short / 30% Android binge / 15% mobile-web power), Chrome/Safari/Samsung P0 tracker-compat matrix, `app_exception` default-enable anti-pattern. **Does NOT override doc 29 design ceiling** — 200M events/day / 40K EPS burst / 32c/128GB P5 cluster / 17–37% cost envelope all stand per PLAN.md Context "design ceiling vs observed current-state" callout. Doc 30's proposed P5 downsize to 16c/64GB / 80M events was rejected per user directive "design for maximum."

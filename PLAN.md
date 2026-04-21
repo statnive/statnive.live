@@ -4,7 +4,7 @@
 
 Sixteen research documents (docs 14–29), 500+ sources, 2,000+ lines of drop-in Go code. Architecture, features, schema, security, and Iranian-DC operational decisions are finalized. Docs 24 (AGPL-safe Pirsch extraction), 25 (skill install matrix), 27 (three-gap closure — WAL / CGNAT / GDPR-on-HLL), 28 (final-three-gap closure — GeoIP pipeline / Iranian DC deploy / ClickHouse ops), 29 (production load-simulation gate — 5-phase graduation matrix + generator_seq oracle + 6-scenario chaos) drive the Week 17+ schedule.
 
-**statnive-live** is the standalone analytics platform (separate from the WordPress plugin "statnive"). Targets Iranian high-traffic sites; Filimo is first customer.
+**statnive-live** is the standalone analytics platform (separate from the WordPress plugin "statnive"). Targets Iranian high-traffic sites; SamplePlatform is first customer.
 
 **Reference streaming workload (StreamCo, confirmed 2026-04-19).** Two endpoints frame capacity; we ship the minimum first and ramp app-by-app.
 
@@ -14,6 +14,8 @@ Sixteen research documents (docs 14–29), 500+ sources, 2,000+ lines of drop-in
 | **MAXIMUM — P5 full build** | All apps (web + iOS + Android + TV) | 200M | 4B | ~1.2 TB | ~1.9 TB | ~9,000 (spike ~18K) |
 
 Minimum fits the cheapest Asiatech VPS (~15–28M Rial/mo). Maximum requires a 2–3 node Iranian-DC cluster (~800M–1.5B Rial/mo). 5-phase roadmap P1→P5 in [`../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../jaan-to/outputs/capacity-planning-standalone-analytics.md).
+
+> **Design ceiling vs. observed current-state (doc 30 reconciliation, 2026-04-21).** The MIN/MAX envelope above is the **design target** — statnive-live's load-gate acceptance (Phase 7e graduation gate per doc 29 §4) runs against MAX, not current. Doc 30 (GA4 calibration, 2026-04-20) measured SamplePlatform's observed current-state at ~80M events/day peak / ~8K EPS burst / 62% Iran + 38% diaspora over a 192-day window. We **retain doc 29's 200M / 40K / 32c-128GB P5 numbers** because (a) SamplePlatform's organic growth (Dec 2025 new-user +60% spike, doc 30 §5) will exceed 80M within 12–18 months at streaming-industry norms; (b) 192-day daily aggregates smooth away match-day + Ramadan iftar sub-daily spikes that doc 29's `match_spike()` (2.5–4×) and `ramadan_diurnal()` (1.8–2.2×) formulas correctly model; (c) ~200M Rial/mo P5 steady-state savings from right-sizing are small against the catastrophic cost of an EPS overrun during a Tehran-derby Friday evening. Doc 30's value is **load-shape realism** (bimodal sessions, 62/38 geographic split, `user_engagement` + `ui_interact` event mix, 7th chaos scenario, long-session soak, `app_exception` anti-pattern), **not capacity re-planning**. The proposed P5 downsize to 16c/64GB was rejected per user directive "design for maximum."
 
 - **Repo:** https://github.com/statnive/statnive.live.git
 - **Folder:** `statnive-live/`
@@ -26,8 +28,8 @@ Minimum fits the cheapest Asiatech VPS (~15–28M Rial/mo). Maximum requires a 2
 **Decisions locked:**
 - **Greenfield build** — 100% original code. Study Pirsch fork at `~/Projects/pirsch/` for patterns; never copy AGPL source.
 - **License: ALL deps MIT/Apache/BSD** — no AGPL. Sold as SaaS outside Iran where AGPL §13 applies.
-- **Multi-tenant from v1** — `site_id` in schema from day 1. Filimo = site_id=1.
-- **Dual hosting** — Hetzner (€46/mo) dev/staging, Iranian DC (~€180/mo) Filimo production.
+- **Multi-tenant from v1** — `site_id` in schema from day 1. SamplePlatform = site_id=1.
+- **Dual hosting** — Hetzner (€46/mo) dev/staging, Iranian DC (~€180/mo) SamplePlatform production.
 
 Two distribution models from day 1 — same binary, multi-tenant via `site_id` + `WHERE site_id = ?`:
 
@@ -82,10 +84,10 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 | **7b1b — WAL integration + perf-test** | ✅ Complete | PR #25. Pipeline synchronous; handler calls `Pipeline.Enrich` + `GroupSyncer.AppendAndWait` before 202. Consumer acks only after CH commit, 100/500/2000ms backoff, 30s drain. `BackpressureMiddleware` → 503 + `Retry-After: 5` at `wal_fill_ratio ≥ 0.80`. WAL replay emits `wal_replay` / `wal_replay_done` + `EventWALCorruptSkipped`. Same-filesystem boot check; LastIndex monotonic guard. `wal-durability-review` body: 4 Semgrep rules + 8 fixtures + 50-iter kill-9 harness. 0.05% loss SLO tightened. Closes items #1,#3,#4,#8,#9,#10 (#2,#5 in PR #23). |
 | **7b2 — Real-traffic verification + drills** | 🔜 Next | Real-tracker correctness; backup restore drill; manual TLS rotation drill; integration-level PII grep. Plus 7b1b follow-ups: `make wal-killtest` CI wiring, `wal_fsync_duration_seconds` p99 on `/healthz`. |
 | **7d — Lint baseline cleanup** | ⏳ Pending | ~40 pre-existing findings on main (errcheck, gosec G302/G304, gofmt, intrange/goconst, gocyclo). Install + baselines: govulncheck, CodeQL+Semgrep, go-licenses. |
-| **7e — Load-simulation gate scaffolding** | ⏳ Pending | `test/perf/gate/` Locust harness + k6 CI cross-check + Vegeta/wrk2 breakpoint, 6-scenario chaos matrix, observability VPS, generator_seq schema migration 003. Doc 29 §8 W1–W5. HARD GATE on Phase 10 P1 cutover. |
+| **7e — Load-simulation gate scaffolding** | ⏳ Pending | `test/perf/gate/` Locust harness + k6 CI cross-check + Vegeta/wrk2 breakpoint, 7-scenario chaos matrix (doc 29 §5 + doc 30 §3 international-egress), observability VPS, generator_seq schema migration 003, long-session memory-leak soak (doc 30 §6). Doc 29 §8 W1–W5. HARD GATE on Phase 10 P1 cutover. |
 | **8 — Deployment & launch** | ⏳ Pending | Hetzner CX32 staging, airgap-bundle, monitoring, runbook, v1 launch. |
 | **9 — Phase A dogfood** | ⏳ Pending | statnive.com → demo.statnive.live. |
-| **10 — Phase B Filimo** | ⏳ Pending | Iranian DC bare metal, paid DB23 GeoIP. |
+| **10 — Phase B SamplePlatform** | ⏳ Pending | Iranian DC bare metal, paid DB23 GeoIP. |
 | **11 — Phase C SaaS** | ⏳ Pending | Polar.sh checkout + webhooks, signup, path-based tenancy. |
 | **CLI** (operator surface) | 🔮 v1.1 | Subcommands: serve, migrate, license, sites, users, backup, doctor, secret, stats. Details in [`docs/cli-operator-surface.md`](docs/cli-operator-surface.md). |
 | **MCP server** (agent surface) | 🔮 v2 | Read-only analytics tools over stdio (air-gap-safe) or HTTP. See [`docs/cli-operator-surface.md § MCP`](docs/cli-operator-surface.md). |
@@ -113,7 +115,7 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 - [x] `storage/migrate.go` — numbered migrations, `schema_migrations(version, dirty, sequence)`, `{{if .Cluster}}` templates from day 1. Advisory locks deferred.
 - [x] `enrich/` — GeoIP (LITE DB23 no-op fallback), medama-io UA, 17-step channel tree, isbot + `crawler-user-agents.json`, 18MB bloom. Hostnames via `map[string]struct{}` (~100× speedup).
 - [x] `identity/` — BLAKE3-128 + `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`. Cross-day fingerprint grace lookup.
-- [ ] k6 load test (Phase 7): P1 ~300 / P2 ~1,000 / P3 ~4,000 / P4 ~9,000 (18K match) / P5 ~40,000 peak EPS per doc 29 §4. Smoke only in CI; per-phase graduation gate runs in Phase 7e.
+- [ ] k6 load test (Phase 7): P1 ~300 / P2 ~1,000 / P3 ~4,000 / P4 ~9,000 (18K match) / P5 ~40,000 peak EPS per doc 29 §4 — the design-target graduation-gate sign-off numbers. Doc 30 §4 observed current-state is ~4× lower (P5 ~8K sustained, 12K burst) and is retained as a **realism overlay for load-shape curve fitting only**, not a target override (see Context "design ceiling vs. observed"). Smoke only in CI; per-phase graduation gate runs in Phase 7e against the design target.
 - [ ] Crash recovery test (Phase 7): kill-9 → WAL replay → zero loss.
 - [x] Integration tests: bot UA → is_bot=1 + visitor_hash (`test/enrichment_e2e_test.go`); 10-case fast-reject table; cross-day grace.
 
@@ -210,23 +212,23 @@ Canonical spec: [`../jaan-to/docs/research/29-Production-load-simulation-gate-st
 - [ ] **W1–W2** — ClickHouse migration `003_load_gate_columns.sql` applied on staging; verify sparse-column storage overhead ≈ zero on 100M-row synthetic; projection `proj_oracle` MATERIALIZEd.
 - [ ] **W3** — Stand up Locust master + 3 FastHttpUser workers on Asiatech (`test/perf/gate/locust-master.py`, `locustfile.py`, worker manifests). Replicate existing k6 scenarios (`test/perf/load.js`) into Locust Python; cross-check p99 within 5% of k6.
 - [ ] **W4** — Observability VPS on separated AT-VPS (rack/AZ distinct from generators + target): Prometheus + Grafana + Grafana Pyroscope (AGPL-3.0 server, Apache-2.0 SDK) + Loki + Vector.dev + Parca + Falco. All container images mirrored to internal registry. `strace -f -e trace=connect` burn-in under `iptables -A OUTPUT -j DROP` except observability VLAN confirms no outbound.
-- [ ] **W5** — Six chaos scripts (`test/perf/chaos/A_bgp_cut.sh` … `F_clock_skew.sh`) per doc 29 §5.1–§5.6 — Ansible playbooks or bash. Dry-run each scenario on isolated 2-node test bed; capture oracle-SQL output for every scenario.
+- [ ] **W5** — Seven chaos scripts (`test/perf/chaos/A_bgp_cut.sh` … `F_clock_skew.sh` + `G_intl_egress.sh`) per doc 29 §5.1–§5.6 + doc 30 §3 — Ansible playbooks or bash. Scenario G: 3h `tc netem` injecting 80–120ms jitter + 2% loss on outbound Tehran-IX / Asiatech → Frankfurt peering while NIN domestic paths stay clean; pins the 38% non-Iran diaspora cohort (19% Germany / 9% US / 7.5% Finland-VPN / 2.8% UK / 2.7% FR / 2.5% CA) per doc 30 §3. Dry-run each scenario on isolated 2-node test bed; capture oracle-SQL output for every scenario.
 - [ ] **Makefile targets** — `make load-gate PHASE=Px` (runs 72h soak + 6-chaos + breakpoint), `make soak-72h`, `make chaos-matrix`, `make breakpoint`, `make oracle-scan`.
-- [ ] **Synthesizer** (`test/perf/generator/main.go`) — Go program emitting generator_seq quadruple per event; supports replay from Filimo anonymized NDJSON export + synthetic fill. Kernel tuning applied per doc 29 §3.2 sysctl table on every generator node.
-- [ ] **Replay-attestation template** — `docs/replay-attestation-template.md`; Filimo analytics owner signs a per-phase export statement (regex-scrub spec + salt rotation + auto-delete kill-switch).
+- [ ] **Synthesizer** (`test/perf/generator/main.go`) — Go program emitting generator_seq quadruple per event; supports replay from SamplePlatform anonymized NDJSON export + synthetic fill. Kernel tuning applied per doc 29 §3.2 sysctl table on every generator node.
+- [ ] **Replay-attestation template** — `docs/replay-attestation-template.md`; SamplePlatform analytics owner signs a per-phase export statement (regex-scrub spec + salt rotation + auto-delete kill-switch).
 - [ ] **Acceptance:** P1 dry-run on 2-node test bed passes all 6 chaos scenarios + 0→450 EPS breakpoint + oracle SQL returns zero loss/duplicates before Phase 10 Week 21 begins.
 
 ### Phase 8: Deployment & Launch (Weeks 17–18)
 
 **Guardrails:** [`air-gap-validator`](.claude/skills/air-gap-validator/README.md), [`clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md), [`clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md). Plus `AgriciDaniel/claude-cybersecurity` one-shot audit.
 
-- [ ] Hetzner CX32 (Phase A) OR Iranian DC (Filimo)
+- [ ] Hetzner CX32 (Phase A) OR Iranian DC (SamplePlatform)
 - [ ] `make airgap-bundle` — binary + `vendor/` + migrations + default YAML + tracker + DB23 BIN + SHA256SUMS + Ed25519 signature. Docker tarball → v1.1.
 - [ ] Deployment runbook (bare-metal, air-gapped bundle install)
 - [ ] Backup cron + monthly restore drill
 - [ ] File-sink alerts (`/var/log/statnive/alerts.jsonl`): WAL >80%, CH down, disk >85%, cert <30d. Syslog/Telegram = v1.1.
 - [ ] Offline GeoIP update procedure (SCP BIN + SIGHUP); internal NTP requirement docs
-- [ ] Filimo tracker integration; air-gap acceptance test; v1 launch
+- [ ] SamplePlatform tracker integration; air-gap acceptance test; v1 launch
 
 ### Phase 9: Dogfood on statnive.com (Weeks 19–20)
 
@@ -238,7 +240,7 @@ Canonical spec: [`../jaan-to/docs/research/29-Production-load-simulation-gate-st
 - [ ] Tracker snippet in `statnive-website/` Astro base layout
 - [ ] Acceptance: 24h → non-zero visitors; viewer blocked from `/api/admin/*`; all 8 `/api/stats/*` return data
 
-### Phase 10: Filimo dedicated Iranian VPS (Weeks 21–24)
+### Phase 10: SamplePlatform dedicated Iranian VPS (Weeks 21–24)
 
 **HARD GATE on cutover:** [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md) — Iranian-ASN compound-key tiering before the first byte. AS44244 / AS197207 / AS57218 on `(ip, site_id)` at 1K req/s sustained / 2K burst; 100/200 fallback elsewhere; 25K req/s per-site global cap. ASN via `iptoasn.com` public-domain TSV (MaxMind / IPLocate CC-BY-SA rejected). k6 scenarios `normal`/`burst`/`ddos`/`cgnat` must pass.
 
@@ -259,16 +261,16 @@ Per-phase Iranian DC sizing:
 - [ ] P1 cutover: Asiatech G1/G2 standard VPS (~15–28M Rial/mo, 150 GB/mo fits web)
 - [ ] Negotiate P3+ quotes: Asiatech BW upgrades + dedicated from Asiatech/Shatel/Afranet/ParsPack
 - [ ] D2 provisioning (VPS P1/P2 → dedicated P3)
-- [ ] DNS: `CNAME filimo.statnive.live → <Iranian-DC-IP>` (Cloudflare proxy **OFF**)
+- [ ] DNS: `CNAME SamplePlatform.statnive.live → <Iranian-DC-IP>` (Cloudflare proxy **OFF**)
 - [ ] `make airgap-bundle` → SCP → verify SHA256 + Ed25519 sig → `deploy/airgap-install.sh`
-- [ ] Manual PEM (LE throwaway or Filimo internal CA), quarterly rotation
+- [ ] Manual PEM (LE throwaway or SamplePlatform internal CA), quarterly rotation
 - [ ] **Paid IP2Location DB23** on D2 only (city accuracy matters)
-- [ ] Ed25519 license JWT (`site_id=1, Customer="Filimo", MaxEventsDay=0, Features=["*"], ExpiresAt=+1y`). Private key age-encrypted on offline laptop.
+- [ ] Ed25519 license JWT (`site_id=1, Customer="SamplePlatform", MaxEventsDay=0, Features=["*"], ExpiresAt=+1y`). Private key age-encrypted on offline laptop.
 - [ ] Config overrides: `audit.sink=file`, `license.phone_home=false`. Only `site_id=1`.
-- [ ] Seed `sites` with Filimo hostnames (`filimo.com`, `www.filimo.com`, CDN subdomains)
+- [ ] Seed `sites` with SamplePlatform hostnames (`SamplePlatform.com`, `www.SamplePlatform.com`, CDN subdomains)
 - [ ] Admin user → secure channel (Signal / in-person / PGP)
-- [ ] Filimo pastes `<script src="https://filimo.statnive.live/tracker.js" defer></script>` + root-domain cookie walking (Clarity pattern, doc 21)
-- [ ] Acceptance per sub-phase (doc 29 §4): P1 72h soak @ 240 EPS + 6-scenario chaos + 0→450 EPS breakpoint → binary SLO sign-off before Filimo web cutover; P2/P3/P4/P5 repeat the gate at their respective envelopes (1K / 4K / 9K-18K match / 40K peak) before onboarding each app. PII wire-scan `rate()` = 0 throughout. Air-gap end-to-end + backup+restore remain prerequisite (§17 / §37).
+- [ ] SamplePlatform pastes `<script src="https://SamplePlatform.statnive.live/tracker.js" defer></script>` + root-domain cookie walking (Clarity pattern, doc 21)
+- [ ] Acceptance per sub-phase (doc 29 §4): P1 72h soak @ 240 EPS + 7-scenario chaos (+ G international-egress per doc 30 §3) + 0→450 EPS breakpoint → binary SLO sign-off before SamplePlatform web cutover; P2/P3/P4/P5 repeat the gate at their respective envelopes (1K / 4K / 9K-18K match / 40K peak) before onboarding each app. PII wire-scan `rate()` = 0 throughout. Air-gap end-to-end + backup+restore remain prerequisite (§17 / §37).
 
 ### Phase 11: International SaaS self-serve (Weeks 26–30)
 
@@ -320,13 +322,13 @@ Authoritative inventory in [`docs/tooling.md`](docs/tooling.md) + the 14 `.claud
 
 ## Brand & Design
 
-Full spec — wordmark + summit logo, cream/ink/Persian-Teal palette, Fraunces + IBM Plex type ramp, token CSS, typography rules, voice rules, compliance hooks — in [`docs/brand.md`](docs/brand.md). Applies to statnive.live marketing + demo + tenant dashboards + Filimo dashboard + README/docs.
+Full spec — wordmark + summit logo, cream/ink/Persian-Teal palette, Fraunces + IBM Plex type ramp, token CSS, typography rules, voice rules, compliance hooks — in [`docs/brand.md`](docs/brand.md). Applies to statnive.live marketing + demo + tenant dashboards + SamplePlatform dashboard + README/docs.
 
 ## SaaS Model, Server Costs, Air-Gapped Deployment
 
 **SaaS model (pricing tiers, multi-tenant architecture, GDPR requirements):** details in [`docs/deployment.md § SaaS Model`](docs/deployment.md#saas-model-statnive-live-cloud). Tiers: Free 10K PV ($0 self-hosted only), Starter 100K ($9/mo), Growth 1M ($19/mo), Business 10M ($69/mo), Scale 100M ($199/mo), Enterprise 1B+ (custom).
 
-**Server costs:** Hetzner CX32 (~€13/mo) Phase A dogfood → AX41 (~€39/mo) first ~10 paying → AX42 (€46/mo) ~30–50 customers → AX102 (€104/mo) 100+. Filimo Iranian DC ~€180/mo (quote-based; phase-dependent per [`deployment.md § Server Costs`](docs/deployment.md#server-costs)).
+**Server costs:** Hetzner CX32 (~€13/mo) Phase A dogfood → AX41 (~€39/mo) first ~10 paying → AX42 (€46/mo) ~30–50 customers → AX102 (€104/mo) 100+. SamplePlatform Iranian DC ~€180/mo (quote-based; phase-dependent per [`deployment.md § Server Costs`](docs/deployment.md#server-costs)).
 
 **Air-gapped / isolated deployment:** zero required outbound connections, single binary, all deps `go:embed` or vendored; opt-in external services (LE ACME, Telegram, license phone-home, GSC, Clarity, Polar, email) disabled by default. Full procedure (bundle contents, `make airgap-bundle`, install steps, prerequisites) in [`docs/deployment.md § Air-Gapped / Isolated Deployment`](docs/deployment.md#air-gapped--isolated-deployment).
 
@@ -337,11 +339,11 @@ statnive-live ships in **three public-facing phases across two deployments**. Sa
 | Deployment | Host | Tenancy | Purpose | Phases |
 |---|---|---|---|---|
 | **D1 — `statnive.live` (SaaS)** | Hetzner CX32 (v1) → AX41/AX42 | Multi-tenant, pooled CH | Dogfood + public SaaS | A, C |
-| **D2 — `filimo.statnive.live` (Dedicated)** | Iranian DC (Asiatech / Shatel / Afranet) | Single-tenant (`site_id=1`), air-gapped | Filimo production | B |
+| **D2 — `SamplePlatform.statnive.live` (Dedicated)** | Iranian DC (Asiatech / Shatel / Afranet) | Single-tenant (`site_id=1`), air-gapped | SamplePlatform production | B |
 
-**Routing:** single tracker URL per deployment (`statnive.live/tracker.js`, `filimo.statnive.live/tracker.js`); `site_id` resolved server-side from `Origin`/`Referer`. Path-based tenant routing in Phase C: `app.statnive.live/s/<slug>/…`. One TLS cert for `statnive.live` + `demo.statnive.live` + `app.statnive.live` + `filimo.statnive.live`; no wildcard in v1. Subdomain-per-tenant branding = v2 upsell.
+**Routing:** single tracker URL per deployment (`statnive.live/tracker.js`, `SamplePlatform.statnive.live/tracker.js`); `site_id` resolved server-side from `Origin`/`Referer`. Path-based tenant routing in Phase C: `app.statnive.live/s/<slug>/…`. One TLS cert for `statnive.live` + `demo.statnive.live` + `app.statnive.live` + `SamplePlatform.statnive.live`; no wildcard in v1. Subdomain-per-tenant branding = v2 upsell.
 
-**Auth per phase:** A demo = shared `demo/demo-statnive` viewer (displayed on login); B Filimo = admin+viewer, rotatable via `/api/admin/users`; C SaaS = email+password, bcrypt + 14-day session.
+**Auth per phase:** A demo = shared `demo/demo-statnive` viewer (displayed on login); B SamplePlatform = admin+viewer, rotatable via `/api/admin/users`; C SaaS = email+password, bcrypt + 14-day session.
 
 **License per phase:** D1 (A + C) = no JWT (our instance; admin-user gating). D2 (B) = Ed25519 JWT at `config/license.key`, `MaxEventsDay=0`, `Features=["*"]`, `ExpiresAt=+1y`, offline.
 
@@ -351,11 +353,11 @@ D1 Hetzner CX32 (~€13/mo). DNS A/AAAA for `statnive.live`, `demo.statnive.live
 
 **Acceptance:** 24h → non-zero visitors; viewer 403 on `/api/admin/*`; all 8 `/api/stats/*` return `site_id=1` data.
 
-### Phase B — Filimo dedicated Iranian VPS (Weeks 22–25)
+### Phase B — SamplePlatform dedicated Iranian VPS (Weeks 22–25)
 
-Cutover scope = **Filimo web only** (P1 onboarding, ~200K DAU / 3M views/day). D2 initial = Asiatech G1/G2 VPS (~15–28M Rial/mo). Graduates to dedicated bare-metal at P3 (~3mo post-cutover, +iOS). Hardware per sub-phase table in Phase 10. Install = offline bundle (`make airgap-bundle`) → SCP via bastion → verify SHA256+Ed25519 → `deploy/airgap-install.sh`. DNS `CNAME filimo.statnive.live → <Iranian-DC-IP>` (Cloudflare proxy **OFF**). Manual PEM (Filimo internal CA preferred, or self-signed w/ distributed root), quarterly. Upgrade to paid IP2Location DB23. License JWT + age-encrypted key. Config: `audit.sink=file`, `license.phone_home=false`. Seed Filimo hostnames. Admin via secure channel. Tracker `<script src="https://filimo.statnive.live/tracker.js" defer></script>` + root-domain cookie walking. Firewall: `iptables -P OUTPUT DROP` except loopback, CH localhost, tracker client IPs, DNS, NTP.
+Cutover scope = **SamplePlatform web only** (P1 onboarding, ~200K DAU / 3M views/day). D2 initial = Asiatech G1/G2 VPS (~15–28M Rial/mo). Graduates to dedicated bare-metal at P3 (~3mo post-cutover, +iOS). Hardware per sub-phase table in Phase 10. Install = offline bundle (`make airgap-bundle`) → SCP via bastion → verify SHA256+Ed25519 → `deploy/airgap-install.sh`. DNS `CNAME SamplePlatform.statnive.live → <Iranian-DC-IP>` (Cloudflare proxy **OFF**). Manual PEM (SamplePlatform internal CA preferred, or self-signed w/ distributed root), quarterly. Upgrade to paid IP2Location DB23. License JWT + age-encrypted key. Config: `audit.sink=file`, `license.phone_home=false`. Seed SamplePlatform hostnames. Admin via secure channel. Tracker `<script src="https://SamplePlatform.statnive.live/tracker.js" defer></script>` + root-domain cookie walking. Firewall: `iptables -P OUTPUT DROP` except loopback, CH localhost, tracker client IPs, DNS, NTP.
 
-**Acceptance (P1 StreamCo MIN) — doc 29 §4.1 graduation gate:** 72h soak @ 240 EPS with diurnal curve, 6-scenario chaos matrix (BGP cut / mobile curfew / DPI RST / Tehran-IX degrade / Asiatech DC outage / clock skew), 0→450 EPS breakpoint. Every SLO green (server loss ≤0.05%, client loss ≤0.5%, duplicates ≤0.1%, attribution ≥99.5%, PII wire-scan rate()=0, p99<500ms, TTFB overhead ≤+25ms). Air-gap end-to-end + monthly backup+restore remain prerequisite. P2/P3/P4/P5 repeat the gate at 1K/4K/9K-18K/40K peak EPS before onboarding each successive app.
+**Acceptance (P1 StreamCo MIN) — doc 29 §4.1 graduation gate:** 72h soak @ 240 EPS with diurnal curve, 7-scenario chaos matrix (BGP cut / mobile curfew / DPI RST / Tehran-IX degrade / Asiatech DC outage / clock skew / international-egress per doc 30 §3), 0→450 EPS breakpoint. Every SLO green (server loss ≤0.05%, client loss ≤0.5%, duplicates ≤0.1%, attribution ≥99.5% independently across 62% Iran + 38% diaspora cohorts per doc 30 §3, PII wire-scan rate()=0, p99<500ms, TTFB overhead ≤+25ms). Air-gap end-to-end + monthly backup+restore remain prerequisite. P2/P3/P4/P5 repeat the gate at 1K/4K/9K-18K/40K peak EPS before onboarding each successive app; P4 + P5 additionally require the long-session memory-leak soak (doc 30 §6, verification §48).
 
 ### Phase C — International SaaS self-serve (Weeks 25–29)
 
@@ -406,7 +408,7 @@ Context7-cached per-library API references (14 libs, 2026-04-17 snapshot). Full 
 29. **AI channel day 1** (doc 24 §Sec 3.3): `chat.openai.com` / `claude.ai` / `gemini.google.com` / `copilot.microsoft.com` / `perplexity.ai` → `channel="AI"`
 30. **Day-of-week growth comparison** (v1.1, doc 24 §Sec 5 T2 #19): this-Tuesday-vs-last-Tuesday correct
 31. **Phase A (dogfood)**: statnive.com pageview → `demo.statnive.live` <5min; shared viewer 403 on `/api/admin/*`; login cap 10/min/IP
-32. **Phase B (Filimo)**: `filimo.statnive.live/tracker.js` → dashboard <5min; `iptables -P OUTPUT DROP` end-to-end on Iranian DC; backup+restore on dedicated instance
+32. **Phase B (SamplePlatform)**: `SamplePlatform.statnive.live/tracker.js` → dashboard <5min; `iptables -P OUTPUT DROP` end-to-end on Iranian DC; backup+restore on dedicated instance
 33. **Phase C (SaaS)**: signup → tracker → first event in `app.statnive.live/s/<slug>` <5min; cross-tenant isolation (URL-manipulation blocked); Polar sandbox webhook updates `sites.plan`; idempotent; 6th signup/hr rejected
 34. **Kill-9 WAL gate** (doc 27 §Gap 1): CI 10K events → kill -9 random 100ms–2s → restart → `count() FROM events_raw == client 2xx` (within 0.05% SLO). 50 runs/PR. 7b close gate. (skill: [`wal-durability-review`](.claude/skills/wal-durability-review/README.md))
 35. **CGNAT rate-limit tiering** (doc 27 §Gap 2): k6 `cgnat` = 7K EPS from 100 IPs simulating AS44244 — MUST NOT 429. `ddos` = 30K EPS from 50 IPs — MUST 429 (>50% fail). `normal` = 7K EPS from 10K IPs — <1% fail p99 <500ms. Phase 10 cutover gate. (skill: [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md))
@@ -415,10 +417,12 @@ Context7-cached per-library API references (14 libs, 2026-04-17 snapshot). Full 
 38. **GeoIP hot-reload under load** (doc 28 §Gap 1): 100 concurrent lookup goroutines with `-race`; `SIGHUP` 100 times in 1s. p99 <500ms, zero FD leak across 1,000 swaps, last swap wins, zero lookup errors. 7K EPS k6 log grep for IPv4/IPv6 regex — zero matches. Gates Phase 10 paid-DB23 cutover. (skill: [`geoip-pipeline-review`](.claude/skills/geoip-pipeline-review/README.md))
 39. **CH parts-ceiling + restore drill** (doc 28 §Gap 3): k6 5min 7K EPS — active parts <100, zero `RejectedInserts`, `DelayedInserts` <50, p99 `http_req_duration{kind:ingest}` <500ms. Nightly + labeled-PR `clickhouse-backup` create+upload+restore → row-count parity + `uniqCombined64Merge(uniq_state) FROM rollup_daily FINAL FORMAT Null` clean. Required before Week 23 load-rehearsal. (skill: [`clickhouse-operations-review`](.claude/skills/clickhouse-operations-review/README.md))
 40. **Generator_seq oracle** (doc 29 §6.1): every synthesized event carries `(test_run_id, generator_node_id, test_generator_seq, send_ts)`; one ClickHouse query per run (loss / duplicates / ordering / latency) runs in <60s. Projection `proj_oracle` ORDER BY `(test_run_id, generator_node_id, test_generator_seq)` MATERIALIZEd on staging CH. (skill scheduled: `load-gate-harness`, Phase 7e)
-41. **Per-phase graduation gate** (doc 29 §4): 72h soak + 6-scenario chaos + breakpoint 150% passes every SLO before tracker points at that phase. Binary sign-off ceremony with Filimo analytics owner per sub-phase. No hand-wavy partial pass; any single SLO breach halts the gate.
-42. **6-scenario chaos matrix** (doc 29 §5): A BGP cut (iptables NIN-only, 6h), B mobile curfew (tc netem 80% loss on mobile-AS srcs, 8h), C DPI RST (xt_tls on flagged SNI, 4h), D Tehran-IX degrade (iptables drop 185.1.77.0/24 + 60ms netem, 3h), E Asiatech DC partial outage (iptables drop DC subnet, 1h), F clock skew (block UDP 123 + date-drift, 4h). Each scenario ships with its tc/netem/iptables/xt_tls script AND its oracle SQL.
+41. **Per-phase graduation gate** (doc 29 §4): 72h soak + 7-scenario chaos + breakpoint 150% passes every SLO before tracker points at that phase. Binary sign-off ceremony with SamplePlatform analytics owner per sub-phase. No hand-wavy partial pass; any single SLO breach halts the gate. Target = doc 29 MAX envelope (200M events/day, 40K EPS burst at P5), not doc 30 observed — per Context "design ceiling vs observed" callout.
+42. **7-scenario chaos matrix** (doc 29 §5 + doc 30 §3): A BGP cut (iptables NIN-only, 6h), B mobile curfew (tc netem 80% loss on mobile-AS srcs, 8h), C DPI RST (xt_tls on flagged SNI, 4h), D Tehran-IX degrade (iptables drop 185.1.77.0/24 + 60ms netem, 3h), E Asiatech DC partial outage (iptables drop DC subnet, 1h), F clock skew (block UDP 123 + date-drift, 4h), **G international-egress degraded (tc netem 80–120ms + 2% loss on outbound Tehran-IX / Asiatech → Frankfurt peering, 3h — pins the 38% diaspora cohort per doc 30 §3; oracle correlates `country != 'IR'` event loss independently of the 62% Iran cohort so attribution-correctness ≥99.5% holds for both cohorts, not just the weighted average)**. Each scenario ships with its tc/netem/iptables/xt_tls script AND its oracle SQL.
 43. **Breakpoint ramp** (doc 29 §4): 0 → 150% of phase peak EPS over 30 min locates the failure knee above SLO ceiling. Not required to pass SLO above 100%; required to identify the knee for capacity planning and confirm graceful degradation.
-44. **Production-replay protocol** (doc 29 §9 open item 4): one anonymized NDJSON export per phase from Filimo; cleanroom attestation signed by Filimo analytics owner (regex-scrub spec + salt rotation per phase + auto-delete kill-switch post-sign-off); chain-of-custody from Filimo bucket to statnive staging documented.
+44. **Production-replay protocol** (doc 29 §9 open item 4 + doc 30 §8): one anonymized NDJSON export per phase from SamplePlatform; cleanroom attestation signed by SamplePlatform analytics owner (regex-scrub spec + salt rotation per phase + auto-delete kill-switch post-sign-off); chain-of-custody from SamplePlatform bucket to statnive staging documented. **Seed distribution**: at least 40% of events target returning `visitor_hash` values per doc 30 §8 (SamplePlatform Week-1 retention 42.8%, Week-4 32.6%) — uniform-random under-exercises the bloom filter + cross-day fingerprint grace (doc 24 §Sec 1.1) path.
 45. **PII wire-scan via Vector.dev + VRL** (doc 29 §3.4, §6.3): live <1s detection at 15K+ EPS (ipv4 / ipv6 / email / user_id regex redact); Loki stream `pii_leak=true`; Alertmanager fires on `rate() > 0` → gate halts. Supersedes one-shot [`test/pii_leak_test.go`](test/pii_leak_test.go) byte-scan.
 46. **Staging cost envelope** (doc 29 §7): ≤40% of production monthly cost, billing-average — warm AT-VPS-B1 between gates; prod-parity during 72h hot window; ≤150% burst during breakpoint. All five phases satisfy the envelope at 17–37% per §7 table. Teardown scripted, not manual.
 47. **Observability VPS separation** (doc 29 §3.2): Prometheus + Grafana + Pyroscope + Loki + Vector.dev on a dedicated AT-VPS on isolated rack/AZ from generators + target. Verified by `strace -f -e trace=connect` burn-in under `iptables -A OUTPUT -j DROP` except observability VLAN. Prevents softirq contention at peak from manifesting as phantom server-side regressions.
+48. **Long-session memory-leak soak** (doc 30 §6): 1000 virtual users × 6h sessions × 1,080 progress-pings @ 20s cadence. Assert zero tracker JS memory leak across 6h, `visitor_hash` stable across cross-day salt rotation, zero duplicate `session_id` emission, all beacons correctly attributed. Exercises the long-Android-binge + mobile-web-power-user cohort (30% + 15% of sessions by count, majority of event volume) that doc 29's 4–15 events/session estimate missed — the heaviest mobile-web cohort averages 8h 26m engagement per doc 30 §6. Runs as part of P4 + P5 graduation gates.
+49. **Diaspora-cohort load mix + SLO segmentation** (doc 30 §3): load generator emits 62% Iran-origin + 38% diaspora-origin sessions (19% Germany / 9% US / 7.5% Finland-VPN / 2.8% UK / 2.7% FR / 2.5% CA). Finland cohort tagged as Iranian-over-VPN with high-latency + high-jitter + VPN-egress-reliability profile (Lantern/Psiphon signature). Oracle SQL segments loss / duplicate / attribution SLOs per `geographic_cohort_id` in the generator_seq quadruple; all SLOs must hold independently on both cohorts, not just the weighted average. Pairs with chaos scenario G for the international-egress failure-mode coverage.
