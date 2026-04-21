@@ -126,16 +126,14 @@ func TestIngestPipelineSmoke(t *testing.T) {
 		Logger:  logger,
 	})
 
-	consumer := ingest.NewConsumer(pipeline.Out(), wal, store, ingest.ConsumerConfig{
+	groupSyncer := ingest.NewGroupSyncer(wal, ingest.GroupConfig{}, nil, logger)
+	t.Cleanup(groupSyncer.Close)
+
+	consumer := ingest.NewConsumer(groupSyncer.Out(), wal, store, ingest.ConsumerConfig{
 		BatchRows:     50,
 		BatchInterval: 100 * time.Millisecond,
-	}, logger)
-
-	pipelineDone := make(chan struct{})
-	go func() {
-		_ = pipeline.Run(ctx)
-		close(pipelineDone)
-	}()
+		DrainSettle:   100 * time.Millisecond,
+	}, nil, logger)
 
 	consumerDone := make(chan struct{})
 	go func() {
@@ -148,6 +146,7 @@ func TestIngestPipelineSmoke(t *testing.T) {
 		r.Use(ingest.FastRejectMiddleware(nil))
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline: pipeline,
+			WAL:      groupSyncer,
 			Sites:    sites.New(store.Conn()),
 			Logger:   logger,
 		}))
@@ -189,10 +188,9 @@ func TestIngestPipelineSmoke(t *testing.T) {
 	// Give the batcher time to flush (100ms interval + some CH latency).
 	waitForCount(t, ctx, store, testSiteID, eventCount, flushTimeout)
 
-	// Shutdown: cancel ctx → pipeline.Run drains workers + closes Out →
+	// Shutdown: cancel ctx → groupSyncer cleanup closes Out →
 	// consumer.Run sees the close + exits.
 	cancel()
-	<-pipelineDone
 	<-consumerDone
 }
 

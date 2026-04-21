@@ -194,12 +194,15 @@ func newRateLimitedTestServer(
 		Logger:  logger,
 	})
 
-	consumer := ingest.NewConsumer(pipeline.Out(), wal, store, ingest.ConsumerConfig{
+	groupSyncer := ingest.NewGroupSyncer(wal, ingest.GroupConfig{}, auditLog, logger)
+	t.Cleanup(groupSyncer.Close)
+
+	consumer := ingest.NewConsumer(groupSyncer.Out(), wal, store, ingest.ConsumerConfig{
 		BatchRows:     50,
 		BatchInterval: 100 * time.Millisecond,
-	}, logger)
+		DrainSettle:   100 * time.Millisecond,
+	}, auditLog, logger)
 
-	go func() { _ = pipeline.Run(ctx) }()
 	go consumer.Run(ctx)
 
 	rateLimitMW, err := ratelimit.Middleware(rps, time.Minute, auditLog)
@@ -213,6 +216,7 @@ func newRateLimitedTestServer(
 		r.Use(rateLimitMW)
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline: pipeline,
+			WAL:      groupSyncer,
 			Sites:    sites.New(store.Conn()),
 			Audit:    auditLog,
 			Logger:   logger,
