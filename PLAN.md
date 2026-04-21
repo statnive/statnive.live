@@ -73,7 +73,7 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 | **3b — Dashboard HTTP layer** | ✅ Complete | PR #12. 8 stat handlers + realtime + IRST Filter + bearer-token stub + WITH FILL. |
 | **3c — Admin CRUD** | ⏳ Pending | `/api/admin/users`, `/api/admin/goals`. Needs Phase 2b. |
 | **4 — Tracker JS** | ✅ Complete | PR #21. 1394 B min / 687 B gz + Go embed at `/tracker.js`; `statnive.track()` + `statnive.identify(uid)` end-to-end (raw uid cleared). Sec-GPC + DNT + webdriver + _phantom short-circuits BEFORE send. 15 Vitest + 6 Go handler tests; size gate in `make audit`. |
-| **5 — Dashboard frontend** | ⛔ Blocked | Preact SPA + uPlot + Frappe. **User-gate: Phase 7b2 must be green** (7b1b landed PR #25). |
+| **5 — Dashboard frontend** | 🔜 Next | Preact SPA + uPlot + Frappe. Unblocked by Phase 7b2 (real-tracker correctness + PII grep + TLS rotation drill + fsync p99 metric all green). |
 | **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, `/healthz`, env override done. Admin-user + Goal/Funnel CRUD wait on Phase 2/3. |
 | **7a — Backend solidity gate** | ✅ Complete | PR #14. Burst guard (~50 ns/op) + bench suite + crash/CH-outage/disk-full tests + k6 7K EPS + WAL replay + viper env fix. |
 | **7c — Optimization & hardening** | ✅ Complete | PR #18. Channel hot path -13% (1 alloc/op); modern Go (`wg.Go`, range-over-int, `b.Loop()`); dead drift-check removed; CI fixes (vendor-check CRLF, license-check GOFLAGS, golangci-lint v2.5 `--new-from-rev`). Audit evidence at `audit/{sec,ch,airgap}-findings.md`; `bench.out` baseline. |
@@ -157,7 +157,7 @@ Flat `internal/storage/queries.go` (one Go function per endpoint) — we do NOT 
 - [x] **Sec-GPC + DNT short-circuit BEFORE the request fires** (doc 27 Privacy Rule #9).
 - [x] Served via `go:embed` (`internal/tracker/tracker.go`).
 - [x] Cross-day returning visitors validated via `_statnive` cookie round-trip.
-- [ ] Real-tracker integration test → rollup verification — Phase 7b2.
+- [x] Real-tracker integration test → rollup verification — Phase 7b2 (payload-golden contract: Vitest captures sendBeacon body, Go integration test replays each payload through the full pipeline → ClickHouse).
 
 **Deferred to v1.1:** engagement ping (10s heartbeat), throttle-with-last-event, base36 date, envelope+payload separation.
 
@@ -190,9 +190,12 @@ Brand tokens from [`docs/brand.md`](docs/brand.md) — `web/src/tokens.css` impo
 - [ ] 100K-event integration (Phase 7b, after auth)
 - [x] Crash recovery test (logs ~80% loss before 7b WAL fix — now asserts <0.05%)
 - [x] Disk-full policy test; Phase 7c optimization (PR #18 — Channel -13%, modern Go, CI fixes, `make audit`)
-- [ ] Backup restore test — Phase 7b (needs Phase 2c script)
-- [ ] Manual TLS rotation test — Phase 7b
+- [partial] Backup restore — Phase 7b2 ships the manual SOP at [`docs/runbook.md`](docs/runbook.md) § Backup & restore; CI automation (`deploy/backup/drill.sh` + dedicated job) lands in Phase 2c.
+- [x] Manual TLS rotation test — Phase 7b2 ([`internal/cert/rotation_e2e_test.go`](internal/cert/rotation_e2e_test.go) — atomic.Pointer hot-swap regression + fail-closed on corrupt PEM).
 - [x] CH outage buffer-and-drain test (10s in-test; 10min in runbook)
+- [x] Integration-level PII grep — Phase 7b2 ([`test/pii_leak_test.go`](test/pii_leak_test.go) byte-scans WAL segments + audit.jsonl + `events_raw` for raw user_id/IP probes; pins Privacy Rules 1 + 4).
+- [x] WAL fsync p99 surfaced via `/healthz` — Phase 7b2 closes [`wal-durability-review`](.claude/skills/wal-durability-review/README.md) item 7 (last open of 10).
+- [x] Kill-9 WAL CI gate — Phase 7b1b shipped harness; Phase 7b2 wires `make wal-killtest` 5-iter smoke into per-PR CI + nightly 50-iter on main.
 
 ### Phase 8: Deployment & Launch (Weeks 17–18)
 
