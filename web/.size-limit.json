@@ -1,0 +1,14 @@
+[
+  {
+    "name": "statnive-spa.js (gz)",
+    "path": "../internal/dashboard/spa/dist/assets/*.js",
+    "limit": "10 KB",
+    "gzip": true
+  },
+  {
+    "name": "statnive-spa.css (gz)",
+    "path": "../internal/dashboard/spa/dist/assets/*.css",
+    "limit": "3 KB",
+    "gzip": true
+  }
+]

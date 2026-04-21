@@ -1,0 +1,44 @@
+/*
+ * Minimal CSS reset scoped to #statnive-app so it can never bleed into
+ * adjacent embedded surfaces. Tailwind's preflight is much too aggressive
+ * for an embedded SPA — this is the bare minimum to get sane defaults.
+ */
+
+#statnive-app,
+#statnive-app *,
+#statnive-app *::before,
+#statnive-app *::after {
+  box-sizing: border-box;
+}
+
+#statnive-app {
+  margin: 0;
+  padding: var(--s-4);
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+#statnive-app h1,
+#statnive-app h2,
+#statnive-app h3 {
+  font-family: var(--serif);
+  margin: 0;
+}
+
+#statnive-app button {
+  font: inherit;
+  cursor: pointer;
+}
+
+#statnive-app a {
+  color: var(--green);
+  text-decoration: none;
+}
+
+#statnive-app a:hover {
+  color: var(--green-dk);
+  text-decoration: underline;
+}

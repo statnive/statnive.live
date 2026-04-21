@@ -1,0 +1,42 @@
+/*
+ * statnive-live brand tokens.
+ *
+ * Source of truth: docs/brand.md. PR review rejects hand-rolled hex values
+ * in Preact components — they MUST reference `var(--green)` etc. The
+ * `make brand-grep` Makefile target enforces this at CI time.
+ *
+ * Scoped to #statnive-app so this CSS can never bleed into adjacent
+ * embedded surfaces (lesson borrowed from the WordPress plugin's
+ * globals-css-scope test).
+ */
+
+#statnive-app {
+  /* Surface */
+  --paper:     #F4EFE6;   /* primary background — cream */
+  --ink:       #1A1916;   /* primary text + rules */
+  --rule-soft: #C9C0AB;   /* dividers, table borders */
+
+  /* Accent — Persian Teal (the .live mark color) */
+  --green:     #00756A;
+  --green-dk:  #004F48;   /* hover / pressed */
+  --green-lt:  #9FCDC5;   /* tinted backgrounds, info pills */
+
+  /* Secondary palette — chart series, status badges. Never primary chrome. */
+  --navy:      #1E3551;
+  --ochre:     #B87B1A;
+  --plum:      #5F3B6E;
+  --rust:      #A84628;
+
+  /* Type ramp */
+  --serif: 'Fraunces', 'Charter', Georgia, serif;
+  --sans:  'IBM Plex Sans', system-ui, sans-serif;
+  --mono:  'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Spacing scale */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 16px;
+  --s-4: 24px;
+  --s-5: 32px;
+  --s-6: 48px;
+}

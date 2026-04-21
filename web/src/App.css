@@ -1,0 +1,12 @@
+.statnive-header {
+  margin-bottom: var(--s-5);
+}
+
+.statnive-wordmark {
+  font-size: 28px;
+}
+
+.statnive-wordmark-live {
+  color: var(--green);
+  font-style: italic;
+}
