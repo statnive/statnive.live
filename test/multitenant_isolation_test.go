@@ -11,10 +11,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/statnive/statnive.live/internal/ingest"
 	"github.com/statnive/statnive.live/internal/storage"
@@ -28,24 +28,11 @@ const (
 	sharedUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120 IsolationProbe"
 )
 
-// testLogWriter bridges slog → *testing.T.Log so pipeline / consumer /
-// WAL log output appears in CI test output (otherwise with the Discard
-// handler we're debugging blind when events get 2xx but don't land).
-type testLogWriter struct{ t *testing.T }
-
-func (w testLogWriter) Write(p []byte) (int, error) {
-	w.t.Log(string(p))
-	return len(p), nil
-}
-
 func TestMultitenantVisitorHashSeparation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Temporarily log to stderr (via t.Log path below) to debug the
-	// PR #29 CI flake where events get 2xx but don't land in CH.
-	// Remove after the flake root cause is identified + fixed.
-	logger := slog.New(slog.NewTextHandler(testLogWriter{t}, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	store, err := storage.NewClickHouseStore(ctx, storage.Config{
 		Addrs:    []string{clickhouseAddr()},
@@ -70,6 +57,17 @@ func TestMultitenantVisitorHashSeparation(t *testing.T) {
 			`ALTER TABLE statnive.events_raw DELETE WHERE site_id = ? SETTINGS mutations_sync = 2`, sid,
 		)
 	}
+
+	// Clean BY HOSTNAME before seeding — TestDashboard_MultitenantIsolation
+	// seeds the same hostnames under different site_ids (401/402) and runs
+	// alphabetically before this test. Without this cleanup both rows stay
+	// active and LookupSiteIDByHostname returns a nondeterministic site_id
+	// so events land under the wrong tenant. See storagetest/seed.go for
+	// the same class of fix in the shared helper.
+	_ = store.Conn().Exec(ctx,
+		`ALTER TABLE statnive.sites DELETE WHERE hostname IN (?, ?) SETTINGS mutations_sync = 2`,
+		hostA, hostB,
+	)
 
 	if err := store.Conn().Exec(ctx,
 		`INSERT INTO statnive.sites (site_id, hostname, slug, enabled) VALUES (?, ?, ?, 1), (?, ?, ?, 1)`,
@@ -110,15 +108,8 @@ func TestMultitenantVisitorHashSeparation(t *testing.T) {
 		_ = resp.Body.Close()
 	}
 
-	// Longer wait than flushTimeout because this test runs right after
-	// TestIngestPipelineSmoke's 100-event drain and CI-side CH is
-	// occasionally slow to process the first insert of a new pipeline.
-	// Happy path still completes in <1s; 45s only protects against the
-	// post-drain + consumer-spin-up latency ceiling.
-	const multitenantWait = 45 * time.Second
-
-	waitForCount(t, ctx, store, tenantA, 1, multitenantWait)
-	waitForCount(t, ctx, store, tenantB, 1, multitenantWait)
+	waitForCount(t, ctx, store, tenantA, 1, flushTimeout)
+	waitForCount(t, ctx, store, tenantB, 1, flushTimeout)
 
 	hashA := readVisitorHash(t, ctx, store, tenantA)
 	hashB := readVisitorHash(t, ctx, store, tenantB)
