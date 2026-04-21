@@ -55,6 +55,14 @@ Encodes **CLAUDE.md Privacy Rules 2, 3, 4** (lines 47-49) and the **Identity** b
 2. Raw `user_id` is never logged (CLAUDE.md Privacy Rule 4). Only the post-hash value.
 3. Raw IP never persisted (handled by `internal/enrich/geoip.go` contract, but referenced here so identity code cannot accidentally write it to ClickHouse).
 
+### Auth-return nil-guard (F5 — PLAN.md §53, Phase 2b)
+
+CVE-2024-10924 (Really Simple Security, 10M+ WordPress sites, Nov 2024) was an auth bypass where `authenticate()` returned `(*User, error)` and callers checked `if err != nil { return }` but proceeded with a zero-value `*User` when both results were `nil`. Go has the same footgun on any `(T, error)` where `T` is a pointer or interface.
+
+1. Every call site of `internal/auth/**` functions returning `(*User, error)`, `(*Session, error)`, `(*License, error)`, or any `(ptr T, error)` must guard `user != nil` (or the equivalent) **after** `err == nil`, not just `err != nil`. A `return` path where `err == nil && user == nil` is a pass-through auth bypass.
+2. Return convention: prefer returning `(T, error)` over `(*T, error)` for non-pointer cases; when a pointer is required, document the success invariant as "`err == nil` implies `user != nil`" and enforce it at the return site, not the call site — defense-in-depth means the caller still checks.
+3. Semgrep rule `auth-return-nil-guard`: for any function under `internal/auth/` or named `Authenticate*`, `Authorize*`, `VerifySession*`, `VerifyLicense*`, flag call sites where `err == nil` branches proceed to use the pointer result without a `!= nil` check within 5 lines.
+
 ## Should trigger (reject)
 
 ```go
