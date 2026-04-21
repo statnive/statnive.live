@@ -278,22 +278,163 @@ A regression in either fails CI. The Go-side
 re-checks the embedded bytes inside `make test` so a manual edit can't
 slip past either gate.
 
-## Future hardening (Phase 7b)
+## Backup & restore (Phase 7b2)
 
-- Backup + restore drill (`clickhouse-backup` + `age` + `zstd`)
-- Manual TLS rotation drill (replace PEM + SIGHUP + verify new cert
-  served on next handshake)
-- Real-tracker correctness (queries match expected aggregations from
-  Phase 4 tracker payloads)
-- WAL replay zero-loss after SIGKILL (currently ~80% loss tracked in
-  `crash_recovery_test.go`) — gated by the new
-  `wal-durability-review` skill (kill-9 CI gate, 50 runs per PR).
-- Consumer buffer-on-CH-outage (currently drops; should fill WAL)
-- Integration-level PII grep (audit log + WAL byte scan for raw
-  user_id strings) — the unit-level test in
-  `internal/ingest/handler_test.go` already enforces the contract at
-  the handler boundary.
-- Full deployment runbook (bare metal, air-gap install bundle)
+Operator-facing copy of the encrypted backup procedure. The skill
+reference at
+`.claude/skills/clickhouse-operations-review/references/backup-restore-drill.md`
+is the source of record; this section is the SOP an on-call operator
+reads. Keep them in sync — when the skill reference changes, port the
+delta here.
 
-These wait for Phase 2c operational hardening (and the new doc 27
-WAL hard gate) to land first.
+### Stack
+
+| Component | Version | License | Role |
+|---|---|---|---|
+| [`Altinity/clickhouse-backup`](https://github.com/Altinity/clickhouse-backup) | v2.5.20+ | Apache-2.0 | Backup orchestration |
+| [`filippo.io/age`](https://github.com/FiloSottile/age) | 1.2+ | BSD-3 | Encryption (recipient pubkey on operator workstation) |
+| `zstd` | 1.5+ | BSD-3 | Compression level 19 |
+
+### Cadence
+
+| Type | Schedule | Retention |
+|---|---|---|
+| Full | Sunday 02:15 UTC | 30 days |
+| Incremental | Every 6 hours | 30 days |
+| Drill | Every release + nightly cron | n/a (validation only) |
+
+### Storage
+
+- **Primary sink:** S3 (or S3-compatible: Backblaze B2, Wasabi, MinIO).
+- **Iranian DC:** Second sink to a ParsPack FTP bucket (50GB free on
+  VPS tier). Outside-Iran sink reachable only when NIN connectivity is
+  up.
+- **Encryption:** All files piped through `age` with a single recipient
+  pubkey. Private key on offline operator workstation. **Restore
+  requires the private key in hand.**
+
+### Config — `deploy/backup/config.yml`
+
+```yaml
+general:
+  remote_storage: s3
+  backups_to_keep_local: 2
+  backups_to_keep_remote: 120  # 30d × 4/day
+
+clickhouse:
+  username: default
+  password: ${CLICKHOUSE_PASSWORD}
+  host: 127.0.0.1
+  port: 9000
+  data_path: ${DATA_DIR}  # read from env; never hardcode /var/lib/clickhouse
+
+s3:
+  access_key: ${S3_ACCESS_KEY}
+  secret_key: ${S3_SECRET_KEY}
+  bucket: statnive-backup
+  region: ${S3_REGION}
+  path: clickhouse/{cluster}/{shard}
+  compression_format: zstd
+  compression_level: 19
+
+# age encryption sidecar — age_recipient_file is the OPERATOR's pubkey
+custom_encryption:
+  pre_upload_command: 'age -r $(cat /etc/statnive/backup-age.pub) -o $FILE.age $FILE && rm $FILE'
+  post_download_command: 'age -d -i /etc/statnive/backup-age.key -o $FILE ${FILE}.age && rm ${FILE}.age'
+```
+
+### Restore drill — manual procedure (Phase 7b2)
+
+Phase 2c will automate this via `deploy/backup/drill.sh` + a CI job.
+Until then, run the steps below on a dedicated drill host (NOT
+production):
+
+1. Install `clickhouse-backup` on the drill host (same version as
+   production):
+   ```bash
+   wget -q https://github.com/Altinity/clickhouse-backup/releases/download/v2.5.20/clickhouse-backup.tar.gz
+   tar xzf clickhouse-backup.tar.gz
+   sudo mv build/linux/amd64/clickhouse-backup /usr/local/bin/
+   ```
+2. Copy `deploy/backup/config-drill.yml` from the production host
+   (drill-only; points at the drill ClickHouse instead of production).
+3. Place the `age` private key at `/etc/statnive/backup-age.key` and
+   set `chmod 0600`.
+4. List remote backups:
+   ```bash
+   clickhouse-backup --config deploy/backup/config-drill.yml list remote
+   ```
+5. Pick the most recent full backup `NAME` and restore it:
+   ```bash
+   clickhouse-backup --config deploy/backup/config-drill.yml restore_remote "$NAME"
+   ```
+6. **Row-count parity check** — for each table, compare drill ↔ prod:
+   ```bash
+   for TABLE in events_raw hourly_visitors daily_pages daily_sources; do
+     P=$(clickhouse-client --host PROD_HOST -q \
+           "SELECT sum(rows) FROM system.parts WHERE table='$TABLE' AND active")
+     D=$(clickhouse-client --host DRILL_HOST -q \
+           "SELECT sum(rows) FROM system.parts WHERE table='$TABLE' AND active")
+     [ "$P" = "$D" ] && echo "$TABLE OK ($P rows)" || echo "$TABLE FAIL prod=$P drill=$D"
+   done
+   ```
+7. **Rollup mergeability check** — catches `AggregateFunction` state
+   corruption that row-count alone misses:
+   ```bash
+   clickhouse-client --host DRILL_HOST -q \
+     "SELECT countMerge(visitors_hll_state) FROM hourly_visitors FINAL FORMAT Null"
+   ```
+8. Tear down the drill instance.
+
+### When to run the drill
+
+- **Every release:** before `git tag v*`, restore last night's backup,
+  walk steps 5–7, confirm parity. A failed drill blocks the release.
+- **Nightly cron:** automated nightly drill (Phase 2c — script lives
+  at `deploy/backup/drill.sh` once written).
+- **Before any schema migration:** full + incremental snapshot
+  immediately before `make migrate`. Same restore drill afterward
+  proves the migration itself didn't corrupt the data set.
+
+## Disk full (CH error code 243)
+
+Exact error text:
+`DB::Exception: Cannot reserve N.NN MiB, not enough space. (NOT_ENOUGH_SPACE) Code: 243`.
+
+1. Verify `/healthz` flips to 503 and `wal_fill_ratio` is climbing
+   toward 0.80 — the back-pressure middleware (Phase 7b1b) should
+   already be returning 503 to the tracker.
+2. Free space, in order of preference:
+   - `ALTER TABLE events_raw DROP PARTITION '202603'` — drop oldest
+     partition.
+   - `ALTER TABLE events_raw DROP DETACHED PART '...'` — drop
+     detached parts from failed mutations.
+   - If partition is bigger than `max_partition_size_to_drop`
+     (default 50 GiB), override with
+     `touch /var/lib/clickhouse/flags/force_drop_table`.
+3. After free, confirm the consumer drains the WAL (`wal_fill_ratio`
+   shrinks toward 0.0 in `/healthz`).
+4. If WAL is still pinned high, check the audit log for
+   `wal.ch_insert_failed` entries — the consumer's bounded retry will
+   eventually give up; restart the binary to retry from scratch.
+
+## Phase 7b status (2026-04-21)
+
+All Phase 7b deliverables shipped:
+
+- ✅ WAL replay zero-loss after SIGKILL (Phase 7b1b — 50-iter kill-9
+  gate green; wired into CI nightly via Phase 7b2).
+- ✅ Consumer buffer-on-CH-outage (Phase 7b1b — `wal.Ack` only on CH
+  commit; bounded retry).
+- ✅ Backup + restore drill — runbook above; CI automation in Phase
+  2c.
+- ✅ Manual TLS rotation drill — automated regression at
+  `internal/cert/rotation_e2e_test.go`.
+- ✅ Real-tracker correctness — `test/tracker_correctness_test.go`
+  replays the JS-emitted golden against the full pipeline.
+- ✅ Integration-level PII grep — `test/pii_leak_test.go` byte-scans
+  WAL segments + audit JSONL + `events_raw`.
+- ✅ `wal_fsync_p99_ms` on `/healthz` (closes
+  `wal-durability-review` item 7 — last open of 10).
+
+Next slice: **Phase 5 frontend** is unblocked.
