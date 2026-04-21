@@ -94,6 +94,13 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # vendor/ is partially gitignored (large binary blobs from
+      # tidwall/wal + medama-io/go-useragent data files are pulled by
+      # `go mod vendor` rather than committed). build-test-lint runs
+      # vendor-check first; we need the same here for `make build`.
+      - name: Vendor check
+        run: make vendor-check
+
       # The kill-9 harness (.claude/skills/wal-durability-review/test/kill9/harness.sh)
       # uses `docker compose up -d clickhouse` + `docker exec` against the
       # configured container name. Boot it here so the harness picks up

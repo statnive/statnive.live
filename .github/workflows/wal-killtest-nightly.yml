@@ -32,6 +32,9 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Vendor check (rebuilds partially-gitignored vendor blobs)
+        run: make vendor-check
+
       - name: Boot ClickHouse via docker-compose
         run: docker compose -f deploy/docker-compose.dev.yml up -d clickhouse
 
