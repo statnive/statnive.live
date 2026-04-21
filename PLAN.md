@@ -73,7 +73,8 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 | **3b — Dashboard HTTP layer** | ✅ Complete | PR #12. 8 stat handlers + realtime + IRST Filter + bearer-token stub + WITH FILL. |
 | **3c — Admin CRUD** | ⏳ Pending | `/api/admin/users`, `/api/admin/goals`. Needs Phase 2b. |
 | **4 — Tracker JS** | ✅ Complete | PR #21. 1394 B min / 687 B gz + Go embed at `/tracker.js`; `statnive.track()` + `statnive.identify(uid)` end-to-end (raw uid cleared). Sec-GPC + DNT + webdriver + _phantom short-circuits BEFORE send. 15 Vitest + 6 Go handler tests; size gate in `make audit`. |
-| **5 — Dashboard frontend** | 🔜 Next | Preact SPA + uPlot + Frappe. Unblocked by Phase 7b2 (real-tracker correctness + PII grep + TLS rotation drill + fsync p99 metric all green). |
+| **5 — Dashboard frontend** | 🔜 Next | Preact SPA + uPlot + Frappe. Unit-side of Phase 7b2 green (TLS rotation + fsync p99 metric run in `make test`); integration-side (real-tracker correctness + PII grep + 3 migrated integration tests + tracker payload-golden Vitest) is shipped + compile-clean but not yet executing in CI — Phase 7b2-completion wires it. |
+| **7b2-completion — execute the 7b2 integration tests** | 🔜 Next | Wires `make test-integration` + `npm --prefix tracker test` into CI as new jobs. Same docker-compose-CH-service pattern as `wal-killtest-smoke` (Phase 7b2). Closes the "shipped vs executed" gap before Phase 5 starts adding code paths that could regress these tests undetected. |
 | **6 — Config & first-run** | 🟡 Partial | YAML loader, migrations, `/healthz`, env override done. Admin-user + Goal/Funnel CRUD wait on Phase 2/3. |
 | **7a — Backend solidity gate** | ✅ Complete | PR #14. Burst guard (~50 ns/op) + bench suite + crash/CH-outage/disk-full tests + k6 7K EPS + WAL replay + viper env fix. |
 | **7c — Optimization & hardening** | ✅ Complete | PR #18. Channel hot path -13% (1 alloc/op); modern Go (`wg.Go`, range-over-int, `b.Loop()`); dead drift-check removed; CI fixes (vendor-check CRLF, license-check GOFLAGS, golangci-lint v2.5 `--new-from-rev`). Audit evidence at `audit/{sec,ch,airgap}-findings.md`; `bench.out` baseline. |
@@ -157,7 +158,7 @@ Flat `internal/storage/queries.go` (one Go function per endpoint) — we do NOT 
 - [x] **Sec-GPC + DNT short-circuit BEFORE the request fires** (doc 27 Privacy Rule #9).
 - [x] Served via `go:embed` (`internal/tracker/tracker.go`).
 - [x] Cross-day returning visitors validated via `_statnive` cookie round-trip.
-- [x] Real-tracker integration test → rollup verification — Phase 7b2 (payload-golden contract: Vitest captures sendBeacon body, Go integration test replays each payload through the full pipeline → ClickHouse).
+- [partial] Real-tracker integration test → rollup verification — Phase 7b2 shipped the payload-golden contract (Vitest captures sendBeacon body in `tracker/test/payload-golden.test.mjs`; Go integration test replays each payload through the full pipeline → ClickHouse in `test/tracker_correctness_test.go`). **Vitest passes locally; Go integration test is `//go:build integration` and `make test-integration` is not yet wired into CI** — Phase 7b2-completion closes the execution gap.
 
 **Deferred to v1.1:** engagement ping (10s heartbeat), throttle-with-last-event, base36 date, envelope+payload separation.
 
@@ -193,7 +194,7 @@ Brand tokens from [`docs/brand.md`](docs/brand.md) — `web/src/tokens.css` impo
 - [partial] Backup restore — Phase 7b2 ships the manual SOP at [`docs/runbook.md`](docs/runbook.md) § Backup & restore; CI automation (`deploy/backup/drill.sh` + dedicated job) lands in Phase 2c.
 - [x] Manual TLS rotation test — Phase 7b2 ([`internal/cert/rotation_e2e_test.go`](internal/cert/rotation_e2e_test.go) — atomic.Pointer hot-swap regression + fail-closed on corrupt PEM).
 - [x] CH outage buffer-and-drain test (10s in-test; 10min in runbook)
-- [x] Integration-level PII grep — Phase 7b2 ([`test/pii_leak_test.go`](test/pii_leak_test.go) byte-scans WAL segments + audit.jsonl + `events_raw` for raw user_id/IP probes; pins Privacy Rules 1 + 4).
+- [partial] Integration-level PII grep — Phase 7b2 shipped [`test/pii_leak_test.go`](test/pii_leak_test.go) (byte-scans WAL segments + audit.jsonl + `events_raw` for raw user_id/IP probes; pins Privacy Rules 1 + 4). **Compile-clean; not yet executing in CI** — `make test-integration` not wired (Phase 7b2-completion closes).
 - [x] WAL fsync p99 surfaced via `/healthz` — Phase 7b2 closes [`wal-durability-review`](.claude/skills/wal-durability-review/README.md) item 7 (last open of 10).
 - [x] Kill-9 WAL CI gate — Phase 7b1b shipped harness; Phase 7b2 wires `make wal-killtest` 5-iter smoke into per-PR CI + nightly 50-iter on main.
 
