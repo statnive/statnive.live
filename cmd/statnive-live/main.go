@@ -230,9 +230,10 @@ func run() error {
 	})
 
 	router.Method(http.MethodGet, "/healthz", health.Handler(health.Reporter{
-		Store: store,
-		WAL:   wal,
-		Start: time.Now(),
+		Store:     store,
+		WAL:       wal,
+		WALSyncer: groupSyncer,
+		Start:     time.Now(),
 	}))
 
 	// First-party tracker — bytes embedded via go:embed in internal/tracker.

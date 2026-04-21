@@ -5,11 +5,17 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/statnive/statnive.live/internal/audit"
 )
+
+// fsyncSampleCap is the size of the sliding-window ring of successful
+// fsync durations exposed via Stats(). 256 × 8 B = 2 KiB resident; at
+// ~30 fsyncs/sec the window covers the last ~8 s of fsync activity.
+const fsyncSampleCap = 256
 
 // WALAppender is the subset of WALWriter the group syncer needs.
 // Defined as an interface so tests can inject a mockable writer that
@@ -51,6 +57,23 @@ type GroupSyncer struct {
 
 	stopCh chan struct{}
 	stopWG sync.WaitGroup
+
+	// fsyncSamples is a ring buffer of successful fsync durations.
+	// Producer: the loop goroutine after every successful Sync.
+	// Consumer: Stats() under the mutex. Only success durations land
+	// here — operators want p99 of the path that actually completes.
+	fsyncMu      sync.Mutex
+	fsyncRing    []time.Duration
+	fsyncWritten uint64 // monotonic count; ring index = (n-1) % cap
+}
+
+// WALSyncerStats is the read-only view of GroupSyncer's fsync timing
+// surfaced via /healthz. FsyncP99 is the 99th-percentile duration over
+// the most recent FsyncSampleCount successful syncs (capped at
+// fsyncSampleCap = 256). Zero values mean the ring is empty.
+type WALSyncerStats struct {
+	FsyncP99         time.Duration
+	FsyncSampleCount int
 }
 
 // GroupConfig tunes the batch behavior. Defaults match the
@@ -113,15 +136,16 @@ func NewGroupSyncer(w WALAppender, cfg GroupConfig, auditLog *audit.Logger, logg
 	}
 
 	g := &GroupSyncer{
-		wal:      w,
-		incoming: make(chan walReq, cfg.IncomingBuffer),
-		out:      make(chan WALEnvelope, cfg.OutBuffer),
-		batchMax: cfg.BatchMax,
-		interval: cfg.Interval,
-		auditLog: auditLog,
-		logger:   logger,
-		exitFn:   os.Exit,
-		stopCh:   make(chan struct{}),
+		wal:       w,
+		incoming:  make(chan walReq, cfg.IncomingBuffer),
+		out:       make(chan WALEnvelope, cfg.OutBuffer),
+		batchMax:  cfg.BatchMax,
+		interval:  cfg.Interval,
+		auditLog:  auditLog,
+		logger:    logger,
+		exitFn:    os.Exit,
+		stopCh:    make(chan struct{}),
+		fsyncRing: make([]time.Duration, fsyncSampleCap),
 	}
 
 	g.stopWG.Add(1)
@@ -265,6 +289,7 @@ func (g *GroupSyncer) flush(batch []walReq) {
 		indices[i] = g.wal.CurrentIndex()
 	}
 
+	syncStart := time.Now()
 	if syncErr := g.wal.Sync(); syncErr != nil {
 		// Pre-4.13 Linux fsync marks failed pages clean on EIO. Retrying
 		// after a Sync error silently loses data — the only safe response
@@ -281,6 +306,8 @@ func (g *GroupSyncer) flush(batch []walReq) {
 
 		return
 	}
+
+	g.recordFsync(time.Since(syncStart))
 
 	// Two-step signal-then-fanout. Handlers care about durability
 	// (Sync just succeeded) so unblock them first; the consumer can
@@ -308,6 +335,60 @@ func (g *GroupSyncer) flush(batch []walReq) {
 			g.logger.Warn("wal group syncer dropping post-fsync delivery on shutdown",
 				"idx", indices[i])
 		}
+	}
+}
+
+// recordFsync stores d in the success-only ring buffer. Producer is the
+// loop goroutine; lock contention with Stats() is irrelevant at the
+// ~30 fsyncs/sec the syncer runs at.
+func (g *GroupSyncer) recordFsync(d time.Duration) {
+	g.fsyncMu.Lock()
+	defer g.fsyncMu.Unlock()
+
+	g.fsyncRing[g.fsyncWritten%uint64(len(g.fsyncRing))] = d
+	g.fsyncWritten++
+}
+
+// Stats returns the most recent fsync timing window. Safe to call from
+// any goroutine. /healthz reads this on every request; the sort over
+// 256 entries is sub-microsecond on modern hardware.
+func (g *GroupSyncer) Stats() WALSyncerStats {
+	g.fsyncMu.Lock()
+
+	// Cap the visible sample count by the ring capacity, then convert.
+	// Doing the comparison in uint64 keeps gosec G115 happy: after the
+	// min, n is always within int range (fsyncSampleCap = 256).
+	written := g.fsyncWritten
+
+	cap64 := uint64(len(g.fsyncRing))
+	if written > cap64 {
+		written = cap64
+	}
+
+	n := int(written) //nolint:gosec // bounded above by len(g.fsyncRing) = fsyncSampleCap = 256.
+	if n == 0 {
+		g.fsyncMu.Unlock()
+
+		return WALSyncerStats{}
+	}
+
+	samples := make([]time.Duration, n)
+	copy(samples, g.fsyncRing[:n])
+
+	g.fsyncMu.Unlock()
+
+	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+
+	// Index of the 99th percentile. n=1 → 0; n=100 → 99; n=256 → 253.
+	// Subtract 1 from the ceiling so the result is always inside bounds.
+	p99Idx := (n*99 + 99) / 100
+	if p99Idx >= n {
+		p99Idx = n - 1
+	}
+
+	return WALSyncerStats{
+		FsyncP99:         samples[p99Idx],
+		FsyncSampleCount: n,
 	}
 }
 
