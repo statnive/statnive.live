@@ -7,7 +7,7 @@ Full spec for the Iranian-DC deployment guardrail. Research anchors: [`jaan-to/d
 **Iran is not a normal deployment surface.** Three constraints stack:
 
 1. **National Information Network (NIN / شبکۀ ملی اطلاعات).** BGP-controlled domestic backbone with a single government gateway to the global Internet. Activated in full during the 2019 blackout and again from **2026-01-08** (day 103+ as of doc 28 authoring date 2026-04-20). During blackouts, international connectivity falls to ~1–4% of baseline (NetBlocks, Al Jazeera 2026-04-05, IEEE Spectrum). Internal-only connectivity means Iranian eyeballs still reach Iranian DCs.
-2. **OFAC 31 CFR 560.540(b)(3).** Explicitly excludes commercial web-hosting for Iranian entities from the general license for personal communications. A Filimo-bought analytics platform verified by offline Ed25519 JWT and deployed by Iranian operators to Asiatech sits outside OFAC direct reach *if no US person touches licensing issuance, deployment, or funds flow*.
+2. **OFAC 31 CFR 560.540(b)(3).** Explicitly excludes commercial web-hosting for Iranian entities from the general license for personal communications. A SamplePlatform-bought analytics platform verified by offline Ed25519 JWT and deployed by Iranian operators to Asiatech sits outside OFAC direct reach *if no US person touches licensing issuance, deployment, or funds flow*.
 3. **Cloudflare categorically unusable.** No IR POP per OFAC + Matthew Prince public confirmation. Not for DNS, TLS, DDoS, or KV. The Semgrep `iran-no-cloudflare` rule is absolute.
 
 The skill encodes the operational patterns that survive all three constraints simultaneously.

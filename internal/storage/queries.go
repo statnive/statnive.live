@@ -27,7 +27,7 @@ func rpv(revenue, visitors uint64) float64 {
 // NewClickhouseQueryStore wraps an existing ClickHouseStore connection
 // (the same pool main.go opens for ingest) and exposes the read-only
 // Store interface. We deliberately reuse the ingest pool rather than
-// opening a second one — at Filimo's 10–20M DAU the dashboard adds
+// opening a second one — at SamplePlatform's 10–20M DAU the dashboard adds
 // far less query load than the ingest path, and a separate pool would
 // double the connection count for no isolation benefit.
 func NewClickhouseQueryStore(s *ClickHouseStore) Store {

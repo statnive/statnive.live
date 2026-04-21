@@ -6,7 +6,7 @@ metadata:
   author: statnive-live
   version: "0.1.0-scaffold"
   phase: 1
-  research: "jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md §gap-analysis #3; doc 20 §MV; CLAUDE.md §Database"
+  research: "jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md §gap-analysis #3; doc 20 §MV; CLAUDE.md §Database"
 ---
 
 # clickhouse-rollup-correctness
@@ -34,6 +34,7 @@ Extends the official `clickhouse-best-practices` skill into HyperLogLog / Aggreg
 7. **v1 rollup names are fixed:** `hourly_visitors`, `daily_pages`, `daily_sources`. The three v1.1 additions (`daily_geo`, `daily_devices`, `daily_users`) ship with their dashboard panels, not before.
 8. **No `OPTIMIZE FINAL`** — this is a footgun at 10–20M DAU scale. Let `MergeTree` do its job.
 9. **Reject mutable-row engines** (`CollapsingMergeTree`, `VersionedCollapsingMergeTree`) — AggregatingMergeTree sidesteps cancel-row ordering bugs.
+10. **Multi-tenant JOIN safety (F1 — PLAN.md §50).** Every `JOIN` / subquery / CTE / `IN (SELECT …)` inside `internal/storage/queries.go` must carry `WHERE site_id = ?` against the *joined* table, not just the outer table. `tenancy-choke-point-enforcer` validates the outer `WHERE`; this rule covers the inner tables. Cross-tenant leaks can hide in a join where the outer predicate is correct but the inner table is unfiltered. Semgrep rule `rollup-join-tenancy` (body lands with this skill's Phase 1 activation): match any `FROM … JOIN <table>` where `<table>` is in the rollup whitelist and the same statement does not include `<table>.site_id = ?` or `<alias>.site_id = ?`.
 
 ## Should trigger (reject)
 

@@ -6,7 +6,7 @@ Encodes **CLAUDE.md Architecture Rule 8** (line 32) and **Project Goal 4** (line
 
 ## Research anchors
 
-- [jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md) §gap-analysis #1 — "highest-leverage skill you can possibly write".
+- [jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md](../../../../jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md) §gap-analysis #1 — "highest-leverage skill you can possibly write".
 - [jaan-to/docs/research/24-pirsch-pattern-extraction-reference-only.md](../../../../jaan-to/docs/research/24-pirsch-pattern-extraction-reference-only.md) §Sec 4 pattern 6 — central tenancy helper.
 
 ## Implementation phase

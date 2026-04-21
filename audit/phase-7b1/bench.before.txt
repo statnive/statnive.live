@@ -1,0 +1,18 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/statnive/statnive.live/internal/ingest
+cpu: Apple M1
+BenchmarkHandler_FullPath-8   	  435060	      5117 ns/op	    9091 B/op	      43 allocs/op
+BenchmarkBurstGuard_Allow-8   	40326588	        73.55 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/statnive/statnive.live/internal/ingest	7.011s
+goos: darwin
+goarch: arm64
+pkg: github.com/statnive/statnive.live/internal/enrich
+cpu: Apple M1
+BenchmarkChannel_Classify-8     	12232764	       191.3 ns/op	     112 B/op	       1 allocs/op
+BenchmarkBloom_CheckAndMark-8   	10413676	       227.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkUA_Parse-8             	 7991366	       295.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBot_IsBot-8            	 4051622	       561.3 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/statnive/statnive.live/internal/enrich	10.095s

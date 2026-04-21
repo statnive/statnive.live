@@ -16,10 +16,11 @@ All recommendations trace back to [`../../jaan-to/docs/research/23-ai-workflow-c
 | clickhouse-agent-skills | [ClickHouse/agent-skills](https://github.com/ClickHouse/agent-skills) | Apache-2.0 | 1 primary (`clickhouse-best-practices`, 28 rules/11 categories) + 4 auxiliary (`chdb-datastore`, `chdb-sql`, `clickhousectl-cloud-deploy`, `clickhousectl-local-dev`) | 0, 1, 3, 6 |
 | trailofbits-skills | [trailofbits/skills](https://github.com/trailofbits/skills) | CC-BY-SA-4.0 | 8 of 38 (curated) | 2 (security) |
 | marina-skill | [The-Focus-AI/marina-skill](https://github.com/The-Focus-AI/marina-skill) | MIT | 4 of 4 (all) | 8 (deploy) |
+| load-gate tooling (doc 29 design-target gate + doc 30 realism overlay) | Locust, Vegeta, wrk2, Pyroscope, Vector.dev, Parca, Falco, xt_tls | Mixed (all verified Apr 2026) | Install on observability VPS + generator nodes only — never linked into statnive-live binary | 7e, 10 |
 
 **4 MCP servers** in [`.mcp.json`](../.mcp.json): `clickhouse` (Altinity), `gopls`, `hetzner`, `grafana`.
 
-Plus 17 doc-25/27 community additions + 14 project-local custom skills — full list in [`history/skill-roster-evolution.md`](history/skill-roster-evolution.md).
+Plus 17 doc-25/27 community additions + 14 project-local custom skills — full list in [`history/skill-roster-evolution.md`](history/skill-roster-evolution.md). Doc 29 adds the **load-simulation gate** tool stack (row above) + a new custom skill `load-gate-harness` scheduled for Phase 7e scaffolding.
 
 ## Licensing decisions
 
@@ -32,6 +33,11 @@ CLAUDE.md § License Rules mandates MIT/Apache/BSD/ISC for anything **in the bin
 | marina-skill | MIT (declared; no LICENSE file) | ✅ Install | Dev-time. |
 | trailofbits-skills | CC-BY-SA-4.0 | ⚠️ Install unmodified | Share-alike applies to modifications; ship verbatim. Fork under CC-BY-SA if modifying. |
 | darrenoakey/claude-skill-golang | **CC-BY-NC-4.0** | ❌ Rejected | Non-commercial only; statnive-live is sold commercially. CI gate functionality covered by `.githooks/pre-commit` + `make lint`. |
+| Locust / Vegeta / wrk2 / Vector.dev / Falco | MIT / MIT / Apache-2.0 / Apache-2.0 / Apache-2.0 | ✅ Install (doc 29) | Dev-time load-gate tooling; never linked into binary. Vector.dev + VRL drives the live PII wire-scan (doc 29 §3.4). |
+| Grafana Pyroscope | Server **AGPL-3.0-only**, SDK **Apache-2.0** | ✅ Install (dev-time only) | Observability VPS only. Distributed binary never links the server. Pyroscope SDK is Apache-2.0 and scoped to `deploy/observability/`-triggered profiling builds only (not default in ship). |
+| Parca / Parca-agent | Apache-2.0 user-space, GPL-2 eBPF | ✅ Install | eBPF kernel module is OS-installed (outside binary boundary per CLAUDE.md anti-pattern rule); user-space agent is Apache-2.0. Runs under `--debuginfod-upstream-servers=""` and `--profile-share-server=""` for air-gap. |
+| xt_tls (Lochnair/xt_tls) | GPL-2 | ✅ Install (chaos scenario only) | Kernel module for DPI-SNI chaos test (doc 29 §5.3); never in production. Loaded on test-bed only; unloaded after chaos window closes. |
+| k6 OSS | AGPL-3.0-only | ✅ Install (dev-time only) | Kept for CI smoke cross-check against Locust-primary gate (doc 29 §3.1). Set `K6_NO_USAGE_REPORT=true` in job env; on air-gapped runners the anonymous-usage POST otherwise fails silently and pollutes iptables logs. |
 
 ## Curated skill list
 
@@ -120,6 +126,19 @@ Configured in [`.mcp.json`](../.mcp.json). Dev host only — never bundled into 
 - **Env:** `GRAFANA_URL`, `GRAFANA_API_KEY`
 - **Capabilities:** dashboard queries, Prometheus/Loki/Pyroscope, alerts, incident response
 
+### Tool-poisoning defense (F8 — advisory)
+
+Invariant Labs (April 2025) documented the "MCP tool poisoning" class: a compromised or rogue MCP server silently amends its tool descriptions — injecting `<IMPORTANT>`, `<system>`, or hidden-Unicode instructions that the client treats as higher-priority than its own system prompt. Research doc 78 §"MCP integration multiplies the attack surface by 20×" puts this in the top-three attack vectors for any multi-MCP operator environment. All four MCP servers above are dev-host only (never bundled into the statnive-live binary), so the exposure is operator-side, not customer-side — but dev-host is where the keys live (Hetzner token, Grafana API key, ClickHouse credentials, GitHub write scopes), so the blast radius is real.
+
+Operator-side checklist (advisory, CI-optional):
+
+1. **Pin tool descriptions at registration.** On first `.mcp.json` install, record `sha256(toolListJSON)` per server in `.mcp.json.hashes` (tracked in the repo, not gitignored). A short script compares current tool-list hash on every connect; any drift halts and prompts the operator to re-approve.
+2. **Strip injection markers at the client boundary.** Before MCP tool descriptions or tool-call results enter the model context, run a sanitizer that (a) strips Unicode Tag Block (`U+E0000`–`U+E007F`), zero-width chars (`U+200B`/`C`/`D`/`FEFF`/`2060`), bidi overrides (`U+202A`–`U+202E`, `U+2066`–`U+2069`); (b) strips HTML comments and `<!-- -->`-style markers; (c) replaces `<IMPORTANT>`, `<system>`, `<instructions>` with their HTML-escaped equivalents (`&lt;IMPORTANT&gt;` etc.) so they render as data, not structure. Same sanitizer as `air-gap-validator` rule 8 (skill-content sanitizer).
+3. **Minimum-privilege credentials per MCP.** `clickhouse` MCP uses a read-only CH user scoped to schema queries; `hetzner` MCP uses an HCLOUD_TOKEN scoped to the statnive-live project only; `grafana` MCP uses a read-only Grafana API key against a specific organization.
+4. **CI diff-check on `.mcp.json` PRs.** Any change to `.mcp.json` or `.mcp.json.hashes` requires a human reviewer — Semgrep auto-approval is banned for this file pair. The PR body must cite the upstream MCP-server release notes or commit diff being adopted.
+
+Not a hard gate. Out of scope for the binary. Revisit if statnive-live ever bundles or re-exports MCP servers to operators.
+
 ## Phase → tooling map
 
 Lifted from doc 23 §Skills-to-Phase Mapping:
@@ -134,6 +153,7 @@ Lifted from doc 23 §Skills-to-Phase Mapping:
 | 5: Frontend | — (use [`tech-docs/`](tech-docs/) for Preact/uPlot/Frappe/Jalali refs) | — |
 | 6: Config | `golang-cli`, `clickhouse-best-practices` | `clickhouse` |
 | 7: Testing | `golang-performance`, `golang-linter`, `differential-review`, `second-opinion` | `gopls`, `clickhouse` |
+| 7e: Load-gate scaffolding (doc 29) | Locust (primary), k6 OSS (CI cross-check), Vegeta + wrk2 (breakpoint), Pyroscope, Vector.dev, Parca, Falco, xt_tls | `clickhouse`, `grafana` |
 | 8: Deploy | `server-management`, `server-bootstrap`, `dns-management`, `app-deployment` | `hetzner`, `grafana` |
 
 ## Skills Decision Tree (full form)
@@ -232,6 +252,7 @@ Per doc 23 §Gap Analysis — no community skill coverage. Author when the corre
 | WAL durability | 1 | `tidwall/wal` directly; cc-skills-golang covers surrounding patterns |
 | BLAKE3-128 identity | 1 | `lukechampine.com/blake3` (MIT) directly |
 | Iranian DC deploy | 8 | No community skill — fork marina-skill or plain shell against Iranian DC API |
+| Production load-simulation gate (doc 29) | 7e / 10 | Author `.claude/skills/load-gate-harness/` per doc 29 §4 + §5 + §6; scaffold `test/perf/gate/` (Locust harness), `test/perf/chaos/` (6 tc/netem/iptables/xt_tls scripts), `test/perf/generator/` (Go synthesizer emitting generator_seq quadruple); migration `003_load_gate_columns.sql` for the 4 DEFAULT-sentinel oracle columns + `proj_oracle` projection. |
 
 ## Maintenance
 
@@ -280,13 +301,14 @@ Custom skills in this project are authored **ahead of** their enforcement phase.
 | `preact-signals-bundle-budget` | 4 (tracker) + 5 (dashboard) | advisory |
 | `blake3-hmac-identity-review` | 1 | advisory |
 | `wal-durability-review` | 7b | **partially live** (Semgrep + kill-9 in PR #25) |
-| `ratelimit-tuning-review` | 10 | advisory (HARD GATE pending Filimo cutover) |
+| `ratelimit-tuning-review` | 10 | advisory (HARD GATE pending SamplePlatform cutover) |
 | `gdpr-code-review` | 11 | advisory (HARD GATE pending SaaS signup) |
 | `dsar-completeness-checker` | 11 | advisory (HARD GATE pending SaaS signup) |
-| `iranian-dc-deploy` | 8 W17–18 | advisory (HARD GATE pending Filimo cutover) |
+| `iranian-dc-deploy` | 8 W17–18 | advisory (HARD GATE pending SamplePlatform cutover) |
 | `geoip-pipeline-review` | 8 W19–20 | advisory |
 | `clickhouse-operations-review` | 8 W20–22 | advisory |
 | `clickhouse-upgrade-playbook` | 8+ / P5 | **advisory-only by design** (no Semgrep rules) |
+| `load-gate-harness` (doc 29) | 7e scaffold → 10 cutover | **scheduled** — scaffold in Phase 7e, HARD GATE on each Phase 10 sub-phase cutover |
 
 ## Historical accretion
 
@@ -299,7 +321,7 @@ Doc 28 §Gap 1 surfaced the CC-BY-SA-4.0 carve-out as a single policy decision. 
 | Tier | DB version | License | Attribution surfaces | LITE account owner | Status |
 |---|---|---|---|---|---|
 | **Dev / staging** (Hetzner, all operators) | IP2Location LITE DB23 | CC-BY-SA-4.0 (carve-out) | LICENSE-third-party.md + `/about` JSON + dashboard footer (all three mandatory, verbatim string) | **Each operator registers own** at [lite.ip2location.com](https://lite.ip2location.com) — third-party redistribution forbidden by LITE ToS | ✅ Decided (doc 28 §Gap 1) |
-| **Filimo production** (Phase 10 cutover) | IP2Location **paid DB23 Site License** | Commercial | **Waived** per commercial terms | statnive-live org (sales contract) | ✅ Decided — budget `$99–$980/yr`; Semgrep rule skipped via build tag `licensed_db23` |
+| **SamplePlatform production** (Phase 10 cutover) | IP2Location **paid DB23 Site License** | Commercial | **Waived** per commercial terms | statnive-live org (sales contract) | ✅ Decided — budget `$99–$980/yr`; Semgrep rule skipped via build tag `licensed_db23` |
 | **SaaS tier** (Phase 11+ public signup) | **Decision required** | **Decision required** | **Decision required** | **Decision required** | ⚠️ **Open** — resolve pre-Phase-11 design |
 
 ### The SaaS decision — why it's genuinely ambiguous
@@ -314,7 +336,7 @@ Reading B is the more conservative interpretation. If adopted, SaaS tier must go
 **Required before Phase 11 design work starts:**
 1. Legal call on Reading A vs Reading B interpretation of LITE ToS.
 2. If Reading A holds: processor-DPA draft language explicitly claiming LITE as input data, not redistribution.
-3. If Reading B holds: paid DB23 Site License quote for SaaS-tier usage (likely different SKU than Filimo's single-site license).
+3. If Reading B holds: paid DB23 Site License quote for SaaS-tier usage (likely different SKU than SamplePlatform's single-site license).
 4. Decide attribution-surface policy for SaaS — even with paid license, the dashboard footer is visible to EU end-users; some operators may want attribution voluntarily retained for transparency.
 
 **Do not** ship the SaaS tier with LITE-and-no-DPA-language. That's the ambiguous middle ground that generates worst-case legal exposure.

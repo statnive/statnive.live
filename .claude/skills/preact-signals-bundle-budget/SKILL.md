@@ -6,7 +6,7 @@ metadata:
   author: statnive-live
   version: "0.1.0-scaffold"
   phase: 4
-  research: "jaan-to/docs/research/25-ai-claude-skills-filimo-grade-analytics-platform.md §gap-analysis #5; doc 20 §frontend; CLAUDE.md §Stack"
+  research: "jaan-to/docs/research/25-ai-claude-skills-SamplePlatform-grade-analytics-platform.md §gap-analysis #5; doc 20 §frontend; CLAUDE.md §Stack"
 ---
 
 # preact-signals-bundle-budget

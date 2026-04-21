@@ -76,7 +76,7 @@ proxying through a CDN edge.
 
 ## Why vanilla JS?
 
-The Filimo CDN budget for tracker bytes is the real constraint
+The SamplePlatform CDN budget for tracker bytes is the real constraint
 (CLAUDE.md tracker spec). React, Preact, or any framework would
 balloon past 50 KB before your code ran. Vanilla + sendBeacon +
 history-API patches give us the entire feature surface in 1.3 KB.

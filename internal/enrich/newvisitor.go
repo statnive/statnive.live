@@ -14,7 +14,7 @@ import (
 // Sized at 10M entries / 0.001 false-positive rate per PLAN.md feature #38
 // (≈18 MB resident). FP rate of 0.001 means ~1 in 1000 returning visitors
 // is misclassified as new — well within the analytics-invariant budget for
-// "new vs returning" accuracy at Filimo's 10–20M DAU scale.
+// "new vs returning" accuracy at SamplePlatform's 10–20M DAU scale.
 //
 // Cross-day grace (PLAN.md verification 22, doc 24 §Sec 1.1):
 // CheckAndMark accepts both today's and yesterday's hashes for the same

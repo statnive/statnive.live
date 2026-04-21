@@ -11,9 +11,9 @@ metadata:
 
 # ratelimit-tuning-review
 
-> **Activation gate (Phase 10 Filimo cutover — HARD GATE).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 10 (ASN-tiered limiter + `iptoasn.com` TSV loader + k6 scenarios `normal`/`burst`/`ddos`/`cgnat`). Until the corresponding `.github/workflows/ratelimit-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
+> **Activation gate (Phase 10 SamplePlatform cutover — HARD GATE).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 10 (ASN-tiered limiter + `iptoasn.com` TSV loader + k6 scenarios `normal`/`burst`/`ddos`/`cgnat`). Until the corresponding `.github/workflows/ratelimit-gate.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
 
-Encodes **CLAUDE.md Security #5** (rate limiting per IP via `go-chi/httprate`) and the Filimo P5-cutover requirement that 100 req/s per-IP brownouts entire Iranian apartment blocks under CGNAT. PR #6 shipped plain `httprate.LimitByRealIP(100, 1m)` — this skill is the gate that blocks Filimo cutover (Phase 10) without ASN tiering.
+Encodes **CLAUDE.md Security #5** (rate limiting per IP via `go-chi/httprate`) and the SamplePlatform P5-cutover requirement that 100 req/s per-IP brownouts entire Iranian apartment blocks under CGNAT. PR #6 shipped plain `httprate.LimitByRealIP(100, 1m)` — this skill is the gate that blocks SamplePlatform cutover (Phase 10) without ASN tiering.
 
 ## When this skill fires
 
@@ -103,4 +103,4 @@ w.WriteHeader(429)
 - `test/fixtures/` — should-trigger / should-not-trigger Go cases.
 - `ip2asn-v4.tsv.gz` — NOT bundled; loader fetches at boot from `config/ip2asn.tsv.gz` (operator-supplied), auto-refresh hourly in long-running deploys.
 
-Full spec + Filimo P5 config: [README.md](README.md).
+Full spec + SamplePlatform P5 config: [README.md](README.md).

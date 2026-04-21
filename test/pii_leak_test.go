@@ -206,17 +206,22 @@ func TestPIILeak_RawUserIDAndIPNeverPersist(t *testing.T) {
 	// 3) ClickHouse events_raw scan via SQL — direct field-level check.
 	var leakedRows uint64
 
+	// `user_id_hash` is the only user-identity column in events_raw
+	// (Privacy Rule 4). The probe is not a valid SHA-256 hex, so an
+	// exact match against the hashed column would never fire — the LIKE
+	// substring match catches both intended hashed storage AND any
+	// accidental field-mirror that copies the raw probe through.
 	row := store.Conn().QueryRow(ctx,
 		`SELECT count() FROM statnive.events_raw
-		 WHERE site_id = ? AND (user_id = ? OR user_id LIKE concat('%', ?, '%'))`,
-		piiSiteID, piiUserIDProbe, piiUserIDProbe,
+		 WHERE site_id = ? AND user_id_hash LIKE concat('%', ?, '%')`,
+		piiSiteID, piiUserIDProbe,
 	)
 	if scanErr := row.Scan(&leakedRows); scanErr != nil {
 		t.Fatalf("count user_id probe: %v", scanErr)
 	}
 
 	if leakedRows != 0 {
-		t.Errorf("events_raw leaked raw user_id: %d rows match probe %q", leakedRows, piiUserIDProbe)
+		t.Errorf("events_raw leaked raw user_id: %d rows match probe %q in user_id_hash", leakedRows, piiUserIDProbe)
 	}
 
 	// hourly_visitors holds visitor_hash + visitor HLL; no IP/user_id

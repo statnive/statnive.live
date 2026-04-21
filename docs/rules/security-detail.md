@@ -95,7 +95,7 @@ Detail lives in the skill spec and `internal/ratelimit/asn.go`:
 - AS197207 — MCI (mobile)
 - AS57218 — RighTel (mobile)
 - AS31549 — Shatel (fixed — residential fiber with CGNAT at peak)
-- AS43754 — Asiatech (business — may carry Filimo employees behind NAT)
+- AS43754 — Asiatech (business — may carry SamplePlatform employees behind NAT)
 
 ## Cross-references
 

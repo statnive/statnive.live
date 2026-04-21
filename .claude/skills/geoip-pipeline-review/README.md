@@ -15,7 +15,7 @@ BIN options ranked (doc 28 §Recommended libraries, line 20):
 | Source | Cost | License | Air-gap | Verdict |
 |---|---|---|---|---|
 | **IP2Location LITE DB23** | free | CC-BY-SA-4.0 | ✅ operator SCP | **v1 default** |
-| IP2Location paid DB23 Site License | $99–$980/yr | Commercial | ✅ | **Phase 10 Filimo upgrade** |
+| IP2Location paid DB23 Site License | $99–$980/yr | Commercial | ✅ | **Phase 10 SamplePlatform upgrade** |
 | DB-IP Lite | free | CC-BY-4.0 (no SA) | ✅ operator SCP | fallback only |
 | MaxMind GeoLite2 | free | CC-BY-SA + EULA | ❌ auto-update required | **rejected** |
 | IPLocate free | free | CC-BY-SA-4.0 | ✅ | fallback |
@@ -157,7 +157,7 @@ Five jobs in [`references/ci-geoip-gate.yml`](references/ci-geoip-gate.yml) (bod
 
 ## Remaining uncertainties
 
-- **Paid IP2Location DB23 Site License quote** — Phase 10 (Filimo) decision; sales-gated.
+- **Paid IP2Location DB23 Site License quote** — Phase 10 (SamplePlatform) decision; sales-gated.
 - **CC-BY-SA-4.0 interpretation edge case** — "non-linked data files" carve-out in CLAUDE.md is our stance; legal review at next CLA review cycle.
 - **Operator-specific LITE account registration** — third-party redistribution forbidden, so each self-hosted operator needs their own login at lite.ip2location.com. Document in operator onboarding, not in CI.
 

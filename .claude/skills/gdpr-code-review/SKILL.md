@@ -38,6 +38,7 @@ Encodes **CLAUDE.md Privacy Rules 1–7** + Project Goal 1 (security first). Whe
 10. **No MD5 / SHA-1 anywhere.** Enforced by import deny on `crypto/md5`, `crypto/sha1`.
 11. **No PII in error messages returned to clients.** Error strings are generic (`"invalid payload"`), never echoing submitted values.
 12. **All 34 EnrichedEvent fields documented in `FIELDS.md`** with a justification column (what purpose, what retention, what legal basis under Art. 6).
+13. **Static `slog` / audit-log PII gate (F3 — PLAN.md Phase 7d, complements Phase 7e Vector.dev live wire-scan).** Semgrep rule `slog-no-raw-pii` — block any `slog.*` or `logger.*` call where a keyed arg name (first string in a key/value pair) matches `/(?i)^(user_?id|ip|remote_?addr|email|site_?id|master_?secret|raw_.*)$/` unless the paired value is wrapped in `identity.HexUserIDHash(...)`, `identity.HashIP(...)`, `redact.*(...)`, or a compile-time constant. Closes the merge-time gap that the Phase 7e live PII wire-scan (doc 29 §3.4 / §6.3) only catches post-deploy. Pairs with Privacy Rule #4 (enforcement surface).
 
 ## Legal framework (document, don't assume)
 

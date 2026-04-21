@@ -1,7 +1,7 @@
 # statnive-live
 
 > **statnive.live** — High-performance, privacy-aware analytics for high-traffic websites.
-> Self-hosted or SaaS. First customer: Filimo (10-20M DAU).
+> Self-hosted or SaaS. First customer: SamplePlatform (10-20M DAU).
 
 ## Project Goals
 
@@ -26,9 +26,9 @@
 2. **All dashboard reads from rollups** — 3 materialized views in v1 (<100 KB/day/site), up to 6 by v1.1.
 3. **1-hour delay, NOT real-time** — saves 98% query cost. Never build 5-min real-time.
 4. **Client-side batching in Go** — WAL for durability, batch 500ms / 1000 rows. Async inserts are safety valve only.
-5. **No Nullable columns** — use `DEFAULT ''` or `DEFAULT 0`. Nullable costs 10–200% on aggregations (doc 20 measured 2× on `Nullable(Int8)`).
+5. **No Nullable columns** — use `DEFAULT ''` or `DEFAULT 0`. Nullable costs 10–200% on aggregations (doc 20 measured 2× on `Nullable(Int8)`). **Carve-out for test-instrumentation columns** (`test_run_id`, `test_generator_seq`, `generator_node_id`, `send_ts`): use typed `DEFAULT` sentinels (UUID zero / UInt64 0 / UInt16 0 / DateTime64(3) 0) to preserve the sparse-serialization path at >93.75% defaults, which doc 29 §6.1 proves is ~zero-cost in production. Never ship `Nullable(` for analytics columns.
 6. **Enrichment order is locked** — per event: identity → bloom → GeoIP → UA → bot → channel (doc 22 §GAP 1, asserted in integration tests). **Pre-pipeline fast-reject gate** (doc 24 §Sec 1 item 6): UA length 16–500, non-ASCII UA, IP-as-UA, UUID-as-UA, `X-Purpose`/`X-Moz` prefetch → `204`. In-pipeline bot layering is cheap-first (prefetch → UA shape → referrer spam → browser-version floor → UA keyword/regex blacklist).
-7. **Defer before building** — if a feature isn't required for the 5 Project Goals or Filimo's first 90 days, it ships in v1.1 or v2. Applies to multi-sink alerts, DLQ tooling, subdomain-per-tenant routing, Polar customer portal, and anything else not load-bearing.
+7. **Defer before building** — if a feature isn't required for the 5 Project Goals or SamplePlatform's first 90 days, it ships in v1.1 or v2. Applies to multi-sink alerts, DLQ tooling, subdomain-per-tenant routing, Polar customer portal, and anything else not load-bearing.
 8. **Central tenancy choke point** — every dashboard SQL path goes through `internal/storage/queries.go:whereTimeAndTenant()` (doc 24 §Sec 4 pattern 6). `WHERE site_id = ?` is the first clause. `ORDER BY` / `PARTITION BY` lead with `site_id`. Any new query skipping this helper is a CI failure.
 
 ## License Rules (Critical)
@@ -54,7 +54,7 @@ Iran allows cookies + `user_id`; the EU/SaaS tier does not. Both code paths live
 8. **Salt rotation DELETES the previous salt file** — not overwrites (recoverability + Recital 26 — see [detail](docs/rules/privacy-detail.md#rule-8--salt-rotation-deletes-the-previous-salt-file)). Enforced by [`blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md) + [`gdpr-code-review`](.claude/skills/gdpr-code-review/README.md).
 9. **`Sec-GPC: 1` and consent-decline short-circuit BEFORE hash computation** — not after (GDPR Art. 4(2)). SaaS DPA legal chain in [detail](docs/rules/privacy-detail.md#rule-9--consent--gpc-short-circuit-before-hash-computation); draft at `docs/dpa-draft.md` (Phase 11).
 
-## Security (13 Features, All v1)
+## Security (14 Features, All v1)
 
 Extended operational detail (fallback CA list, full systemd option list, LUKS I/O reasoning, CGNAT ASN list) in [`docs/rules/security-detail.md`](docs/rules/security-detail.md).
 
@@ -70,7 +70,8 @@ Extended operational detail (fallback CA list, full systemd option list, LUKS I/
 10. Audit log (JSONL via `slog`, append-only, **file sink only** in v1). Syslog / remote sinks = v1.1.
 11. User ID hashed before storage (SHA-256 of `master_secret || site_id || user_id`; never log raw user_id).
 12. systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`) + tracker via `go:embed` (first-party, no external CDN, ad-blocker-resistant).
-13. **CGNAT-aware rate-limit tiering** — Iranian ASN (AS44244 Irancell / AS197207 MCI / AS57218 RighTel) on compound `(ip, site_id)` key at 1 K req/s sustained / 2 K burst; default 100/s fallback elsewhere; per-`site_id` global cap at 25 K req/s. ASN DB is **`iptoasn.com`** public-domain TSV (MaxMind GeoLite2 + IPLocate are CC-BY-SA — rejected per § License Rules). Enforced by [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md); **hard gate on Phase 10 Filimo cutover**.
+13. **CGNAT-aware rate-limit tiering** — Iranian ASN (AS44244 Irancell / AS197207 MCI / AS57218 RighTel) on compound `(ip, site_id)` key at 1 K req/s sustained / 2 K burst; default 100/s fallback elsewhere; per-`site_id` global cap at 25 K req/s. ASN DB is **`iptoasn.com`** public-domain TSV (MaxMind GeoLite2 + IPLocate are CC-BY-SA — rejected per § License Rules). Enforced by [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md); **hard gate on Phase 10 SamplePlatform cutover**.
+14. **Outbound allow-list for opt-in features** (OWASP A10 SSRF guard). When any opt-in outbound path is enabled (ACME/LE in v1.1, Polar.sh checkout in Phase 11, paid IP2Location DB23 download, license phone-home v2, Telegram, email SMTP), outbound `http.Client` / `net.Dialer` traffic routes through `internal/httpclient/guarded.go` which (a) rejects destinations not on the config-declared FQDN allow-list in `config.outbound.allowlist`, (b) rejects all RFC 1918 / loopback / link-local / CGNAT `100.64.0.0/10` ranges *after* DNS resolution (DNS-rebinding guard), (c) forces `https://` scheme. The air-gap default build keeps `config.outbound.allowlist: []`, so the Isolation invariant (§ Isolation / Air-Gapped) is unchanged — the allow-list only applies to operators who opt in. Enforced by [`air-gap-validator`](.claude/skills/air-gap-validator/README.md) Semgrep rule `airgap-no-raw-httpclient` + unit test in `internal/httpclient/`. Verification in PLAN.md §51.
 
 ## Isolation / Air-Gapped Capability (Non-Negotiable)
 
@@ -114,9 +115,11 @@ npm --prefix web run lint   # eslint
 
 Pre-commit hook runs `make test && make lint` + `npm --prefix web run test` on staged frontend files. Release gate (`make release`) additionally runs `make test-integration` + the air-gap test.
 
+The `make test` / `make test-integration` / `make lint` / `npm run test` suite is the **per-PR CI tier**. The **graduation gate** (Locust + k6 + Vegeta + wrk2 + observability VPS, 72h soak + 6-scenario chaos + breakpoint per doc 29 §4) is a separate **pre-Phase-cutover** process invoked at `make load-gate PHASE=Px` (Phase 7e deliverable — scaffold + skill `load-gate-harness` land together). The graduation gate runs once per phase, not continuously; passing is a Phase 10 hard gate per PLAN.md Verification §41.
+
 ## Feature Scope
 
-Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across 20 weeks (docs 17/18/24). v1 = Filimo first 90 days + 5 Project Goals; polish → v1.1; product expansion → v2.
+Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across 20 weeks (docs 17/18/24). v1 = SamplePlatform first 90 days + 5 Project Goals; polish → v1.1; product expansion → v2.
 
 **Deliberate skips / Never:**
 - **ClickHouse cluster at v1** — single-node is the rule; migrations Distributed-ready from day 1 per [`clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md).
@@ -143,8 +146,9 @@ Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across
 |---|---|---|
 | Unit | Go testing | `*_test.go` alongside source |
 | Integration (incl. security) | Go testing | `test/integration_test.go` |
-| Load smoke | k6 | `test/k6/load-test.js` |
+| Load smoke | k6 | `test/perf/load.js` (`make load-test`, 7K EPS × 5min) |
 | Frontend | Vitest | `web/src/**/*.test.tsx` |
+| Graduation gate | Locust (primary) + k6 (cross-check) + Vegeta + wrk2 | `test/perf/gate/` + `test/perf/chaos/` + `test/perf/generator/` (doc 29 §4, Phase 7e) |
 
 **ClickHouse-Oracle Assertion Hierarchy.** Always use the highest applicable tier; lower tiers are diagnostic, not acceptance evidence.
 
@@ -155,10 +159,14 @@ Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across
 | 3 | **DOM / locator** — Playwright or Vitest RTL | Dashboard UI state |
 | 4 | **Screenshot** — `only-on-failure` | Debug artifact only |
 
+**For load-gate correlation (Phase 7e onward), `generator_seq` is the reference Tier-1 primitive:** every synthesized event carries `(test_run_id, generator_node_id, test_generator_seq, send_ts)`, and one ClickHouse query per run (loss / duplicates / ordering / latency) derives from it. Doc 29 §6.2 lists the canonical queries; projection `proj_oracle` makes them sub-second on 200M-row runs.
+
 **Analytics Invariant Thresholds (release-blocking, CI-asserted on every v1/v1.1 RC):**
 
 - Event loss server ≤ 0.05%, client ≤ 0.5%; Duplicates ≤ 0.1%
 - Attribution correctness ≥ 99.5%; Consent / PII leaks = 0; TTFB overhead ≤ +10% / +25 ms
+
+Thresholds apply to both per-PR CI runs and the per-phase graduation gate (doc 29 §4); any breach during a 72h soak or within the 6-scenario chaos matrix halts the gate and blocks the corresponding Phase 10 sub-phase cutover.
 
 ## Dev Tooling
 
@@ -184,6 +192,7 @@ Full inventory in [`docs/tooling.md`](docs/tooling.md): 4 original skill collect
 | `internal/enrich/geoip.go` / ip2location-go / SIGHUP wiring / attribution surfaces | [`geoip-pipeline-review`](.claude/skills/geoip-pipeline-review/README.md) |
 | `migrations/*.sql` / `internal/ingest/**` / `internal/query/**` / `prometheus/*.rules.yml` | [`clickhouse-operations-review`](.claude/skills/clickhouse-operations-review/README.md) |
 | `Engine=` or `{{if .Cluster}}` in migrations (advisory runbook) | [`clickhouse-upgrade-playbook`](.claude/skills/clickhouse-upgrade-playbook/README.md) |
+| `test/perf/gate/**` / `test/perf/chaos/**` / `test/perf/generator/**` / `deploy/observability/**` (scheduled Phase 7e) | `load-gate-harness` (to scaffold in Phase 7e; advisory until Phase 10 P1 cutover — HARD GATE thereafter) |
 
 ### Anti-patterns (doc 28 §Anti-patterns) — absolute bans
 
@@ -197,10 +206,11 @@ Enforced by custom-skill Semgrep rules. Human-facing mirror so PR review can rej
 - **No AGPL linked into the binary; CC-BY-SA only via the § License Rules data-file carve-out** — OS daemons (chrony, acme.sh, knot, bind) are operator-installed, outside binary boundary. GeoIP BIN qualifies as non-linked data.
 - **`{{if .Cluster}}` is DDL templating only, NOT cluster-upgrade automation** — data migration from MergeTree → ReplicatedMergeTree is manual via hard-link `ATTACH PARTITION`. See [`clickhouse-upgrade-playbook`](.claude/skills/clickhouse-upgrade-playbook/README.md).
 - **Never ArvanCloud** — sanctioned + 2022 breach. Asiatech primary, ParsPack / Shatel backup.
+- **Never default-enable exception-telemetry as a tracker event type** — doc 30 observed a reference-platform at 1.2B `app_exception` events over 192 days (73/sec sustained; 1-per-1.5-sessions). statnive-live's tracker ships any exception-telemetry as opt-in with 10/session cap + 1-in-10 sampling + server-side tenant quota. Otherwise the design-ceiling event budget gets consumed by crash-log noise rather than user behavior.
 
 ## Single Source of Truth
 
-`../statnive-workflow/jaan-to/docs/research/` (docs 14–28) is canonical for every architecture, feature, and threat-model decision. Do **not** restate research conclusions here or in skill prompts — reference by doc number and section. When a decision changes, update the research doc; this file references and never duplicates.
+`../statnive-workflow/jaan-to/docs/research/` (docs 14–30) is canonical for every architecture, feature, and threat-model decision. Do **not** restate research conclusions here or in skill prompts — reference by doc number and section. When a decision changes, update the research doc; this file references and never duplicates.
 
 ## Enforcement
 
@@ -208,10 +218,12 @@ Integration tests that pin the invariants in this file — full 6-test matrix + 
 
 ## Research Documents
 
-Canonical source: `../statnive-workflow/jaan-to/docs/research/` (docs 14–28, 500+ sources).
+Canonical source: `../statnive-workflow/jaan-to/docs/research/` (docs 14–30, 500+ sources).
 
 - **Doc 23** — initial Claude Code tooling (30 skills + 4 MCP servers).
 - **Doc 24** — AGPL-safe Pirsch extraction (pre-pipeline fast-reject, cross-day grace, cheap-first bot ordering, reject mutable-row engines, `DateTime` not `DateTime64`, templated DDL, 17-step channel tree, `Filter → Store → queryBuilder`, `whereTimeAndTenant`). Zero Pirsch code ported.
 - **Doc 25** — Claude-skills install matrix + custom-skill catalog + explicit blacklist.
 - **Doc 27** — three-gap closure: WAL durability (fsyncgate, ack-after-fsync), CGNAT rate limit (Iranian ASN, iptoasn.com), GDPR-on-HLL (Recital 26 + C-413/23).
 - **Doc 28** — final-three-gap closure: GeoIP pipeline / Iranian DC deploy / ClickHouse ops + upgrade playbook.
+- **Doc 29** — production load-simulation gate on Asiatech Tehran: generator_seq oracle, 6-scenario chaos matrix (BGP cut / mobile curfew / DPI RST / Tehran-IX degrade / Asiatech DC outage / clock skew), 5-phase pre-cutover graduation matrix, Locust (primary) + k6 (CI cross-check) + Vegeta + wrk2 tool stack, Prometheus + Grafana + Pyroscope + Vector.dev + Parca + Falco observability stack, ≤40% cost envelope, SamplePlatform anonymized-replay protocol.
+- **Doc 30** — GA4 calibration delta (2026-04-20): 192-day current-state observation of SamplePlatform traffic, used as **load-shape realism overlay** for doc 29's graduation gate. Adds: scenario G (international-egress) chaos matrix extension, long-session memory-leak soak (1000 VUs × 6h × 1080 @ 20s pings), diaspora-cohort load mix + SLO segmentation (62% Iran / 38% non-Iran), bimodal events-per-session (15% iPhone short / 40% Android short / 30% Android binge / 15% mobile-web power), Chrome/Safari/Samsung P0 tracker-compat matrix, `app_exception` default-enable anti-pattern. **Does NOT override doc 29 design ceiling** — 200M events/day / 40K EPS burst / 32c/128GB P5 cluster / 17–37% cost envelope all stand per PLAN.md Context "design ceiling vs observed current-state" callout. Doc 30's proposed P5 downsize to 16c/64GB / 80M events was rejected per user directive "design for maximum."
