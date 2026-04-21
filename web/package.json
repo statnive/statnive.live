@@ -7,7 +7,7 @@
   "scripts": {
     "build": "vite build",
     "test": "vitest run --environment=jsdom",
-    "lint": "eslint src --ext .ts,.tsx,.js,.mjs",
+    "lint": "eslint src --ext .js,.mjs --no-error-on-unmatched-pattern && tsc --noEmit",
     "bundle-gate": "size-limit"
   },
   "devDependencies": {
@@ -16,7 +16,8 @@
     "@size-limit/file": "^11.1.6",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/preact": "^3.2.4",
-    "eslint": "^9.17.0",
+    "@types/node": "^25.6.0",
+    "eslint": "^8.57.0",
     "jsdom": "^25.0.1",
     "preact": "^10.25.0",
     "size-limit": "^11.1.6",

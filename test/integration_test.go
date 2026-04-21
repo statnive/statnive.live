@@ -37,7 +37,12 @@ const (
 	testHostname    = "integration-test.example.com"
 	testSiteID      = 42
 	eventCount      = 100
-	flushTimeout    = 5 * time.Second
+	// Bumped from 5s to 15s in Phase 5a. After TestIngestPipelineSmoke
+	// drains 100 events + the consumer's Close waits for fsync, CI runs
+	// occasionally hit the 5s ceiling for the NEXT test's first event
+	// (multitenant flake seen on PR #28 + PR #29). 15s is still tight
+	// enough to catch a real deadlock; happy path hits in <1s.
+	flushTimeout    = 15 * time.Second
 	defaultCHAddr   = "127.0.0.1:19000" // matches deploy/docker-compose.dev.yml
 	testDatabase    = "statnive"
 	testHTTPTimeout = 2 * time.Second
