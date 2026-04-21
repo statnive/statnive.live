@@ -6,14 +6,17 @@ GOLANGCI_LINT ?= golangci-lint
 GO_LICENSES   ?= go-licenses
 BIN_DIR       := bin
 BIN_NAME      := statnive-live
-PKG           := ./...
+PKG           := $(shell go list -mod=vendor ./... 2>/dev/null | grep -v '/web/node_modules/')
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep
 
 all: lint test build
 
-## build: Compile the statnive-live binary (offline-capable, vendored)
-build:
+## build: Compile the statnive-live binary (offline-capable, vendored).
+## Depends on web-build unconditionally so //go:embed all:dist picks up
+## fresh SPA assets on every compile — a stale or missing dist/ would
+## either fail to compile or ship outdated SPA bytes.
+build: web-build
 	CGO_ENABLED=0 $(GO) build -mod=vendor -o $(BIN_DIR)/$(BIN_NAME) ./cmd/statnive-live
 
 ## test: Run unit tests with race detector (target <5s wall time)
@@ -96,6 +99,55 @@ wal-killtest:
 wal-killtest-full:
 	./.claude/skills/wal-durability-review/test/kill9/harness.sh 50
 
+## web-install: Install SPA devDeps once; consumed by web-build + web-test.
+web-install:
+	cd web && npm ci
+
+## web-build: Build the Preact SPA (Vite → internal/dashboard/spa/dist/).
+## Runs unconditionally from `make build` so //go:embed all:dist picks up
+## fresh assets. If npm ci already ran, re-running is a no-op on the dep
+## side; vite build is ~150ms so the latency cost is negligible.
+web-build: web-install
+	cd web && npm run build
+
+## web-test: Vitest SPA component + api-client + tokens tests
+web-test: web-install
+	cd web && npm test
+
+## web-lint: ESLint over web/src
+web-lint: web-install
+	cd web && npm run lint
+
+## bundle-gate: size-limit gate (≤10 KB JS gz, ≤3 KB CSS gz). Chained
+## into `make audit`. 5b raises JS to 13 KB gz when uPlot lands.
+bundle-gate: web-build
+	cd web && npm run bundle-gate
+
+## brand-grep: Reject hand-rolled hex values outside tokens.css.
+## docs/brand.md is the source of truth; components reference var(--*).
+## tokens.test.ts is allowlisted (it asserts the hex values match brand.md).
+brand-grep:
+	@BAD=$$(grep -rEn '#[0-9a-fA-F]{3,8}\b' web/src --include='*.ts' --include='*.tsx' --include='*.css' 2>/dev/null \
+		| grep -v '^web/src/tokens.css:' \
+		| grep -v '^web/src/__tests__/tokens.test.ts:' || true); \
+	if [ -n "$$BAD" ]; then \
+		echo "FAIL: hand-rolled hex outside tokens.css (reference var(--*) instead):"; \
+		echo "$$BAD"; \
+		exit 1; \
+	fi
+	@echo "brand-grep: clean"
+
+## web-airgap-grep: Scan built SPA for CDN URLs that slipped past code
+## review. Complements the in-browser CSP connect-src 'self' at runtime.
+web-airgap-grep: web-build
+	@BAD=$$(grep -rEn 'fonts\.googleapis\.com|cdn\.|unpkg\.|jsdelivr\.|cdnjs\.' internal/dashboard/spa/dist/ 2>/dev/null || true); \
+	if [ -n "$$BAD" ]; then \
+		echo "FAIL: CDN URL detected in web/dist (air-gap violation):"; \
+		echo "$$BAD"; \
+		exit 1; \
+	fi
+	@echo "web-airgap-grep: clean"
+
 ## airgap-bundle: Build offline install bundle (Phase 8 — placeholder)
 airgap-bundle:
 	@echo "TODO Phase 8: build statically-linked binary + vendor + IP2Location DB23 + SHA256SUMS"
@@ -131,7 +183,7 @@ refresh-bot-patterns:
 
 ## audit: Hardening gate — vendor + tenancy + go vet + hot-path benches + tracker bundle size
 ## Re-run before opening a PR. Slow tests + CH integration excluded.
-audit: vendor-check tenancy-grep tracker-size token-budget
+audit: vendor-check tenancy-grep tracker-size token-budget bundle-gate brand-grep web-airgap-grep
 	$(GO) vet -mod=vendor $(PKG)
 	$(GO) test -mod=vendor -bench=. -benchmem -run='^$$' -benchtime=2s -timeout 5m ./internal/enrich/ ./internal/ingest/
 
