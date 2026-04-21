@@ -26,8 +26,12 @@ test:
 ## test-integration: Run integration tests (requires `docker compose up -d clickhouse`).
 ## Depends on web-build so //go:embed all:dist/* in internal/dashboard/spa has
 ## files to embed — integration-tagged tests compile every package in the tree.
+## `-v` so CI surfaces per-test PASS/FAIL lines (otherwise only FAIL shows,
+## making it hard to tell which test in a suite got to which state).
+## Timeout bumped to 240s so the multi-tenant post-ingest-smoke wait has
+## headroom on slow CI runners (happy path still finishes in <30s).
 test-integration: web-build
-	$(GO) test -mod=vendor -race -tags=integration -timeout 120s ./test/...
+	$(GO) test -mod=vendor -race -tags=integration -v -timeout 240s ./test/...
 
 ## lint: Run golangci-lint + tenancy-grep gate
 lint: tenancy-grep

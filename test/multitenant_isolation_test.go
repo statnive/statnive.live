@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/statnive/statnive.live/internal/ingest"
 	"github.com/statnive/statnive.live/internal/storage"
@@ -97,8 +98,15 @@ func TestMultitenantVisitorHashSeparation(t *testing.T) {
 		_ = resp.Body.Close()
 	}
 
-	waitForCount(t, ctx, store, tenantA, 1, flushTimeout)
-	waitForCount(t, ctx, store, tenantB, 1, flushTimeout)
+	// Longer wait than flushTimeout because this test runs right after
+	// TestIngestPipelineSmoke's 100-event drain and CI-side CH is
+	// occasionally slow to process the first insert of a new pipeline.
+	// Happy path still completes in <1s; 45s only protects against the
+	// post-drain + consumer-spin-up latency ceiling.
+	const multitenantWait = 45 * time.Second
+
+	waitForCount(t, ctx, store, tenantA, 1, multitenantWait)
+	waitForCount(t, ctx, store, tenantB, 1, multitenantWait)
 
 	hashA := readVisitorHash(t, ctx, store, tenantA)
 	hashB := readVisitorHash(t, ctx, store, tenantB)
