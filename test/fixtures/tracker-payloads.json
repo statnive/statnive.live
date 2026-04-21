@@ -1,0 +1,83 @@
+[
+  {
+    "name": "pageview-initial",
+    "body": {
+      "hostname": "localhost",
+      "pathname": "/",
+      "title": "",
+      "referrer": "",
+      "utm_source": "",
+      "utm_medium": "",
+      "utm_campaign": "",
+      "utm_content": "",
+      "utm_term": "",
+      "event_type": "pageview",
+      "event_name": "pageview",
+      "event_value": 0,
+      "user_id": "",
+      "props": {}
+    }
+  },
+  {
+    "name": "event-custom",
+    "body": {
+      "hostname": "localhost",
+      "pathname": "/",
+      "title": "",
+      "referrer": "",
+      "utm_source": "",
+      "utm_medium": "",
+      "utm_campaign": "",
+      "utm_content": "",
+      "utm_term": "",
+      "event_type": "custom",
+      "event_name": "signup",
+      "event_value": 99,
+      "user_id": "",
+      "props": {
+        "plan": "pro",
+        "source": "header"
+      }
+    }
+  },
+  {
+    "name": "event-identified",
+    "body": {
+      "hostname": "localhost",
+      "pathname": "/",
+      "title": "",
+      "referrer": "",
+      "utm_source": "",
+      "utm_medium": "",
+      "utm_campaign": "",
+      "utm_content": "",
+      "utm_term": "",
+      "event_type": "custom",
+      "event_name": "purchase",
+      "event_value": 199.5,
+      "user_id": "user_phase7b2_42",
+      "props": {
+        "sku": "sku-001"
+      }
+    }
+  },
+  {
+    "name": "pageview-pushstate",
+    "body": {
+      "hostname": "localhost",
+      "pathname": "/post-navigation",
+      "title": "",
+      "referrer": "",
+      "utm_source": "",
+      "utm_medium": "",
+      "utm_campaign": "",
+      "utm_content": "",
+      "utm_term": "",
+      "event_type": "pageview",
+      "event_name": "pageview",
+      "event_value": 0,
+      "user_id": "",
+      "props": {}
+    }
+  }
+]
