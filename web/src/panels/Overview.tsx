@@ -4,6 +4,7 @@ import { apiGet } from '../api/client';
 import type { OverviewResponse } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { siteSignal } from '../state/site';
+import { TrendChart } from './TrendChart';
 import './Overview.css';
 
 // Conversion% computed client-side: goals / visitors. The only client-
@@ -100,6 +101,8 @@ export function Overview() {
           <div class="statnive-num-secondary">{fmtInt(d.goals)}</div>
         </div>
       </div>
+
+      <TrendChart />
 
       <p class="statnive-meta">
         site={siteSignal.value} · {rangeSignal.value.from} → {rangeSignal.value.to} · refresh page to reload

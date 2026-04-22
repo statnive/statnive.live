@@ -16,10 +16,23 @@ describe('Overview panel', () => {
   });
 
   function mockResponse(body: Record<string, number>) {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => body,
+    // Overview fetches /api/stats/overview AND /api/stats/trend (via TrendChart).
+    // Mock both with the same per-call handler — overview returns the KPI body,
+    // trend returns an empty array (TrendChart gracefully renders nothing).
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/api/stats/trend')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [],
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => body,
+      });
     }) as unknown as typeof globalThis.fetch;
   }
 
