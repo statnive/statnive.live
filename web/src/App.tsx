@@ -3,6 +3,7 @@ import { Nav } from './components/Nav';
 import { DatePicker } from './components/DatePicker';
 import { FilterPanel } from './components/FilterPanel';
 import { LazyPanel } from './components/LazyPanel';
+import { SiteSwitcher } from './components/SiteSwitcher';
 import { hashSignal } from './state/hash';
 import './App.css';
 
@@ -36,6 +37,7 @@ export function App() {
         <h1 class="statnive-wordmark">
           statnive<em class="statnive-wordmark-live">.live</em>
         </h1>
+        <SiteSwitcher />
       </header>
       <Nav />
       <DatePicker />

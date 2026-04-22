@@ -1,12 +1,18 @@
-.statnive-header {
-  margin-bottom: var(--s-5);
+#statnive-app .statnive-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-bottom: var(--s-4);
 }
 
-.statnive-wordmark {
+#statnive-app .statnive-wordmark {
   font-size: 28px;
+  margin: 0;
 }
 
-.statnive-wordmark-live {
+#statnive-app .statnive-wordmark-live {
   color: var(--green);
   font-style: italic;
 }
