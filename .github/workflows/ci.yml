@@ -238,3 +238,60 @@ jobs:
 
       - name: web-airgap-grep
         run: make web-airgap-grep
+
+  smoke-test:
+    name: End-to-end boot smoke (real main.go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # make smoke -> make build -> make web-build, which pulls the SPA
+      # devDeps and runs Vite. Node 20 mirrors the other frontend jobs;
+      # without it `make build` fails before the smoke harness runs.
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
+      - name: Vendor check
+        run: make vendor-check
+
+      # Reuse the same dev-compose CH container that integration-tests
+      # and wal-killtest-smoke drive — single source of truth, single
+      # image, single port (deploy/docker-compose.dev.yml).
+      - name: Boot ClickHouse via docker-compose
+        run: docker compose -f deploy/docker-compose.dev.yml up -d clickhouse
+
+      - name: Wait for ClickHouse ready
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec statnive-clickhouse-dev clickhouse-client --port 9000 -q "SELECT 1" >/dev/null 2>&1; then
+              echo "ClickHouse ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ClickHouse never came up" >&2
+          docker logs statnive-clickhouse-dev || true
+          exit 1
+
+      # Harness probes /healthz, /tracker.js, /app/, /app/assets/*.js,
+      # POST /api/event × 10 with count-back, and /api/stats/overview
+      # bearer-auth. `make smoke` depends on `make build` so the real
+      # binary (with fresh SPA embedded) is always what gets probed.
+      - name: Run smoke harness
+        run: make smoke
+
+      - name: Tear down ClickHouse
+        if: always()
+        run: docker compose -f deploy/docker-compose.dev.yml down -v
