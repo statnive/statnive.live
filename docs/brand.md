@@ -2,7 +2,7 @@
 
 > Referenced from [PLAN.md](../PLAN.md). Brand specs have no direct influence on code tasks — this file is the source of truth when Phase 5 authors `web/src/tokens.css` or when Phase 9/11 marketing copy goes out.
 
-The canonical brand reference is the standalone HTML preview at [`../jaan-to/outputs/detect/design/statnive-brand-guideline/statnive-live-brand-guidelines.html`](../../jaan-to/outputs/detect/design/statnive-brand-guideline/statnive-live-brand-guidelines.html) (open in a browser to see the wordmark, summit logo, color swatches, type ramp, component samples, and pattern library). Companion files in the same directory: `Statnive Logo.html` (mark variants), `icons.jsx` (SVG icon set), `design-canvas.jsx` (source for the preview).
+The canonical brand reference is the standalone HTML preview at [`../jaan-to/outputs/detect/design/statnive-brand-guideline/statnive-plugin-brand-guidelines.html`](../../jaan-to/outputs/detect/design/statnive-brand-guideline/statnive-plugin-brand-guidelines.html) (open in a browser to see the wordmark, summit logo, color swatches, type ramp, component samples, and pattern library). The plugin guideline replaced the earlier `statnive-live-brand-guidelines.html` as the dashboard source of truth in Phase 5d — brighter teal + warmer cream + iOS-standard error palette; the older companion is retained for historical reference. Other companions in the same directory: `Statnive Logo.html` (mark variants), `icons.jsx` (SVG icon set), `design-canvas.jsx` (source for the preview).
 
 ## Where the brand applies
 
@@ -19,16 +19,21 @@ Every public surface that carries the statnive.live name:
 Copy verbatim into `web/src/tokens.css` when Phase 5 starts:
 
 ```css
-:root {
-  /* Surface */
-  --paper:     #F4EFE6;   /* primary background — cream */
-  --ink:       #1A1916;   /* primary text + rules */
-  --rule-soft: #C9C0AB;   /* dividers, table borders */
+#statnive-app {
+  /* Surface — warm cream + near-black ink */
+  --paper:     #EDE3D1;   /* primary background — warm cream */
+  --ink:       #1A1A1A;   /* primary text + rules */
+  --rule-soft: #E8E5DC;   /* dividers, table borders */
 
-  /* Accent — Persian Teal (the .live mark color) */
-  --green:     #00756A;
-  --green-dk:  #004F48;   /* hover / pressed */
-  --green-lt:  #9FCDC5;   /* tinted backgrounds, info pills */
+  /* Accent — Brand Teal (plugin guideline). Brighter + more saturated
+     than the legacy Persian Teal so the accent reads as primary CTA. */
+  --green:     #00A693;
+  --green-dk:  #007A6C;   /* hover / pressed */
+  --green-lt:  #B0D4CC;   /* tinted backgrounds, info pills */
+
+  /* Semantic — iOS-standard error palette for banners + destructive chips. */
+  --error:     #FF3B30;
+  --error-dk:  #B0243A;
 
   /* Secondary palette — chart series, status badges */
   --navy:      #1E3551;
@@ -36,10 +41,12 @@ Copy verbatim into `web/src/tokens.css` when Phase 5 starts:
   --plum:      #5F3B6E;
   --rust:      #A84628;
 
-  /* Type */
+  /* Type — DM Sans / JetBrains Mono preferred with IBM Plex fallback
+     so the air-gapped bundle stays WOFF2-free today; shipping the DM
+     Sans files is a follow-up slice. */
   --serif: 'Fraunces', 'Charter', Georgia, serif;
-  --sans:  'IBM Plex Sans', system-ui, sans-serif;
-  --mono:  'IBM Plex Mono', ui-monospace, monospace;
+  --sans:  'DM Sans', 'IBM Plex Sans', system-ui, sans-serif;
+  --mono:  'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
 }
 ```
 

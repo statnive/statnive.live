@@ -1,9 +1,11 @@
 /*
- * statnive-live brand tokens.
+ * statnive-live brand tokens — plugin guideline variant.
  *
- * Source of truth: docs/brand.md. PR review rejects hand-rolled hex values
- * in Preact components — they MUST reference `var(--green)` etc. The
- * `make brand-grep` Makefile target enforces this at CI time.
+ * Source of truth: docs/brand.md (kept in sync with
+ * jaan-to/outputs/detect/design/statnive-brand-guideline/
+ * statnive-plugin-brand-guidelines.html). PR review rejects hand-rolled
+ * hex values in Preact components — they MUST reference `var(--green)`
+ * etc. The `make brand-grep` Makefile target enforces this at CI time.
  *
  * Scoped to #statnive-app so this CSS can never bleed into adjacent
  * embedded surfaces (lesson borrowed from the WordPress plugin's
@@ -11,15 +13,25 @@
  */
 
 #statnive-app {
-  /* Surface */
-  --paper:     #F4EFE6;   /* primary background — cream */
-  --ink:       #1A1916;   /* primary text + rules */
-  --rule-soft: #C9C0AB;   /* dividers, table borders */
+  /* Surface — warm cream + near-black ink, matches the plugin guideline
+     "warmer, less saturated" direction vs the prior Persian palette. */
+  --paper:     #EDE3D1;   /* primary background — warm cream */
+  --ink:       #1A1A1A;   /* primary text + rules */
+  --rule-soft: #E8E5DC;   /* dividers, table borders */
 
-  /* Accent — Persian Teal (the .live mark color) */
-  --green:     #00756A;
-  --green-dk:  #004F48;   /* hover / pressed */
-  --green-lt:  #9FCDC5;   /* tinted backgrounds, info pills */
+  /* Accent — Brand Teal (plugin guideline primary). Brighter + more
+     saturated than the legacy Persian Teal so the accent reads as
+     primary CTA, not a muted headline color. */
+  --green:     #00A693;
+  --green-dk:  #007A6C;   /* hover / pressed */
+  --green-lt:  #B0D4CC;   /* tinted backgrounds, info pills (solid
+                             equivalent of rgba(0,166,147,0.12) on paper) */
+
+  /* Semantic — iOS-standard error palette added by plugin guideline.
+     Used for error banners, destructive-action chips, CSP / auth
+     failure states. Not for chart series. */
+  --error:     #FF3B30;
+  --error-dk:  #B0243A;
 
   /* Secondary palette — chart series, status badges. Never primary chrome. */
   --navy:      #1E3551;
@@ -27,10 +39,13 @@
   --plum:      #5F3B6E;
   --rust:      #A84628;
 
-  /* Type ramp */
+  /* Type ramp — plugin guideline prefers DM Sans; we keep IBM Plex as
+     fallback so the air-gapped bundle doesn't require a new WOFF2 drop.
+     When DM Sans WOFF2 files ship (future slice), the browser picks the
+     first declared family that resolves. */
   --serif: 'Fraunces', 'Charter', Georgia, serif;
-  --sans:  'IBM Plex Sans', system-ui, sans-serif;
-  --mono:  'IBM Plex Mono', ui-monospace, monospace;
+  --sans:  'DM Sans', 'IBM Plex Sans', system-ui, sans-serif;
+  --mono:  'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
 
   /* Spacing scale */
   --s-1: 4px;
