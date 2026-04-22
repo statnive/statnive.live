@@ -1,5 +1,5 @@
 import { signal, effect } from '@preact/signals';
-import { hashSignal, navigate } from './hash';
+import { hashSignal, replaceHashParams } from './hash';
 
 // Filters is the union of every URL-sync'd filter the panels read. Each
 // non-empty field serializes to a query param on the URL hash. Keep
@@ -73,15 +73,16 @@ function filtersEqual(a: Filters, b: Filters): boolean {
 }
 
 // updateFilters merges next into the current filters signal and writes
-// the URL hash. Other state (active panel) preserved.
+// the URL hash. Uses replaceHashParams so chip toggles don't clutter
+// the back-button history with one entry per chip click.
 export function updateFilters(next: Partial<Filters>): void {
   const merged: Filters = { ...filtersSignal.value, ...next };
   filtersSignal.value = merged;
-  navigate(hashSignal.value.panel, filtersToQuery(merged));
+  replaceHashParams(filtersToQuery(merged));
 }
 
 // clearFilters resets all six keys to empty strings.
 export function clearFilters(): void {
   filtersSignal.value = { ...EMPTY_FILTERS };
-  navigate(hashSignal.value.panel, new URLSearchParams());
+  replaceHashParams(new URLSearchParams());
 }

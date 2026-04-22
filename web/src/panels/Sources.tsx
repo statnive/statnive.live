@@ -4,6 +4,7 @@ import { apiGet } from '../api/client';
 import type { SourceRow } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
+import { siteSignal } from '../state/site';
 import { DualBar } from './DualBar';
 import { fmtInt } from '../lib/fmt';
 import { rowMax } from '../lib/rows';
@@ -34,6 +35,7 @@ export default function Sources() {
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    siteSignal.value,
     rangeSignal.value.from,
     rangeSignal.value.to,
     filtersSignal.value.channel,

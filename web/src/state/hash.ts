@@ -51,10 +51,12 @@ export const hashSignal = signal<HashState>(parseHash(
   typeof window === 'undefined' ? '' : window.location.hash,
 ));
 
-// navigate mutates the URL hash WITHOUT triggering a scroll-to-top jump
-// (history.replaceState rather than setting location.hash directly). The
-// 'hashchange' listener below then updates hashSignal — same code path
-// whether the user clicks a link or another component calls navigate.
+// navigate mutates the URL hash via pushState so browser back / forward
+// buttons walk the panel history as operators expect. Setting
+// location.hash directly would achieve the same but also scroll to the
+// element with id = hash; pushState doesn't trigger that. Filter /
+// date-picker changes that REPLACE the same panel's params call
+// replaceHashParams instead to avoid polluting history.
 export function navigate(panel: PanelName, params?: URLSearchParams): void {
   const next: HashState = {
     panel,
@@ -62,18 +64,32 @@ export function navigate(panel: PanelName, params?: URLSearchParams): void {
   };
   const hash = '#' + serialize(next);
   if (typeof window !== 'undefined' && window.location.hash !== hash) {
+    window.history.pushState(null, '', hash);
+  }
+  hashSignal.value = next;
+}
+
+// replaceHashParams updates the URL hash's params without adding a
+// history entry. Used by FilterPanel / DatePicker where "click a chip"
+// should not create a back-button stop.
+export function replaceHashParams(params: URLSearchParams): void {
+  const next: HashState = { panel: hashSignal.value.panel, params };
+  const hash = '#' + serialize(next);
+  if (typeof window !== 'undefined' && window.location.hash !== hash) {
     window.history.replaceState(null, '', hash);
   }
   hashSignal.value = next;
 }
 
-// Install a single hashchange listener at module load — covers both
-// user-initiated hash changes (browser back/forward, link clicks) and
-// programmatic history.pushState from navigate().
+// hashchange fires on location.hash = ... and on browser back/forward
+// between pushed states. popstate fires on back/forward. Both keep
+// hashSignal in sync with the URL.
 if (typeof window !== 'undefined') {
-  window.addEventListener('hashchange', () => {
+  const resync = () => {
     hashSignal.value = parseHash(window.location.hash);
-  });
+  };
+  window.addEventListener('hashchange', resync);
+  window.addEventListener('popstate', resync);
 }
 
 // parseHash exported for tests (router.test.ts asserts fallback logic).

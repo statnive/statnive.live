@@ -41,6 +41,7 @@ export function Overview() {
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    siteSignal.value,
     rangeSignal.value.from,
     rangeSignal.value.to,
     filtersSignal.value.device,

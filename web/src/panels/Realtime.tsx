@@ -3,6 +3,7 @@ import { useSignal } from '@preact/signals';
 import { apiGet } from '../api/client';
 import type { RealtimeResponse } from '../api/types';
 import { realtimeTickSignal } from '../state/realtime';
+import { siteSignal } from '../state/site';
 import { fmtInt } from '../lib/fmt';
 import './panels.css';
 
@@ -25,7 +26,7 @@ export default function Realtime() {
 
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [realtimeTickSignal.value]);
+  }, [realtimeTickSignal.value, siteSignal.value]);
 
   if (err.value) {
     return (
