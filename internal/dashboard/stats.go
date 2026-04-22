@@ -1,18 +1,28 @@
 package dashboard
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
 	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
 )
+
+// SiteLister is the subset of *sites.Registry the dashboard consumes.
+// Kept as an interface so tests can wire a stub without spinning up a
+// real ClickHouse connection.
+type SiteLister interface {
+	List(ctx context.Context) ([]sites.Site, error)
+}
 
 // Deps groups the runtime collaborators every handler needs. Store is
 // usually a *storage.CachedStore so 100 dashboard tabs collapse to one
 // ClickHouse roundtrip per cache TTL.
 type Deps struct {
 	Store  storage.Store
+	Sites  SiteLister
 	Audit  *audit.Logger
 	Logger *slog.Logger
 }
@@ -25,11 +35,13 @@ const (
 	endpointSources   = "sources"
 	endpointPages     = "pages"
 	endpointSEO       = "seo"
+	endpointTrend     = "trend"
 	endpointCampaigns = "campaigns"
 	endpointGeo       = "geo"
 	endpointDevices   = "devices"
 	endpointFunnel    = "funnel"
 	endpointRealtime  = "realtime"
+	endpointSites     = "sites"
 )
 
 // overviewHandler answers GET /api/stats/overview.
@@ -111,6 +123,28 @@ func seoHandler(deps Deps) http.HandlerFunc {
 		}
 
 		result, err := deps.Store.SEO(r.Context(), f)
+		if err != nil {
+			writeError(w, r, deps, endpoint, err)
+
+			return
+		}
+
+		writeOK(w, r, deps, endpoint, result)
+	}
+}
+
+func trendHandler(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		const endpoint = endpointTrend
+
+		f, err := filterFromRequest(r)
+		if err != nil {
+			writeError(w, r, deps, endpoint, err)
+
+			return
+		}
+
+		result, err := deps.Store.Trend(r.Context(), f)
 		if err != nil {
 			writeError(w, r, deps, endpoint, err)
 
