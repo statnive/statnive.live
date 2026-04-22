@@ -4,6 +4,8 @@ import { apiGet } from '../api/client';
 import type { OverviewResponse } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { siteSignal } from '../state/site';
+import { filtersSignal } from '../state/filters';
+import { fmtInt, fmtPct, fmtRials } from '../lib/fmt';
 import { TrendChart } from './TrendChart';
 import './Overview.css';
 
@@ -12,10 +14,6 @@ import './Overview.css';
 function conversionPct(d: OverviewResponse): number {
   return d.visitors > 0 ? (d.goals / d.visitors) * 100 : 0;
 }
-
-const fmtInt = (n: number) => n.toLocaleString('en-US');
-const fmtPct = (n: number) => n.toFixed(2) + '%';
-const fmtRials = (n: number) => fmtInt(n) + ' ﷼';
 
 export function Overview() {
   const data = useSignal<OverviewResponse | null>(null);
@@ -42,7 +40,14 @@ export function Overview() {
 
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [
+    rangeSignal.value.from,
+    rangeSignal.value.to,
+    filtersSignal.value.device,
+    filtersSignal.value.channel,
+    filtersSignal.value.country,
+    filtersSignal.value.path,
+  ]);
 
   if (err.value) {
     return (

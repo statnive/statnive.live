@@ -133,8 +133,10 @@ web-test: web-install
 web-lint: web-install
 	cd web && npm run lint
 
-## bundle-gate: size-limit gate (≤10 KB JS gz, ≤3 KB CSS gz). Chained
-## into `make audit`. 5b raises JS to 13 KB gz when uPlot lands.
+## bundle-gate: size-limit gate. Four buckets (web/.size-limit.json):
+## initial JS ≤13 KB gz, uPlot chart chunk ≤25 KB gz (loads on first
+## chart mount only via LazyChart — not in the initial bundle), lazy
+## panel chunks ≤8 KB gz total, CSS ≤5 KB gz. Chained into `make audit`.
 bundle-gate: web-build
 	cd web && npm run bundle-gate
 

@@ -5,18 +5,9 @@ import type { CampaignRow } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
 import { DualBar } from './DualBar';
+import { fmtInt } from '../lib/fmt';
+import { rowMax } from '../lib/rows';
 import './panels.css';
-
-const fmtInt = (n: number) => n.toLocaleString('en-US');
-
-function rowMax<T>(rows: T[], pick: (r: T) => number): number {
-  let m = 0;
-  for (const r of rows) {
-    const v = pick(r);
-    if (v > m) m = v;
-  }
-  return m;
-}
 
 export default function Campaigns() {
   const data = useSignal<CampaignRow[] | null>(null);

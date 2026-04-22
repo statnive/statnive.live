@@ -1,40 +1,13 @@
 import { useEffect, useMemo } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
-import type { Options, AlignedData } from 'uplot';
 import { apiGet } from '../api/client';
 import type { SEORow } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
 import { LazyChart } from '../components/LazyChart';
+import { fmtInt, fmtRials } from '../lib/fmt';
+import { toVisitorSeries, visitorLineChartOptions } from '../lib/chart';
 import './panels.css';
-
-const fmtInt = (n: number) => n.toLocaleString('en-US');
-const fmtRials = (n: number) => fmtInt(n) + ' ﷼';
-
-function buildChartData(rows: SEORow[]): AlignedData {
-  const xs: number[] = [];
-  const ys: number[] = [];
-  for (const r of rows) {
-    // day is an ISO timestamp string; uPlot wants seconds.
-    xs.push(Math.floor(new Date(r.day).getTime() / 1000));
-    ys.push(r.visitors);
-  }
-  return [xs, ys];
-}
-
-const CHART_OPTIONS: Omit<Options, 'width' | 'height'> = {
-  scales: { x: { time: true }, y: { auto: true } },
-  series: [
-    {},
-    {
-      label: 'Visitors',
-      stroke: '#00756A',
-      width: 2,
-    },
-  ],
-  axes: [{}, {}],
-  cursor: { drag: { x: true, y: false } },
-};
 
 export default function SEO() {
   const data = useSignal<SEORow[] | null>(null);
@@ -69,8 +42,10 @@ export default function SEO() {
   ]);
 
   const chartData = useMemo(() => {
-    return data.value ? buildChartData(data.value) : null;
+    return data.value ? toVisitorSeries(data.value as SEORow[]) : null;
   }, [data.value]);
+
+  const chartOptions = useMemo(() => visitorLineChartOptions(), []);
 
   if (err.value) {
     return (
@@ -103,7 +78,7 @@ export default function SEO() {
   return (
     <section class="statnive-section" data-testid="panel-seo">
       <h2 class="statnive-h2">SEO</h2>
-      {chartData ? <LazyChart data={chartData} options={CHART_OPTIONS} height={240} /> : null}
+      {chartData ? <LazyChart data={chartData} options={chartOptions} height={240} /> : null}
       <table class="statnive-table" style={{ marginTop: 'var(--s-3)' }}>
         <thead>
           <tr>

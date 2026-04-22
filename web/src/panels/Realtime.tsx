@@ -3,9 +3,8 @@ import { useSignal } from '@preact/signals';
 import { apiGet } from '../api/client';
 import type { RealtimeResponse } from '../api/types';
 import { realtimeTickSignal } from '../state/realtime';
+import { fmtInt } from '../lib/fmt';
 import './panels.css';
-
-const fmtInt = (n: number) => n.toLocaleString('en-US');
 
 export default function Realtime() {
   const data = useSignal<RealtimeResponse | null>(null);

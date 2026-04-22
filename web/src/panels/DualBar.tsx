@@ -1,3 +1,5 @@
+import { fmtInt } from '../lib/fmt';
+
 // DualBar renders the visitors + revenue side-by-side bars that
 // implement the "Dual-bar visualization" product principle (top-level
 // CLAUDE.md § Product Philosophy). Both values are scaled against the
@@ -8,8 +10,6 @@ export interface DualBarProps {
   maxVisitors: number;
   maxRevenue: number;
 }
-
-const fmtInt = (n: number) => n.toLocaleString('en-US');
 
 function pct(value: number, max: number): string {
   if (max <= 0) return '0%';
