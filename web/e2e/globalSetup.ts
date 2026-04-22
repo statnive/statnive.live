@@ -261,6 +261,13 @@ export default async function globalSetup(): Promise<void> {
     STATNIVE_CLICKHOUSE_ADDR: CH_ADDR,
     STATNIVE_DASHBOARD_SPA_ENABLED: 'true',
     STATNIVE_DASHBOARD_BEARER_TOKEN: BEARER,
+    // Phase 2b — allow Secure=false session cookie for e2e (no TLS on
+    // localhost) and seed a first-run admin for the Playwright login
+    // flow to sign in as. Mirrors test/smoke/harness.sh exactly.
+    STATNIVE_DEV: '1',
+    STATNIVE_AUTH_SESSION_SECURE: 'false',
+    STATNIVE_BOOTSTRAP_ADMIN_EMAIL: process.env.STATNIVE_E2E_ADMIN_EMAIL ?? 'e2e-admin@statnive.live',
+    STATNIVE_BOOTSTRAP_ADMIN_PASSWORD: process.env.STATNIVE_E2E_ADMIN_PASSWORD ?? 'e2e-P@ssw0rd-static',
   };
 
   const logChunks: Buffer[] = [];
@@ -329,6 +336,10 @@ export default async function globalSetup(): Promise<void> {
   process.env.STATNIVE_E2E_HOST_A = HOST_A;
   process.env.STATNIVE_E2E_HOST_B = HOST_B;
   process.env.STATNIVE_E2E_CH_CONTAINER = CH_CONTAINER;
+  process.env.STATNIVE_E2E_ADMIN_EMAIL =
+    process.env.STATNIVE_E2E_ADMIN_EMAIL ?? 'e2e-admin@statnive.live';
+  process.env.STATNIVE_E2E_ADMIN_PASSWORD =
+    process.env.STATNIVE_E2E_ADMIN_PASSWORD ?? 'e2e-P@ssw0rd-static';
   process.env.STATNIVE_E2E_PID = String(child.pid);
 
   // Detach stdout/stderr listeners once we're up — otherwise Playwright's

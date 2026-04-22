@@ -72,3 +72,18 @@ const (
 	EventDashboardError          EventName = "dashboard.error"
 	EventDashboardUnauthorized   EventName = "dashboard.unauthorized"
 )
+
+// Auth events. Emitted by internal/auth/* handlers + middleware.
+// Raw password / raw session token / raw email MUST NOT appear as attrs
+// on any of these — emitters hash email (SHA-256 of lowercase trim) and
+// record session_id_hash (never the raw cookie value). Privacy Rule 4.
+const (
+	EventLoginSuccess   EventName = "auth.login.success"
+	EventLoginFailed    EventName = "auth.login.failed"
+	EventLogout         EventName = "auth.logout"
+	EventSessionCreated EventName = "auth.session.created"
+	EventSessionExpired EventName = "auth.session.expired"
+	EventSessionRevoked EventName = "auth.session.revoked"
+	EventRBACDenied     EventName = "auth.rbac.denied"
+	EventAuthBootstrap  EventName = "auth.bootstrap"
+)

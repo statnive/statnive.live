@@ -32,7 +32,7 @@ export async function apiGet<T>(
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url.toString(), { headers, signal });
+  const res = await fetch(url.toString(), { headers, signal, credentials: 'include' });
   if (!res.ok) {
     throw new Error(`apiGet ${path}: HTTP ${res.status}`);
   }

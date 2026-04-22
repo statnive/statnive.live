@@ -1,0 +1,88 @@
+.statnive-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  background: var(--paper);
+}
+
+.statnive-login-card {
+  width: min(400px, 100%);
+  padding: var(--s-5);
+  background: var(--rule-soft);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 8px 24px rgb(0 0 0 / 6%);
+}
+
+.statnive-login-card .statnive-wordmark {
+  margin: 0 0 var(--s-4);
+  font-size: 1.75rem;
+}
+
+.statnive-login-demo-banner {
+  margin-bottom: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  background: var(--green-lt);
+  border-left: 3px solid var(--green);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.statnive-login form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.statnive-login label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.statnive-login input[type='email'],
+.statnive-login input[type='password'] {
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.statnive-login input:focus {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.statnive-login button[type='submit'] {
+  margin-top: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: none;
+  border-radius: 4px;
+  background: var(--green);
+  color: var(--paper);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.statnive-login button[type='submit']:hover,
+.statnive-login button[type='submit']:focus-visible {
+  background: var(--green-dk);
+  outline: none;
+}
+
+.statnive-login button[disabled] {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.statnive-login-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 0.875rem;
+}

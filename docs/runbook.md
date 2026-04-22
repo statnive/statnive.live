@@ -488,6 +488,106 @@ Exact error text:
    `wal.ch_insert_failed` entries — the consumer's bounded retry will
    eventually give up; restart the binary to retry from scratch.
 
+## Phase 2b — Auth + RBAC operator SOPs
+
+### First-run admin bootstrap
+
+Set two env vars before the first boot. The binary hashes the password
+with bcrypt cost 12 and creates a single admin user at `site_id =
+auth.bootstrap.site_id` (default 1). Re-booting with the same vars is
+idempotent — it does not re-hash the password.
+
+```bash
+STATNIVE_BOOTSTRAP_ADMIN_EMAIL='admin@example.com' \
+STATNIVE_BOOTSTRAP_ADMIN_PASSWORD='correct horse battery staple …' \
+./bin/statnive-live
+```
+
+Confirm the user landed:
+
+```bash
+clickhouse-client -q "SELECT email, role, disabled
+FROM statnive.users FINAL"
+```
+
+Expect one row: `admin@example.com    admin    0`.
+
+Audit-trail assertion: the `auth.jsonl` sink carries one
+`auth.bootstrap` event with `email_hash` (SHA-256) and `user_id` — the
+raw email MUST NOT appear anywhere in the log.
+
+### Rotate the admin password
+
+There is no self-serve password-reset flow in v1 (ships in v1.1).
+Operators rotate via a direct-DB update:
+
+```bash
+# Generate a new bcrypt cost-12 hash on the operator laptop.
+htpasswd -bnBC 12 "" 'new-passphrase' | tr -d ':\n' | sed 's/\$2y/\$2a/'
+# Paste the hash into the CH update:
+clickhouse-client -q "INSERT INTO statnive.users (
+  user_id, site_id, email, username, password_hash, role, disabled,
+  created_at, updated_at
+) SELECT user_id, site_id, email, username, '<paste hash>',
+  role, disabled, created_at, now() FROM statnive.users FINAL
+  WHERE email = 'admin@example.com'"
+```
+
+After the new row lands, every active session for that user MUST be
+revoked server-side — see "Revoke all sessions" below. The
+CachedStore wrapper in production cascades this automatically when
+the password change routes through the admin API (Phase 3c); direct-DB
+updates bypass that cascade, so operators run the revoke step
+explicitly.
+
+### Revoke all sessions for a user
+
+```bash
+clickhouse-client -q "INSERT INTO statnive.sessions (
+  session_id_hash, user_id, site_id, role, created_at, last_used_at,
+  expires_at, revoked_at, updated_at, ip_hash, user_agent
+) SELECT session_id_hash, user_id, site_id, role, created_at,
+  last_used_at, expires_at, now(), now(), ip_hash, user_agent
+FROM statnive.sessions FINAL
+WHERE user_id = '<user_id>' AND revoked_at = toDateTime(0)"
+```
+
+The in-memory session cache in the running binary has a 60-second
+TTL; operators who need immediate effect can either wait 60 s or
+restart the binary (every session cookie then fails lookup → 401
+until re-login).
+
+### Local dev without TLS
+
+`auth.session.secure=true` is enforced in production. For local HTTP
+dev set `STATNIVE_DEV=1` AND `STATNIVE_AUTH_SESSION_SECURE=false`;
+any other combination (Secure=false without STATNIVE_DEV=1) is
+rejected at boot.
+
+### API-token provisioning (CI + long-lived automation)
+
+Operators can issue `api_only` tokens without going through the login
+flow. The binary accepts raw tokens via env var, hashes them at boot,
+and never persists the raw form:
+
+```bash
+STATNIVE_API_TOKENS='ci-smoke:<raw-token>,backup-cron:<raw-token>' \
+./bin/statnive-live
+```
+
+Each raw token maps to a synthetic `*User` with `Role=api`. Rotating =
+restart with a new env-var value. Phase 3c adds `POST
+/api/admin/tokens` for admin-API rotation.
+
+### Password-policy posture
+
+Phase 2b is **admin-seeded only** — the binary does not enforce a
+password-complexity policy, because the operator is trusted to pick
+a strong passphrase. Phase 11 (SaaS self-serve signup) MUST add NIST
+800-63B (8+ chars, HaveIBeenPwned top-10k blocklist, no composition
+rules). Until then the operator is responsible for choosing
+passwords of adequate length + entropy.
+
 ## Phase 7b status (2026-04-21)
 
 All Phase 7b deliverables shipped:

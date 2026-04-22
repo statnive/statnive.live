@@ -1,0 +1,61 @@
+# auth-return-nil-guard — CVE-2024-10924 "Really Simple Security" class.
+#
+# Rule: every call site of an internal/auth function whose signature is
+# (*T, error) for T ∈ {User, Session, SessionInfo} MUST guard the pointer
+# against nil AFTER the err==nil branch, not just on the err path. A
+# fault-injected (nil, nil) return MUST NOT proceed to dereference.
+#
+# Scope: internal/**/*.go. The auth package itself is intentionally
+# excluded so the package's own internal nil-safety idioms (e.g. the
+# `if u == nil { return nil, ErrNotFound }` belt-and-braces inside
+# store.go) don't trigger on themselves.
+#
+# Tests: .claude/skills/blake3-hmac-identity-review/test/fixtures/
+# should-trigger/    — each .go file is deliberately unguarded
+# should-not-trigger/— each .go file is correctly guarded
+#
+# Wiring: Makefile `identity-semgrep` target; `make lint` depends on
+# `identity-gate`. CI runs it on every PR.
+
+rules:
+  - id: auth-return-nil-guard
+    message: >-
+      Caller of an auth package function returning (*T, error) where T
+      is User/Session/SessionInfo must check pointer != nil AFTER the
+      err == nil branch. CVE-2024-10924 ("Really Simple Security") is
+      the class this catches — fault-injected (nil, nil) returns that
+      bypass every `if err != nil` guard.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include:
+        - "internal/**/*.go"
+      exclude:
+        - "internal/auth/**"
+        - "**/*_test.go"
+        - "vendor/**"
+    patterns:
+      - pattern-either:
+          # Tuple-return from the known auth surface. The metavariable
+          # $X catches the pointer name so the subsequent nil guard can
+          # be pattern-matched against it.
+          - patterns:
+              - pattern: |
+                  $X, $ERR := auth.UserFrom($CTX)
+              - pattern-not-inside: |
+                  if $X == nil { ... }
+          - patterns:
+              - pattern: |
+                  $X, $ERR := $STORE.LookupSession(...)
+              - pattern-not-inside: |
+                  if $X == nil { ... }
+          - patterns:
+              - pattern: |
+                  $X, $ERR := $STORE.GetUserByID(...)
+              - pattern-not-inside: |
+                  if $X == nil { ... }
+          - patterns:
+              - pattern: |
+                  $X, $Y, $ERR := $STORE.GetUserByEmail(...)
+              - pattern-not-inside: |
+                  if $X == nil { ... }

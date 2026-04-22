@@ -103,6 +103,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Phase 2b auth: STATNIVE_DEV=1 allows Secure=false on the session cookie
+# (smoke serves HTTP, not TLS). STATNIVE_BOOTSTRAP_ADMIN_{EMAIL,PASSWORD}
+# seed a first-run admin that probe_login_flow authenticates as. The
+# legacy STATNIVE_DASHBOARD_BEARER_TOKEN is auto-promoted into
+# auth.api_tokens (role=api) so probe_stats_auth keeps working unchanged.
+LOGIN_EMAIL="${STATNIVE_SMOKE_EMAIL:-smoke@statnive.live}"
+LOGIN_PASSWORD="${STATNIVE_SMOKE_PASSWORD:-Smoke-P@ssw0rd-$(date +%s)}"
+
 log "starting bin/statnive-live on 127.0.0.1:${PORT}"
 STATNIVE_SERVER_LISTEN="127.0.0.1:${PORT}" \
 STATNIVE_MASTER_SECRET_PATH="${MASTER_KEY}" \
@@ -111,6 +119,10 @@ STATNIVE_AUDIT_PATH="${AUDIT_PATH}" \
 STATNIVE_CLICKHOUSE_ADDR="${CH_ADDR}" \
 STATNIVE_DASHBOARD_SPA_ENABLED=true \
 STATNIVE_DASHBOARD_BEARER_TOKEN="${TOKEN}" \
+STATNIVE_DEV=1 \
+STATNIVE_AUTH_SESSION_SECURE=false \
+STATNIVE_BOOTSTRAP_ADMIN_EMAIL="${LOGIN_EMAIL}" \
+STATNIVE_BOOTSTRAP_ADMIN_PASSWORD="${LOGIN_PASSWORD}" \
     "$BIN" >"${WORK}/stdout.log" 2>&1 &
 PID=$!
 
@@ -342,6 +354,62 @@ probe_stats_auth() {
         "status=${status_yes} body=${body}"
 }
 
+# probe_login_flow: Phase 2b session cookie flow end-to-end.
+#   - POST /api/login with correct creds → 200 + Set-Cookie session cookie
+#   - Follow-up GET /api/stats/overview with the cookie → 200 + 5 KPI keys
+#   - POST /api/logout → 204 + Max-Age=0 cookie
+#   - Post-logout GET /api/stats/overview with the cleared cookie → 401
+probe_login_flow() {
+    local cookies="${WORK}/cookies.txt"
+    rm -f "$cookies"
+
+    local url_login="http://127.0.0.1:${PORT}/api/login"
+    local url_stats="http://127.0.0.1:${PORT}/api/stats/overview?site=${SITE_ID}"
+    local url_logout="http://127.0.0.1:${PORT}/api/logout"
+
+    local body status
+    body=$(printf '{"email":"%s","password":"%s"}' \
+        "$LOGIN_EMAIL" "$LOGIN_PASSWORD")
+
+    status=$(curl -sS -o /dev/null -w '%{http_code}' \
+        -c "$cookies" \
+        -H 'Content-Type: application/json' \
+        -d "$body" \
+        "$url_login")
+    local cond=1
+    [ "$status" = "200" ] && cond=0
+    _assert "login: 200 + session cookie issued" "$cond" "status=${status}"
+
+    [ -s "$cookies" ] || fatal "session cookie jar empty after login"
+    grep -q 'statnive_session' "$cookies" \
+        || fatal "statnive_session cookie missing from jar: $(cat "$cookies")"
+
+    local tmp
+    tmp=$(mktemp)
+    status=$(curl -sS -o "$tmp" -w '%{http_code}' -b "$cookies" "$url_stats")
+    body=$(cat "$tmp")
+    rm -f "$tmp"
+    cond=1
+    if [ "$status" = "200" ] \
+        && echo "$body" | grep -q '"pageviews"' \
+        && echo "$body" | grep -q '"visitors"'; then
+        cond=0
+    fi
+    _assert "stats/overview with session cookie: 200" "$cond" \
+        "status=${status}"
+
+    status=$(curl -sS -o /dev/null -w '%{http_code}' \
+        -X POST -b "$cookies" -c "$cookies" "$url_logout")
+    cond=1
+    [ "$status" = "204" ] && cond=0
+    _assert "logout: 204 + cookie cleared" "$cond" "status=${status}"
+
+    status=$(curl -sS -o /dev/null -w '%{http_code}' -b "$cookies" "$url_stats")
+    cond=1
+    [ "$status" = "401" ] && cond=0
+    _assert "stats/overview after logout: 401" "$cond" "status=${status}"
+}
+
 # ---------- Run the probe matrix ----------
 
 log "probing /healthz + /tracker.js + /app/ + /app/assets/"
@@ -356,6 +424,9 @@ probe_ingest_count
 
 log "probing /api/stats/overview (bearer auth + KPI shape)"
 probe_stats_auth
+
+log "probing /api/login + /api/logout (Phase 2b session cookie flow)"
+probe_login_flow
 
 log "=== all probes green ==="
 exit 0
