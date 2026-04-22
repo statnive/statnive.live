@@ -91,3 +91,36 @@
   opacity: 0.7;
   padding: var(--s-3) 0;
 }
+
+#statnive-app .statnive-realtime {
+  display: flex;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  margin: var(--s-2) 0 var(--s-3);
+}
+
+#statnive-app .statnive-realtime-card {
+  padding: var(--s-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  background: var(--paper);
+  min-width: 220px;
+}
+
+#statnive-app .statnive-realtime-big {
+  font-family: var(--serif);
+  font-size: 48px;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  margin-top: var(--s-1);
+}
+
+#statnive-app .statnive-realtime-med {
+  font-family: var(--serif);
+  font-size: 28px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  margin-top: var(--s-1);
+}
