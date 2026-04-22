@@ -343,6 +343,80 @@ func TestDashboardHTTP_TrendGapFilling(t *testing.T) {
 	}
 }
 
+func TestDashboardHTTP_SourcesChannelFilter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv, store := newDashboardTestServer(t, ctx, "")
+
+	now := time.Now().UTC().Truncate(time.Hour)
+
+	// Seed events on two channels for the same site. Channel filter
+	// must narrow the Sources result set to the requested channel only.
+	storagetest.WriteEvents(t, ctx, store.Conn(), []storagetest.SeedEvent{
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/a", Referrer: "(direct)", ReferrerName: "(direct)", Channel: "Direct", VisitorHash: [16]byte{1}},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/b", Referrer: "https://google.com/", ReferrerName: "google", Channel: "Organic Search", VisitorHash: [16]byte{2}},
+	})
+
+	url := fmt.Sprintf("%s/api/stats/sources?site=%d&channel=Direct", srv.URL, dashboardSiteA)
+	resp := getJSON(t, url, "")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var rows []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(rows) == 0 {
+		t.Fatalf("channel=Direct returned zero rows; expected at least the direct row")
+	}
+
+	for _, r := range rows {
+		if ch, _ := r["channel"].(string); ch != "Direct" {
+			t.Errorf("channel filter leaked row with channel=%q: %v", ch, r)
+		}
+	}
+}
+
+func TestDashboardHTTP_PagesPathFilter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv, store := newDashboardTestServer(t, ctx, "")
+
+	now := time.Now().UTC().Truncate(time.Hour)
+
+	storagetest.WriteEvents(t, ctx, store.Conn(), []storagetest.SeedEvent{
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/blog/intro", Channel: "Direct", VisitorHash: [16]byte{3}},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/pricing", Channel: "Direct", VisitorHash: [16]byte{4}},
+	})
+
+	url := fmt.Sprintf("%s/api/stats/pages?site=%d&path=/blog/intro", srv.URL, dashboardSiteA)
+	resp := getJSON(t, url, "")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var rows []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(rows) == 0 {
+		t.Fatalf("path=/blog/intro returned zero rows; expected the match")
+	}
+
+	for _, r := range rows {
+		if p, _ := r["pathname"].(string); p != "/blog/intro" {
+			t.Errorf("path filter leaked row with pathname=%q: %v", p, r)
+		}
+	}
+}
+
 // --- shared test helpers ---
 
 // newDashboardTestServer wires the chi router that production runs in

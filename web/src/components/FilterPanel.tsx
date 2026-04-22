@@ -1,10 +1,10 @@
 import { filtersSignal, updateFilters, clearFilters } from '../state/filters';
 import './FilterPanel.css';
 
-// Hoisted outside component per `rendering-hoist-jsx`. Chip sets driven
-// by arrays so adding a new option = one line added to the array.
-const DEVICES: ReadonlyArray<string> = ['mobile', 'desktop', 'tablet'];
-
+// Channel values map to daily_sources.channel (LowCardinality column)
+// populated by the 17-step channel mapper in internal/enrich/channel.go.
+// Keep aligned with the canonical labels emitted by the pipeline —
+// "Organic Search" (not "Organic") etc.
 const CHANNELS: ReadonlyArray<string> = [
   'Direct',
   'Organic Search',
@@ -15,27 +15,19 @@ const CHANNELS: ReadonlyArray<string> = [
   'Paid',
 ];
 
+// Device + Country + Browser/OS chips are deliberately omitted in v1 —
+// the `hourly_visitors`, `daily_pages`, `daily_sources` rollups don't
+// carry those columns, so the filter values would serialize into the
+// URL but have no effect at SQL time. They ship in v1.1 alongside
+// `daily_devices` + `daily_geo` rollups (PLAN.md Phase 5b Out of scope).
+// The underlying filtersSignal fields stay in place so deep-link URLs
+// from future panels don't 400 — only the UI chips are suppressed.
 export function FilterPanel() {
   const f = filtersSignal.value;
-  const any = Boolean(f.device || f.channel || f.country || f.path);
+  const any = Boolean(f.channel || f.path);
 
   return (
     <section class="statnive-filterpanel" aria-label="Filters">
-      <div class="statnive-filter-row">
-        <span class="statnive-filter-label">Device</span>
-        {DEVICES.map((d) => (
-          <button
-            key={d}
-            type="button"
-            class={'statnive-chip' + (f.device === d ? ' is-active' : '')}
-            aria-pressed={f.device === d}
-            onClick={() => updateFilters({ device: f.device === d ? '' : d })}
-          >
-            {d}
-          </button>
-        ))}
-      </div>
-
       <div class="statnive-filter-row">
         <span class="statnive-filter-label">Channel</span>
         {CHANNELS.map((c) => (
@@ -52,16 +44,7 @@ export function FilterPanel() {
       </div>
 
       <div class="statnive-filter-row">
-        <label class="statnive-filter-label" htmlFor="flt-country">Country</label>
-        <input
-          id="flt-country"
-          type="text"
-          placeholder="IR"
-          value={f.country}
-          onChange={(e) => updateFilters({ country: (e.target as HTMLInputElement).value.trim() })}
-        />
-
-        <label class="statnive-filter-label" htmlFor="flt-path">Path contains</label>
+        <label class="statnive-filter-label" htmlFor="flt-path">Path</label>
         <input
           id="flt-path"
           type="text"

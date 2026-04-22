@@ -93,6 +93,7 @@ func filterFromRequest(r *http.Request) (*storage.Filter, error) {
 		To:          to,
 		Path:        q.Get("path"),
 		Referrer:    q.Get("referrer"),
+		Channel:     q.Get("channel"),
 		UTMSource:   q.Get("utm_source"),
 		UTMMedium:   q.Get("utm_medium"),
 		UTMCampaign: q.Get("utm_campaign"),

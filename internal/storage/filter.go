@@ -25,6 +25,7 @@ type Filter struct {
 	// Optional dimension filters — empty string means no constraint.
 	Path        string
 	Referrer    string
+	Channel     string // e.g. "Direct" / "Organic Search" / "Social Media" — matches daily_sources.channel
 	UTMSource   string
 	UTMMedium   string
 	UTMCampaign string
@@ -109,6 +110,7 @@ func (f *Filter) Hash() string {
 	writeTime(h, "to", f.To)
 	writeStr(h, "path", f.Path)
 	writeStr(h, "referrer", f.Referrer)
+	writeStr(h, "channel", f.Channel)
 	writeStr(h, "utm_source", f.UTMSource)
 	writeStr(h, "utm_medium", f.UTMMedium)
 	writeStr(h, "utm_campaign", f.UTMCampaign)

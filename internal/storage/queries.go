@@ -53,6 +53,67 @@ func whereTimeAndTenant(f *Filter, timeColumn string) (string, []any) {
 	return clause, []any{f.SiteID, f.From, f.To}
 }
 
+// applyFilters extends a base WHERE clause with rollup-supported filter
+// dimensions. Only fields whose column lives on the target rollup are
+// appended — v1 rollups lack device / country / browser / OS columns
+// (those ship in v1.1 with daily_devices + daily_geo), so passing
+// f.Device here is a no-op. v1.1 will replace this with table-aware
+// filter routing once the enriched rollups exist.
+//
+// Supported today:
+//   - channel (LowCardinality, on daily_sources)
+//   - referrer_name (LowCardinality, on daily_sources)
+//   - utm_source, utm_medium, utm_campaign (LowCardinality / String, on daily_sources)
+//   - pathname (String, on daily_pages — matched via equality, not LIKE,
+//     since LowCardinality + LIKE is a bad combination at SamplePlatform scale)
+//
+// The `cols` set lets each query opt in only to the columns its rollup
+// actually has — passing "pathname" for a daily_sources query would
+// produce a SQL error.
+func applyFilters(f *Filter, where string, args []any, cols map[string]bool) (string, []any) {
+	if f == nil {
+		return where, args
+	}
+
+	candidates := []struct {
+		column string
+		value  string
+	}{
+		{"channel", f.Channel},
+		{"referrer_name", f.Referrer},
+		{"utm_source", f.UTMSource},
+		{"utm_medium", f.UTMMedium},
+		{"utm_campaign", f.UTMCampaign},
+		{"pathname", f.Path},
+	}
+
+	for _, c := range candidates {
+		if !cols[c.column] || c.value == "" {
+			continue
+		}
+
+		where += " AND " + c.column + " = ?"
+		args = append(args, c.value)
+	}
+
+	return where, args
+}
+
+// rollup column sets — passed to applyFilters so each query only
+// attempts dimensions its target table actually has.
+var (
+	dailySourcesCols = map[string]bool{
+		"channel":       true,
+		"referrer_name": true,
+		"utm_source":    true,
+		"utm_medium":    true,
+		"utm_campaign":  true,
+	}
+	dailyPagesCols = map[string]bool{
+		"pathname": true,
+	}
+)
+
 // Overview reads the headline metrics from hourly_visitors. The HLL
 // states are merged across hours via uniqMerge — this is why the
 // rollup uses AggregateFunction(uniqCombined64, FixedString(16)).
@@ -91,6 +152,7 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 	}
 
 	where, args := whereTimeAndTenant(f, "day")
+	where, args = applyFilters(f, where, args, dailySourcesCols)
 
 	rows, err := s.conn.Query(ctx, fmt.Sprintf(`
 		SELECT
@@ -132,6 +194,7 @@ func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, erro
 	}
 
 	where, args := whereTimeAndTenant(f, "day")
+	where, args = applyFilters(f, where, args, dailyPagesCols)
 
 	rows, err := s.conn.Query(ctx, fmt.Sprintf(`
 		SELECT
@@ -180,6 +243,17 @@ func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) 
 	}
 
 	where, args := whereTimeAndTenant(f, "day")
+	// SEO is channel-locked to Organic Search by definition, so skip
+	// the channel key from applyFilters — let the other dimensions
+	// (referrer_name for search engine slice, utm_* for tagged organic)
+	// narrow further.
+	seoCols := map[string]bool{
+		"referrer_name": true,
+		"utm_source":    true,
+		"utm_medium":    true,
+		"utm_campaign":  true,
+	}
+	where, args = applyFilters(f, where, args, seoCols)
 
 	// Fill bounds: TO is exclusive in the rest of the codebase; CH's
 	// WITH FILL ... TO is also exclusive, so we pass f.To unchanged.
@@ -223,6 +297,7 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 	}
 
 	where, args := whereTimeAndTenant(f, "day")
+	where, args = applyFilters(f, where, args, dailySourcesCols)
 
 	rows, err := s.conn.Query(ctx, fmt.Sprintf(`
 		SELECT

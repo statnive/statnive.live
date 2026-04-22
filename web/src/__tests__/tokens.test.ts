@@ -17,20 +17,26 @@ interface Expected {
   value: string;
 }
 
+// Plugin brand guideline palette (Phase 5d) — warmer paper + brighter
+// teal + iOS error palette. See
+// jaan-to/outputs/detect/design/statnive-brand-guideline/
+// statnive-plugin-brand-guidelines.html for the spec.
 const EXPECTED: Expected[] = [
-  { name: '--paper', value: '#F4EFE6' },
-  { name: '--ink', value: '#1A1916' },
-  { name: '--rule-soft', value: '#C9C0AB' },
-  { name: '--green', value: '#00756A' },
-  { name: '--green-dk', value: '#004F48' },
-  { name: '--green-lt', value: '#9FCDC5' },
+  { name: '--paper', value: '#EDE3D1' },
+  { name: '--ink', value: '#1A1A1A' },
+  { name: '--rule-soft', value: '#E8E5DC' },
+  { name: '--green', value: '#00A693' },
+  { name: '--green-dk', value: '#007A6C' },
+  { name: '--green-lt', value: '#B0D4CC' },
+  { name: '--error', value: '#FF3B30' },
+  { name: '--error-dk', value: '#B0243A' },
   { name: '--navy', value: '#1E3551' },
   { name: '--ochre', value: '#B87B1A' },
   { name: '--plum', value: '#5F3B6E' },
   { name: '--rust', value: '#A84628' },
 ];
 
-describe('brand tokens (docs/brand.md)', () => {
+describe('brand tokens (docs/brand.md — plugin guideline)', () => {
   for (const { name, value } of EXPECTED) {
     it(`${name} = ${value}`, () => {
       const re = new RegExp(`${name}:\\s*${value}\\b`, 'i');
@@ -38,10 +44,9 @@ describe('brand tokens (docs/brand.md)', () => {
     });
   }
 
-  it('font tokens reference Fraunces + IBM Plex Sans + IBM Plex Mono', () => {
-    expect(tokens).toMatch(/--serif:\s*'Fraunces'/);
-    expect(tokens).toMatch(/--sans:\s*'IBM Plex Sans'/);
-    expect(tokens).toMatch(/--mono:\s*'IBM Plex Mono'/);
+  it('font tokens prefer DM Sans / JetBrains Mono with IBM Plex fallback', () => {
+    expect(tokens).toMatch(/--sans:\s*'DM Sans',\s*'IBM Plex Sans'/);
+    expect(tokens).toMatch(/--mono:\s*'JetBrains Mono',\s*'IBM Plex Mono'/);
   });
 
   it('all tokens scoped to #statnive-app (no :root leak)', () => {
