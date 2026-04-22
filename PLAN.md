@@ -174,11 +174,11 @@ Brand tokens from [`docs/brand.md`](docs/brand.md) — `web/src/tokens.css` impo
 
 - [x] Preact SPA scaffold (Vite + TypeScript + @preact/signals) — Phase 5a / PR #29.
 - [partial] Overview panel done (Phase 5a); Sources / Pages / SEO / Campaigns / Realtime panels + uPlot Visitors trend pending Phase 5b; Funnel (Frappe) / Geo / Devices pending v1.1 or v2 per rollup availability.
-- [ ] Gregorian date picker (Jalali = v1.1); real-time widget (10s refresh); Admin pages (users/goals/funnels) — Phase 5b (non-admin) + Phase 2b+3c (admin pages).
+- [ ] Gregorian date picker; real-time widget (10s refresh); Admin pages (users/goals/funnels) — Phase 5b (non-admin) + Phase 2b+3c (admin pages).
 - [ ] WCAG 2.2 AA (contrast, focus rings, aria, keyboard) — Phase 5c.
 - [x] Embed via go:embed — Phase 5a. Binary-size verification deferred until Phase 5b panels land.
 
-**Deferred to v1.1:** Jalali, comparison-period toggle, CSV export, command palette.
+**Deferred to v1.1:** comparison-period toggle, CSV export, command palette.
 
 ### Phase 6: Configuration & First-Run (Week 15)
 
