@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -249,4 +248,3 @@ func (f *fakeStore) RevokeAllUserSessions(_ context.Context, id uuid.UUID) error
 }
 
 var _ Store = (*fakeStore)(nil)
-var _ = errors.New // keep errors import

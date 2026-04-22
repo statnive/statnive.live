@@ -23,7 +23,7 @@
   border: 1px solid currentColor;
   border-radius: 4px;
   background: transparent;
-  color: var(--ink, #1a1a1a);
+  color: var(--ink);
   font: inherit;
   font-size: 0.875rem;
   cursor: pointer;

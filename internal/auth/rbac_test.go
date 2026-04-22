@@ -9,70 +9,43 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestRequireRole_AllowsPermitted(t *testing.T) {
-	u := &User{UserID: uuid.New(), SiteID: 1, Role: RoleAdmin}
+func TestRequireRole(t *testing.T) {
+	t.Parallel()
 
-	h := RequireRole(nil, RoleAdmin)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
-	req = req.WithContext(WithSession(context.Background(), u, &Session{}))
-
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("admin denied: %d", w.Code)
+	cases := []struct {
+		name      string
+		userRole  Role // empty = no session attached
+		allowed   []Role
+		wantCode  int
+		wantLabel string
+	}{
+		{"admin on admin-only", RoleAdmin, []Role{RoleAdmin}, http.StatusOK, "admin allowed"},
+		{"viewer on admin-only", RoleViewer, []Role{RoleAdmin}, http.StatusForbidden, "viewer blocked"},
+		{"no session on admin-only", "", []Role{RoleAdmin}, http.StatusUnauthorized, "missing session → 401"},
+		{"viewer on admin+viewer", RoleViewer, []Role{RoleAdmin, RoleViewer}, http.StatusOK, "viewer allowed"},
 	}
-}
 
-func TestRequireRole_RejectsOther(t *testing.T) {
-	u := &User{UserID: uuid.New(), SiteID: 1, Role: RoleViewer}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	h := RequireRole(nil, RoleAdmin)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
+			h := RequireRole(nil, tc.allowed...)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
-	req = req.WithContext(WithSession(context.Background(), u, &Session{}))
+			req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
 
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
+			if tc.userRole != "" {
+				u := &User{UserID: uuid.New(), SiteID: 1, Role: tc.userRole}
+				req = req.WithContext(WithSession(context.Background(), u, &Session{}))
+			}
 
-	if w.Code != http.StatusForbidden {
-		t.Errorf("viewer not blocked: %d", w.Code)
-	}
-}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
 
-func TestRequireRole_NoUserFailsClosed(t *testing.T) {
-	h := RequireRole(nil, RoleAdmin)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("missing user did not fail closed: %d", w.Code)
-	}
-}
-
-func TestRequireRole_MultipleAllowed(t *testing.T) {
-	u := &User{UserID: uuid.New(), SiteID: 1, Role: RoleViewer}
-
-	h := RequireRole(nil, RoleAdmin, RoleViewer)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/stats/overview", nil)
-	req = req.WithContext(WithSession(context.Background(), u, &Session{}))
-
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("viewer blocked from viewer-allowed route: %d", w.Code)
+			if w.Code != tc.wantCode {
+				t.Errorf("%s: got %d, want %d", tc.wantLabel, w.Code, tc.wantCode)
+			}
+		})
 	}
 }

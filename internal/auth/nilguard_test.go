@@ -16,6 +16,8 @@ import (
 // call site must reject the request. This test fault-injects that exact
 // shape and asserts each layer rejects.
 func TestNilGuard_StoreReturnsNilNil(t *testing.T) {
+	t.Parallel()
+
 	fs := newFakeStore()
 	fs.nilUser = true
 
@@ -40,7 +42,7 @@ func TestNilGuard_StoreReturnsNilNil(t *testing.T) {
 	// (nil, nil), so that callers pattern-matching on `if err != nil` +
 	// dereferencing `info.User` don't hit a nil panic OR silently allow
 	// an unauthenticated request through.
-	cs := NewCachedStore(fs,time.Second)
+	cs := NewCachedStore(fs, time.Second)
 
 	info, err := cs.LookupSession(context.Background(), [32]byte{1})
 	if err == nil {
@@ -56,6 +58,8 @@ func TestNilGuard_StoreReturnsNilNil(t *testing.T) {
 // (expired, revoked, disabled) must also return (nil, err), never
 // return a dangling pointer.
 func TestNilGuard_SentinelErrors(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		setup   func(*fakeStore, uuid.UUID, [32]byte)
@@ -101,6 +105,8 @@ func TestNilGuard_SentinelErrors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			fs := newFakeStore()
 			uid := uuid.New()
 

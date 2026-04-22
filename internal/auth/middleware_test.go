@@ -67,6 +67,8 @@ func mintSession(t *testing.T, fs *fakeStore, u *User) (rawCookie string) {
 }
 
 func TestSessionMiddleware_AttachesUser(t *testing.T) {
+	t.Parallel()
+
 	deps, fs, u := newTestDeps(t)
 	raw := mintSession(t, fs, u)
 
@@ -74,6 +76,7 @@ func TestSessionMiddleware_AttachesUser(t *testing.T) {
 
 	h := SessionMiddleware(deps)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUser = UserFrom(r.Context())
+
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -93,11 +96,13 @@ func TestSessionMiddleware_AttachesUser(t *testing.T) {
 }
 
 func TestSessionMiddleware_NoCookiePassesThrough(t *testing.T) {
+	t.Parallel()
+
 	deps, _, _ := newTestDeps(t)
 
 	var called bool
 
-	h := SessionMiddleware(deps)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := SessionMiddleware(deps)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		called = true
 
 		if u := UserFrom(r.Context()); u != nil {
@@ -115,6 +120,8 @@ func TestSessionMiddleware_NoCookiePassesThrough(t *testing.T) {
 }
 
 func TestSessionMiddleware_NilNilFaultRejects(t *testing.T) {
+	t.Parallel()
+
 	// PLAN.md §53 — CVE-2024-10924 regression.
 	// Fault-inject the store to return (nil, nil) from LookupSession;
 	// middleware must NOT attach a nil *User to the context.
@@ -139,6 +146,8 @@ func TestSessionMiddleware_NilNilFaultRejects(t *testing.T) {
 }
 
 func TestAPITokenMiddleware_AttachesSyntheticUser(t *testing.T) {
+	t.Parallel()
+
 	deps, _, _ := newTestDeps(t)
 
 	raw := "ci-smoke-token-value"
@@ -156,6 +165,7 @@ func TestAPITokenMiddleware_AttachesSyntheticUser(t *testing.T) {
 
 	h := APITokenMiddleware(deps)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = UserFrom(r.Context())
+
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -171,6 +181,8 @@ func TestAPITokenMiddleware_AttachesSyntheticUser(t *testing.T) {
 }
 
 func TestAPITokenMiddleware_WrongTokenPassesThrough(t *testing.T) {
+	t.Parallel()
+
 	deps, _, _ := newTestDeps(t)
 
 	hash := HashRawToken("real-token")
@@ -192,6 +204,8 @@ func TestAPITokenMiddleware_WrongTokenPassesThrough(t *testing.T) {
 }
 
 func TestRequireAuthenticated_Gates401(t *testing.T) {
+	t.Parallel()
+
 	h := RequireAuthenticated(nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

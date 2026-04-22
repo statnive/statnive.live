@@ -682,8 +682,8 @@ type appConfig struct {
 			SameSite   string // "lax" only; other values rejected in v1
 			CacheTTL   time.Duration
 		}
-		BcryptCost      int
-		LoginRateLimit  struct {
+		BcryptCost     int
+		LoginRateLimit struct {
 			Requests int
 			Window   time.Duration
 		}
@@ -813,9 +813,9 @@ func loadConfig() (appConfig, error) {
 	cfg.Auth.Lockout.Fails = v.GetInt("auth.lockout.fails")
 	cfg.Auth.Lockout.Decay = v.GetDuration("auth.lockout.decay")
 	cfg.Auth.Lockout.Lockout = v.GetDuration("auth.lockout.lockout")
-	cfg.Auth.Bootstrap.SiteID = uint32(v.GetUint32("auth.bootstrap.site_id"))
+	cfg.Auth.Bootstrap.SiteID = v.GetUint32("auth.bootstrap.site_id")
 	cfg.Auth.Bootstrap.Username = v.GetString("auth.bootstrap.username")
-	cfg.Auth.DefaultSiteID = uint32(v.GetUint32("auth.default_site_id"))
+	cfg.Auth.DefaultSiteID = v.GetUint32("auth.default_site_id")
 	cfg.Auth.DemoBanner = v.GetString("auth.demo_banner")
 
 	// auth.api_tokens is a list of {token_hash, site_id, label, role}

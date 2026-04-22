@@ -7,6 +7,8 @@ import (
 )
 
 func TestLockout_TripsAfterMaxFails(t *testing.T) {
+	t.Parallel()
+
 	now := time.Unix(1_700_000_000, 0).UTC()
 	cfg := LockoutConfig{
 		MaxFails: 3,
@@ -17,7 +19,7 @@ func TestLockout_TripsAfterMaxFails(t *testing.T) {
 	lock := NewLockout(cfg)
 
 	// First 3 fails are allowed.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := lock.Check("a@b.c"); err != nil {
 			t.Fatalf("Check[%d]: %v", i, err)
 		}
@@ -37,6 +39,8 @@ func TestLockout_TripsAfterMaxFails(t *testing.T) {
 }
 
 func TestLockout_ReleasesAfterWindow(t *testing.T) {
+	t.Parallel()
+
 	ts := time.Unix(1_700_000_000, 0).UTC()
 	cfg := LockoutConfig{
 		MaxFails: 2,
@@ -62,6 +66,8 @@ func TestLockout_ReleasesAfterWindow(t *testing.T) {
 }
 
 func TestLockout_ClearOnSuccess(t *testing.T) {
+	t.Parallel()
+
 	now := time.Unix(1_700_000_000, 0).UTC()
 	cfg := LockoutConfig{MaxFails: 10, Decay: time.Hour, Lockout: time.Minute, Now: func() time.Time { return now }}
 	lock := NewLockout(cfg)
@@ -71,7 +77,7 @@ func TestLockout_ClearOnSuccess(t *testing.T) {
 	lock.Clear("a@b.c")
 
 	// Should be back to zero fail count.
-	for i := 0; i < cfg.MaxFails-1; i++ {
+	for i := range cfg.MaxFails - 1 {
 		if err := lock.Check("a@b.c"); err != nil {
 			t.Fatalf("after Clear, Check[%d]: %v", i, err)
 		}
@@ -86,6 +92,8 @@ func TestLockout_ClearOnSuccess(t *testing.T) {
 }
 
 func TestLockout_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+
 	now := time.Unix(1_700_000_000, 0).UTC()
 	cfg := LockoutConfig{MaxFails: 1, Decay: time.Hour, Lockout: time.Minute, Now: func() time.Time { return now }}
 	lock := NewLockout(cfg)

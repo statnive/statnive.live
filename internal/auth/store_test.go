@@ -15,8 +15,10 @@ import (
 // contract against the fakeStore backing.
 
 func TestCachedStore_CascadesOnPasswordChange(t *testing.T) {
+	t.Parallel()
+
 	fs := newFakeStore()
-	cs := NewCachedStore(fs,time.Second)
+	cs := NewCachedStore(fs, time.Second)
 	ctx := context.Background()
 
 	u := &User{UserID: uuid.New(), SiteID: 1, Email: "a@b.c", Role: RoleAdmin}
@@ -51,8 +53,10 @@ func TestCachedStore_CascadesOnPasswordChange(t *testing.T) {
 }
 
 func TestCachedStore_CascadesOnDisable(t *testing.T) {
+	t.Parallel()
+
 	fs := newFakeStore()
-	cs := NewCachedStore(fs,time.Second)
+	cs := NewCachedStore(fs, time.Second)
 	ctx := context.Background()
 
 	u := &User{UserID: uuid.New(), SiteID: 1, Email: "a@b.c", Role: RoleViewer}
@@ -76,8 +80,10 @@ func TestCachedStore_CascadesOnDisable(t *testing.T) {
 }
 
 func TestCachedStore_CascadesOnRoleChange(t *testing.T) {
+	t.Parallel()
+
 	fs := newFakeStore()
-	cs := NewCachedStore(fs,time.Second)
+	cs := NewCachedStore(fs, time.Second)
 	ctx := context.Background()
 
 	u := &User{UserID: uuid.New(), SiteID: 1, Email: "a@b.c", Role: RoleAdmin}
@@ -100,10 +106,12 @@ func TestCachedStore_CascadesOnRoleChange(t *testing.T) {
 }
 
 func TestCachedStore_Caches(t *testing.T) {
+	t.Parallel()
+
 	fs := newFakeStore()
 
 	now := time.Unix(1_700_000_000, 0).UTC()
-	cs := NewCachedStore(fs,60*time.Second)
+	cs := NewCachedStore(fs, 60*time.Second)
 	cs.now = func() time.Time { return now }
 
 	ctx := context.Background()

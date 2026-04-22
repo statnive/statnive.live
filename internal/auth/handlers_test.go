@@ -17,6 +17,8 @@ import (
 // --- login happy path --------------------------------------------------------
 
 func TestLogin_HappyPath(t *testing.T) {
+	t.Parallel()
+
 	deps, fs, _ := newTestDeps(t)
 
 	hash, err := HashPassword("super-strong-password", MinBcryptCost)
@@ -46,27 +48,7 @@ func TestLogin_HappyPath(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	got := w.Result().Cookies()
-	if len(got) == 0 {
-		t.Fatalf("no cookies set")
-	}
-
-	var sessionCookie *http.Cookie
-
-	for _, c := range got {
-		if c.Name == deps.CookieCfg.Name {
-			sessionCookie = c
-		}
-	}
-
-	if sessionCookie == nil || sessionCookie.Value == "" {
-		t.Fatalf("session cookie missing")
-	}
-
-	if !sessionCookie.HttpOnly || !sessionCookie.Secure || sessionCookie.SameSite != http.SameSiteLaxMode {
-		t.Errorf("cookie attrs wrong: HttpOnly=%v Secure=%v SameSite=%v",
-			sessionCookie.HttpOnly, sessionCookie.Secure, sessionCookie.SameSite)
-	}
+	assertSessionCookie(t, w.Result().Cookies(), deps.CookieCfg.Name)
 
 	var resp loginResponse
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
@@ -78,9 +60,34 @@ func TestLogin_HappyPath(t *testing.T) {
 	}
 }
 
+// assertSessionCookie checks the Set-Cookie stream carries a
+// statnive_session cookie with HttpOnly + Secure + SameSite=Lax set.
+func assertSessionCookie(t *testing.T, cookies []*http.Cookie, name string) {
+	t.Helper()
+
+	var c *http.Cookie
+
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			c = cookie
+		}
+	}
+
+	if c == nil || c.Value == "" {
+		t.Fatalf("session cookie %q missing", name)
+	}
+
+	if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode {
+		t.Errorf("cookie attrs wrong: HttpOnly=%v Secure=%v SameSite=%v",
+			c.HttpOnly, c.Secure, c.SameSite)
+	}
+}
+
 // --- F4 mass-assignment guard (PLAN.md §52) ---------------------------------
 
 func TestLogin_RejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
 	deps, _, _ := newTestDeps(t)
 	h := NewHandlers(deps, HandlersConfig{DefaultSiteID: 1}, nil)
 
@@ -101,6 +108,8 @@ func TestLogin_RejectsUnknownFields(t *testing.T) {
 // --- uniform error body (no user enumeration) -------------------------------
 
 func TestLogin_UniformErrorBody(t *testing.T) {
+	t.Parallel()
+
 	deps, fs, _ := newTestDeps(t)
 
 	realHash, err := HashPassword("good-password", MinBcryptCost)
@@ -108,8 +117,8 @@ func TestLogin_UniformErrorBody(t *testing.T) {
 		t.Fatalf("HashPassword: %v", err)
 	}
 
-	real := &User{UserID: uuid.New(), SiteID: 1, Email: "real@b.c", Role: RoleAdmin}
-	_ = fs.CreateUser(context.Background(), real, realHash)
+	realUser := &User{UserID: uuid.New(), SiteID: 1, Email: "real@b.c", Role: RoleAdmin}
+	_ = fs.CreateUser(context.Background(), realUser, realHash)
 
 	h := NewHandlers(deps, HandlersConfig{DefaultSiteID: 1}, nil)
 
@@ -126,6 +135,8 @@ func TestLogin_UniformErrorBody(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			body, _ := json.Marshal(map[string]string{
 				"email": tc.email, "password": tc.pw,
 			})
@@ -150,6 +161,8 @@ func TestLogin_UniformErrorBody(t *testing.T) {
 // --- timing-attack defense --------------------------------------------------
 
 func TestLogin_UnknownUserRunsBcrypt(t *testing.T) {
+	t.Parallel()
+
 	// The unknown-user branch MUST call bcrypt against dummyHash so the
 	// wall-time is roughly comparable to the real-user wrong-password
 	// case. We assert "at least X ms of bcrypt work" since the exact
@@ -178,6 +191,8 @@ func TestLogin_UnknownUserRunsBcrypt(t *testing.T) {
 // --- logout idempotency + cookie clear --------------------------------------
 
 func TestLogout_ClearsCookieEvenWithoutSession(t *testing.T) {
+	t.Parallel()
+
 	deps, _, _ := newTestDeps(t)
 	h := NewHandlers(deps, HandlersConfig{DefaultSiteID: 1}, nil)
 
@@ -200,6 +215,8 @@ func TestLogout_ClearsCookieEvenWithoutSession(t *testing.T) {
 }
 
 func TestLogout_RevokesAndClearsCookie(t *testing.T) {
+	t.Parallel()
+
 	deps, fs, u := newTestDeps(t)
 	raw := mintSession(t, fs, u)
 
@@ -224,6 +241,8 @@ func TestLogout_RevokesAndClearsCookie(t *testing.T) {
 // --- /api/user bootstrap ----------------------------------------------------
 
 func TestMe_RequiresSession(t *testing.T) {
+	t.Parallel()
+
 	deps, _, _ := newTestDeps(t)
 	h := NewHandlers(deps, HandlersConfig{DefaultSiteID: 1}, nil)
 
@@ -236,6 +255,8 @@ func TestMe_RequiresSession(t *testing.T) {
 }
 
 func TestMe_ReturnsAuthenticated(t *testing.T) {
+	t.Parallel()
+
 	deps, _, u := newTestDeps(t)
 	h := NewHandlers(deps, HandlersConfig{DefaultSiteID: 1}, nil)
 
@@ -262,6 +283,8 @@ func TestMe_ReturnsAuthenticated(t *testing.T) {
 // --- per-email lockout end-to-end ------------------------------------------
 
 func TestLogin_PerEmailLockoutAcrossIPs(t *testing.T) {
+	t.Parallel()
+
 	deps, fs, _ := newTestDeps(t)
 
 	pw, _ := HashPassword("right", MinBcryptCost)

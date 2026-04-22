@@ -225,7 +225,8 @@ func (s *ClickHouseStore) ListUsers(ctx context.Context, siteID uint32) ([]*User
 	if err != nil {
 		return nil, fmt.Errorf("query users: %w", err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	out := make([]*User, 0, 16)
 
@@ -559,7 +560,7 @@ func (s *ClickHouseStore) RevokeAllUserSessions(ctx context.Context, userID uuid
 	for rows.Next() {
 		var h string
 		if scanErr := rows.Scan(&h); scanErr != nil {
-			rows.Close()
+			_ = rows.Close()
 
 			return fmt.Errorf("scan session hash: %w", scanErr)
 		}
@@ -574,7 +575,7 @@ func (s *ClickHouseStore) RevokeAllUserSessions(ctx context.Context, userID uuid
 		hashes = append(hashes, fixed)
 	}
 
-	rows.Close()
+	_ = rows.Close()
 
 	if iterErr := rows.Err(); iterErr != nil {
 		return fmt.Errorf("iterate sessions: %w", iterErr)
@@ -695,7 +696,7 @@ func (c *CachedStore) CreateSession(
 		return err
 	}
 
-	u, err := c.Store.GetUserByID(ctx, s.UserID)
+	u, err := c.GetUserByID(ctx, s.UserID)
 	if err != nil {
 		return err
 	}
@@ -763,6 +764,7 @@ func (c *CachedStore) cascadeRevoke(
 	return c.RevokeAllUserSessions(ctx, userID)
 }
 
+// UpdateUserPassword rotates the password and cascade-revokes sessions.
 func (c *CachedStore) UpdateUserPassword(
 	ctx context.Context, userID uuid.UUID, newHash string,
 ) error {
@@ -771,12 +773,16 @@ func (c *CachedStore) UpdateUserPassword(
 	})
 }
 
+// DisableUser flips disabled=1 and cascade-revokes sessions.
 func (c *CachedStore) DisableUser(ctx context.Context, userID uuid.UUID) error {
 	return c.cascadeRevoke(ctx, userID, func() error {
 		return c.Store.DisableUser(ctx, userID)
 	})
 }
 
+// ChangeRole flips the role and cascade-revokes sessions.
+// Skipping the revoke leaves the existing session with stale Role —
+// the CVE-2024-10924 escalation shape.
 func (c *CachedStore) ChangeRole(
 	ctx context.Context, userID uuid.UUID, newRole Role,
 ) error {

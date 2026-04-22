@@ -7,6 +7,8 @@ import (
 )
 
 func TestHashPassword_RoundTrip(t *testing.T) {
+	t.Parallel()
+
 	h, err := HashPassword("correct horse battery staple", MinBcryptCost)
 	if err != nil {
 		t.Fatalf("HashPassword: %v", err)
@@ -26,18 +28,24 @@ func TestHashPassword_RoundTrip(t *testing.T) {
 }
 
 func TestHashPassword_RejectsLowCost(t *testing.T) {
+	t.Parallel()
+
 	if _, err := HashPassword("pw", MinBcryptCost-1); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("cost < MinBcryptCost: got %v, want ErrInvalidInput", err)
 	}
 }
 
 func TestHashPassword_RejectsEmpty(t *testing.T) {
+	t.Parallel()
+
 	if _, err := HashPassword("", MinBcryptCost); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("empty password: got %v, want ErrInvalidInput", err)
 	}
 }
 
 func TestVerifyAgainstDummy_AlwaysBad(t *testing.T) {
+	t.Parallel()
+
 	for _, pw := range []string{"", "anything", "statnive-live-unknown-user-dummy-v1"} {
 		if err := VerifyAgainstDummy(pw); !errors.Is(err, ErrBadCredentials) {
 			t.Errorf("VerifyAgainstDummy(%q): got %v, want ErrBadCredentials", pw, err)

@@ -9,9 +9,11 @@ import (
 )
 
 func TestNewToken_EntropyAndShape(t *testing.T) {
+	t.Parallel()
+
 	seen := make(map[string]struct{}, 100)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		p, err := NewToken()
 		if err != nil {
 			t.Fatalf("NewToken[%d]: %v", i, err)
@@ -39,6 +41,8 @@ func TestNewToken_EntropyAndShape(t *testing.T) {
 }
 
 func TestHashRawToken_ConstantHash(t *testing.T) {
+	t.Parallel()
+
 	raw := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	want := sha256.Sum256([]byte(raw))
 
@@ -48,6 +52,8 @@ func TestHashRawToken_ConstantHash(t *testing.T) {
 }
 
 func TestCookieFromToken_Attributes(t *testing.T) {
+	t.Parallel()
+
 	cfg := SessionCookieConfig{
 		Name:     "statnive_session",
 		TTL:      14 * 24 * time.Hour,
@@ -83,6 +89,8 @@ func TestCookieFromToken_Attributes(t *testing.T) {
 }
 
 func TestClearCookie_EvictsImmediately(t *testing.T) {
+	t.Parallel()
+
 	cfg := SessionCookieConfig{Name: "statnive_session", Secure: true, SameSite: http.SameSiteLaxMode}
 
 	c := ClearCookie(cfg)

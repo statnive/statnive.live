@@ -27,6 +27,8 @@ import (
 // Enum8 values in the users/sessions tables match the string form here.
 type Role string
 
+// Role values mirror the Enum8('admin'=1,'viewer'=2,'api'=3) column on
+// the users and sessions tables. Adding a new role requires a migration.
 const (
 	RoleAdmin  Role = "admin"
 	RoleViewer Role = "viewer"

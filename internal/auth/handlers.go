@@ -72,20 +72,8 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req loginRequest
-
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
-	dec.DisallowUnknownFields() // F4 mass-assignment guard (Verification §52)
-
-	if err := dec.Decode(&req); err != nil {
-		writeUnauthorized(w)
-
-		return
-	}
-
-	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
-
-	if req.Email == "" || req.Password == "" {
+	req, ok := decodeLogin(w, r)
+	if !ok {
 		writeUnauthorized(w)
 
 		return
@@ -93,21 +81,55 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 
 	emailHashAttr := slog.String("email_hash", hashForAudit(req.Email))
 
-	// Per-email lockout check.
+	u, authOK := h.authenticate(r, req, emailHashAttr)
+	if !authOK {
+		writeUnauthorized(w)
+
+		return
+	}
+
+	h.mintSessionAndRespond(w, r, u, req.Email, emailHashAttr)
+}
+
+// decodeLogin reads + normalizes the login body. ok=false means the
+// request body was malformed or missing required fields; caller writes
+// the uniform 401.
+func decodeLogin(w http.ResponseWriter, r *http.Request) (loginRequest, bool) {
+	var req loginRequest
+
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	dec.DisallowUnknownFields() // F4 mass-assignment guard (Verification §52)
+
+	if err := dec.Decode(&req); err != nil {
+		return loginRequest{}, false
+	}
+
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
+	if req.Email == "" || req.Password == "" {
+		return loginRequest{}, false
+	}
+
+	return req, true
+}
+
+// authenticate runs the lockout check, user lookup, and password
+// verification. Returns (*User, true) on success; (nil, false) on any
+// failure with the reason already audited. The unknown-user branch
+// runs bcrypt against dummyHash so its wall-time matches wrong-password.
+func (h *Handlers) authenticate(
+	r *http.Request, req loginRequest, emailHashAttr slog.Attr,
+) (*User, bool) {
 	if h.lock != nil {
 		if lockErr := h.lock.Check(req.Email); lockErr != nil {
 			h.emitLoginFailed(r.Context(), "locked_out", emailHashAttr, r)
-			writeUnauthorized(w)
 
-			return
+			return nil, false
 		}
 	}
 
-	siteID := h.cfg.DefaultSiteID
-
-	u, pwHash, err := h.deps.Store.GetUserByEmail(r.Context(), siteID, req.Email)
+	u, pwHash, err := h.deps.Store.GetUserByEmail(r.Context(), h.cfg.DefaultSiteID, req.Email)
 	if err != nil && !errors.Is(err, ErrNotFound) {
-		// Only real infra errors — not ErrNotFound.
 		if h.deps.Audit != nil {
 			h.deps.Audit.Event(r.Context(), audit.EventLoginFailed,
 				emailHashAttr,
@@ -117,14 +139,10 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 			)
 		}
 
-		writeUnauthorized(w)
-
-		return
+		return nil, false
 	}
 
 	if errors.Is(err, ErrNotFound) || u == nil {
-		// Unknown-user branch — run bcrypt against dummyHash so the
-		// timing matches the real-user wrong-password case.
 		_ = VerifyAgainstDummy(req.Password)
 
 		if h.lock != nil {
@@ -132,16 +150,14 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.emitLoginFailed(r.Context(), "unknown_user", emailHashAttr, r)
-		writeUnauthorized(w)
 
-		return
+		return nil, false
 	}
 
 	if u.Disabled {
 		h.emitLoginFailed(r.Context(), "disabled", emailHashAttr, r)
-		writeUnauthorized(w)
 
-		return
+		return nil, false
 	}
 
 	if verifyErr := VerifyPassword(pwHash, req.Password); verifyErr != nil {
@@ -150,12 +166,19 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.emitLoginFailed(r.Context(), "bad_password", emailHashAttr, r)
-		writeUnauthorized(w)
 
-		return
+		return nil, false
 	}
 
-	// Success — mint session.
+	return u, true
+}
+
+// mintSessionAndRespond creates the session row, sets the cookie, and
+// writes the JSON body. On infra error the 500 is already sent when
+// this returns.
+func (h *Handlers) mintSessionAndRespond(
+	w http.ResponseWriter, r *http.Request, u *User, email string, emailHashAttr slog.Attr,
+) {
 	pair, err := NewToken()
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -192,7 +215,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.lock != nil {
-		h.lock.Clear(req.Email)
+		h.lock.Clear(email)
 	}
 
 	http.SetCookie(w, CookieFromToken(h.deps.CookieCfg, pair.Raw, now))
@@ -350,6 +373,8 @@ func truncateUA(ua string, limit int) string {
 }
 
 // Compile-time sanity checks.
-var _ http.HandlerFunc = (&Handlers{}).Login
-var _ http.HandlerFunc = (&Handlers{}).Logout
-var _ http.HandlerFunc = (&Handlers{}).Me
+var (
+	_ http.HandlerFunc = (&Handlers{}).Login
+	_ http.HandlerFunc = (&Handlers{}).Logout
+	_ http.HandlerFunc = (&Handlers{}).Me
+)

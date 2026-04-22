@@ -19,6 +19,8 @@ package integration_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,6 +34,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/dashboard"
 	"github.com/statnive/statnive.live/internal/dashboard/spa"
 	"github.com/statnive/statnive.live/internal/storage"
@@ -78,7 +81,22 @@ func TestDashboardSPA_ShellAndOverviewRoundTrip(t *testing.T) {
 
 	cached := storage.NewCachedStore(storage.NewClickhouseQueryStore(store), 256)
 
-	authMW := dashboard.BearerTokenMiddleware(spaToken, auditLog)
+	// Phase 2b replaced the single-token bearer middleware with
+	// auth.APITokenMiddleware + RequireAuthenticated. Same contract
+	// end-to-end (401 without header, 200 with correct header); the
+	// SPA meta tag still carries the raw token for backward-compat
+	// during the dashboard-e2e transition to cookie auth.
+	tokenHash := sha256.Sum256([]byte(spaToken))
+	authDeps := auth.MiddlewareDeps{
+		Audit: auditLog,
+		APITokens: []auth.APIToken{
+			{
+				TokenHashHex: hex.EncodeToString(tokenHash[:]),
+				SiteID:       spaSiteID,
+				Label:        "spa-integration-test",
+			},
+		},
+	}
 
 	spaHandler, err := spa.Handler(spa.Config{BearerToken: spaToken})
 	if err != nil {
@@ -94,7 +112,8 @@ func TestDashboardSPA_ShellAndOverviewRoundTrip(t *testing.T) {
 
 	// API at /api/stats/* — gated by bearer token (matches production).
 	router.Group(func(r chi.Router) {
-		r.Use(authMW)
+		r.Use(auth.APITokenMiddleware(authDeps))
+		r.Use(auth.RequireAuthenticated(auditLog))
 		dashboard.Mount(r, dashboard.Deps{
 			Store:  cached,
 			Audit:  auditLog,
