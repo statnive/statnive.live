@@ -1,0 +1,82 @@
+.statnive-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: var(--statnive-cream, #f6f3ec);
+}
+
+.statnive-login-card {
+  width: min(400px, 100%);
+  padding: 2rem;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+.statnive-login-card .statnive-wordmark {
+  margin: 0 0 1.5rem;
+  font-size: 1.75rem;
+}
+
+.statnive-login-demo-banner {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(17, 130, 128, 0.08);
+  border-left: 3px solid var(--statnive-teal, #118280);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  color: var(--statnive-ink, #1a1a1a);
+}
+
+.statnive-login form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.statnive-login label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--statnive-ink, #1a1a1a);
+}
+
+.statnive-login input[type='email'],
+.statnive-login input[type='password'] {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.statnive-login input:focus {
+  outline: 2px solid var(--statnive-teal, #118280);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.statnive-login button[type='submit'] {
+  margin-top: 0.5rem;
+  padding: 0.65rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background: var(--statnive-teal, #118280);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.statnive-login button[disabled] {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.statnive-login-error {
+  margin: 0;
+  color: #b3261e;
+  font-size: 0.875rem;
+}

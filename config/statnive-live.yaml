@@ -49,9 +49,37 @@ ratelimit:
   requests_per_minute: 6000   # 100 req/s steady state
 
 dashboard:
-  # Pre-shared bearer token for /api/stats/* and /api/realtime/visitors.
-  # Empty = open (dev/local only). Production deployments MUST set a
-  # token via env (STATNIVE_DASHBOARD_BEARER_TOKEN=...) until Phase 2b
-  # ships full bcrypt + sessions + RBAC. Compared with constant-time
-  # equality to avoid timing leaks.
+  # Legacy Phase 3b pre-shared bearer. If set, auto-promoted into
+  # auth.api_tokens as a `bearer-legacy` entry so the Phase 5a-smoke
+  # harness keeps working while operators migrate to auth.api_tokens
+  # or the STATNIVE_API_TOKENS env var (see `auth` block below).
   bearer_token: ""
+  # SPA at /app/*. Phase 2b now supplies session + RBAC, so the
+  # Phase-3b "stay off in prod" gate is lifted.
+  spa_enabled: false
+
+# Phase 2b auth + RBAC.
+auth:
+  session:
+    ttl: "336h"                 # 14 days (PLAN.md:352)
+    cookie_name: "statnive_session"
+    secure: true                # STATNIVE_DEV=1 allows false for local non-TLS
+    same_site: "lax"
+    cache_ttl: "60s"            # in-memory LRU TTL; admin-revoke staleness bound
+  bcrypt_cost: 12               # ≥12 per CLAUDE.md Security #6
+  login_rate_limit:             # per-IP (complements per-email lockout)
+    requests: 10
+    window: "1m"
+  lockout:                      # per-email, defends distributed credential stuffing
+    fails: 10
+    decay: "15m"
+    lockout: "5m"
+  api_tokens: []                # [{token_hash_hex, site_id, label, role}]
+  # First-run admin. Email + password come from env vars
+  # STATNIVE_BOOTSTRAP_ADMIN_EMAIL + STATNIVE_BOOTSTRAP_ADMIN_PASSWORD
+  # — never from config-file keys, so secrets don't leak into repos.
+  bootstrap:
+    site_id: 1
+    username: "admin"
+  default_site_id: 1
+  demo_banner: ""               # Phase 9 dogfood fills this; empty in Phase 2b

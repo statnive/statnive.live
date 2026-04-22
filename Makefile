@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := $(shell go list -mod=vendor ./... 2>/dev/null | grep -v '/web/node_modules/')
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep smoke
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep smoke
 
 all: lint test build
 
@@ -33,9 +33,22 @@ test:
 test-integration: web-build
 	$(GO) test -mod=vendor -race -tags=integration -v -timeout 240s ./test/...
 
-## lint: Run golangci-lint + tenancy-grep gate
-lint: tenancy-grep
+## lint: Run golangci-lint + tenancy-grep gate + identity-gate
+lint: tenancy-grep identity-gate
 	$(GOLANGCI_LINT) run $(PKG)
+
+## identity-gate: auth-return nil-guard regression (CVE-2024-10924, PLAN.md §53).
+## Advisory in v1: Semgrep is optional on developer laptops; the nil-guard
+## regression unit test at internal/auth/nilguard_test.go is the hard gate
+## and runs unconditionally via `make test`. This target invokes semgrep
+## only if it's installed (same convention used by `tracker-size`).
+identity-gate:
+	@if command -v semgrep >/dev/null 2>&1; then \
+		semgrep --quiet --error --config=.claude/skills/blake3-hmac-identity-review/semgrep \
+			internal/ || (echo "FAIL: auth-return-nil-guard regression"; exit 1); \
+	else \
+		echo "identity-gate: semgrep not installed, skipping (install: pip install semgrep)"; \
+	fi
 
 ## tenancy-grep: CI gate — Architecture Rules 1 + 8 (no events_raw queries; whereTimeAndTenant first)
 tenancy-grep:

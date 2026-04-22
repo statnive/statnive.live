@@ -4,6 +4,13 @@ import { DatePicker } from './components/DatePicker';
 import { FilterPanel } from './components/FilterPanel';
 import { LazyPanel } from './components/LazyPanel';
 import { SiteSwitcher } from './components/SiteSwitcher';
+import { Login } from './pages/Login';
+import {
+  authCheckedSignal,
+  authSignal,
+  logout,
+  userSignal,
+} from './state/auth';
 import { hashSignal } from './state/hash';
 import './App.css';
 
@@ -30,7 +37,28 @@ function renderPanel() {
   }
 }
 
+async function onLogout(ev: Event) {
+  ev.preventDefault();
+  await logout();
+}
+
 export function App() {
+  // Auth-gate: if /api/user hasn't resolved yet, render nothing (prevents
+  // a Login/Dashboard flash on each reload). Once resolved, show Login
+  // if unauthenticated, the dashboard otherwise.
+  if (!authCheckedSignal.value) return null;
+
+  // CI bearer-token path preserves the pre-Phase-2b behavior: when the
+  // meta tag has a value, the SPA treats it as authenticated without
+  // requiring a successful /api/user round-trip. Production operators
+  // should prefer session cookies; this is the smoke/e2e compatibility
+  // shim.
+  const authenticated = userSignal.value != null || authSignal.value !== '';
+
+  if (!authenticated) {
+    return <Login />;
+  }
+
   return (
     <main>
       <header class="statnive-header">
@@ -38,6 +66,16 @@ export function App() {
           statnive<em class="statnive-wordmark-live">.live</em>
         </h1>
         <SiteSwitcher />
+        {userSignal.value ? (
+          <button
+            type="button"
+            class="statnive-logout"
+            onClick={onLogout}
+            aria-label="Sign out"
+          >
+            Sign out
+          </button>
+        ) : null}
       </header>
       <Nav />
       <DatePicker />

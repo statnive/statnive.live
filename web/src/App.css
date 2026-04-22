@@ -16,3 +16,22 @@
   color: var(--green);
   font-style: italic;
 }
+
+#statnive-app .statnive-logout {
+  margin-left: auto;
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink, #1a1a1a);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+#statnive-app .statnive-logout:hover,
+#statnive-app .statnive-logout:focus-visible {
+  color: var(--green);
+  border-color: var(--green);
+  outline: none;
+}

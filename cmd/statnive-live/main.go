@@ -7,7 +7,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,6 +26,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/cert"
 	"github.com/statnive/statnive.live/internal/config"
 	"github.com/statnive/statnive.live/internal/dashboard"
@@ -193,7 +196,75 @@ func run() error {
 		return fmt.Errorf("ratelimit: %w", err)
 	}
 
-	dashboardAuthMW := dashboard.BearerTokenMiddleware(cfg.Dashboard.BearerToken, auditLog)
+	// Phase 2b — replace the single pre-shared bearer with session
+	// cookie + RBAC + optional API-token fallback. Store-level
+	// CachedStore wraps the CH-backed auth store so session lookups on
+	// every authenticated request are an O(1) LRU hit instead of a CH
+	// round-trip. Cascade-revoke on password/role/disable is enforced
+	// by the CachedStore wrapper (see internal/auth/store.go).
+	authStore := auth.NewCachedStore(
+		auth.NewClickHouseStore(store.Conn(), cfg.ClickHouse.Database),
+		cfg.Auth.Session.CacheTTL,
+	)
+
+	if bootErr := auth.Bootstrap(rootCtx, authStore, auth.BootstrapConfig{
+		Email:      os.Getenv("STATNIVE_BOOTSTRAP_ADMIN_EMAIL"),
+		Password:   os.Getenv("STATNIVE_BOOTSTRAP_ADMIN_PASSWORD"),
+		Username:   cfg.Auth.Bootstrap.Username,
+		SiteID:     cfg.Auth.Bootstrap.SiteID,
+		BcryptCost: cfg.Auth.BcryptCost,
+	}, auditLog, logger); bootErr != nil {
+		return fmt.Errorf("auth bootstrap: %w", bootErr)
+	}
+
+	cookieCfg := auth.SessionCookieConfig{
+		Name:     cfg.Auth.Session.CookieName,
+		TTL:      cfg.Auth.Session.TTL,
+		Secure:   cfg.Auth.Session.Secure,
+		SameSite: http.SameSiteLaxMode,
+	}
+
+	// Fail closed: operators who downgrade Secure to false under TLS
+	// would silently disable the protection. The only legitimate case is
+	// STATNIVE_DEV=1 local dev without TLS; production with TLS keeps
+	// Secure=true.
+	if !cfg.Auth.Session.Secure && os.Getenv("STATNIVE_DEV") != "1" {
+		return errors.New("auth.session.secure=false requires STATNIVE_DEV=1")
+	}
+
+	apiTokens := buildAPITokens(cfg)
+
+	authDeps := auth.MiddlewareDeps{
+		Store:        authStore,
+		Audit:        auditLog,
+		CookieCfg:    cookieCfg,
+		APITokens:    apiTokens,
+		ClientIPFunc: ingest.ClientIP,
+	}
+
+	sessionMW := auth.SessionMiddleware(authDeps)
+	apiTokenMW := auth.APITokenMiddleware(authDeps)
+	requireAuthed := auth.RequireAuthenticated(auditLog)
+
+	authHandlers := auth.NewHandlers(authDeps, auth.HandlersConfig{
+		DefaultSiteID: cfg.Auth.DefaultSiteID,
+		MasterSecret:  masterSecret,
+		DemoBanner:    cfg.Auth.DemoBanner,
+	}, auth.NewLockout(auth.LockoutConfig{
+		MaxFails:   cfg.Auth.Lockout.Fails,
+		Decay:      cfg.Auth.Lockout.Decay,
+		Lockout:    cfg.Auth.Lockout.Lockout,
+		MaxTracked: 10_000,
+	}))
+
+	loginRateLimitMW, err := ratelimit.Middleware(
+		cfg.Auth.LoginRateLimit.Requests,
+		cfg.Auth.LoginRateLimit.Window,
+		auditLog,
+	)
+	if err != nil {
+		return fmt.Errorf("login ratelimit: %w", err)
+	}
 
 	router := chi.NewRouter()
 
@@ -220,15 +291,50 @@ func run() error {
 		}))
 	})
 
+	// Login / logout / me. /api/login has its own per-IP rate-limit
+	// (10/min default) independent of the global stats limiter so that
+	// legitimate stats traffic can't starve login attempts. Logout is
+	// un-auth'd by design — a client with a stale cookie should still
+	// be able to clear it.
+	router.Group(func(r chi.Router) {
+		r.Use(loginRateLimitMW)
+		r.Method(http.MethodPost, "/api/login", http.HandlerFunc(authHandlers.Login))
+	})
+
+	router.Method(http.MethodPost, "/api/logout", http.HandlerFunc(authHandlers.Logout))
+
+	router.Group(func(r chi.Router) {
+		r.Use(sessionMW)
+		r.Use(apiTokenMW)
+		r.Use(requireAuthed)
+		r.Method(http.MethodGet, "/api/user", http.HandlerFunc(authHandlers.Me))
+	})
+
+	// Dashboard stats — session OR api-token auth, admin+viewer+api roles.
 	router.Group(func(r chi.Router) {
 		r.Use(rateLimitMW)
-		r.Use(dashboardAuthMW)
+		r.Use(sessionMW)
+		r.Use(apiTokenMW)
+		r.Use(requireAuthed)
+		r.Use(auth.RequireRole(auditLog, auth.RoleAdmin, auth.RoleViewer, auth.RoleAPI))
+
 		dashboard.Mount(r, dashboard.Deps{
 			Store:  cachedStore,
 			Sites:  registry,
 			Audit:  auditLog,
 			Logger: logger,
 		})
+	})
+
+	// Admin CRUD reserved slot — Phase 3c fills this in. Stays admin-
+	// only so viewers can't probe it for 501s during Phase 2b.
+	router.Group(func(r chi.Router) {
+		r.Use(rateLimitMW)
+		r.Use(sessionMW)
+		r.Use(apiTokenMW)
+		r.Use(requireAuthed)
+		r.Use(auth.RequireRole(auditLog, auth.RoleAdmin))
+		// Placeholder — Phase 3c adds /api/admin/users, /api/admin/goals, etc.
 	})
 
 	router.Method(http.MethodGet, "/healthz", health.Handler(health.Reporter{
@@ -243,10 +349,10 @@ func run() error {
 	// blob that's safe to hand back unauthenticated under any traffic.
 	router.Method(http.MethodGet, "/tracker.js", tracker.Handler())
 
-	// Embedded Preact dashboard SPA at /app/*. Gated by SPAEnabled
-	// because the only thing keeping /api/stats/* from being world-
-	// readable in dev configs is BearerToken — empty token = open. Phase
-	// 2b replaces this gate with bcrypt sessions + RBAC.
+	// Embedded Preact dashboard SPA at /app/*. Auth is enforced at
+	// /api/* by session + api-token middleware (see auth.CompositeAuth);
+	// the SPA shell is safe to serve unauthenticated because it can't
+	// reach stats without a valid session cookie.
 	//
 	// TODO(phase-10): /app/* must be on the bypass list for the
 	// IR-country 302 redirect (research doc 26 §5.3) so the dashboard
@@ -466,6 +572,59 @@ func replayWAL(ctx context.Context, wal *ingest.WALWriter, store *storage.ClickH
 	return nil
 }
 
+// buildAPITokens assembles the static API-token list passed to the
+// APITokenMiddleware. Sources:
+//  1. cfg.Auth.APITokens — operators paste {token_hash_sha256, site_id,
+//     label, role} triplets into config.
+//  2. STATNIVE_API_TOKENS env var — CI/smoke convenience,
+//     "label1:rawtoken1,label2:rawtoken2". Each raw token is hashed at
+//     boot and added to the list. Raw tokens never land on disk.
+//  3. cfg.Dashboard.BearerToken — legacy Phase 3b config key; if set,
+//     promoted as an implicit `bearer-legacy` entry so the Phase 5a-smoke
+//     harness continues to work while operators migrate.
+func buildAPITokens(cfg appConfig) []auth.APIToken {
+	out := make([]auth.APIToken, 0, len(cfg.Auth.APITokens)+4)
+
+	for _, t := range cfg.Auth.APITokens {
+		out = append(out, auth.APIToken{
+			TokenHashHex: t.TokenHashHex,
+			SiteID:       t.SiteID,
+			Label:        t.Label,
+			Role:         auth.Role(t.Role),
+		})
+	}
+
+	if env := os.Getenv("STATNIVE_API_TOKENS"); env != "" {
+		for _, pair := range strings.Split(env, ",") {
+			label, raw, ok := strings.Cut(pair, ":")
+			if !ok || raw == "" {
+				continue
+			}
+
+			sum := sha256.Sum256([]byte(strings.TrimSpace(raw)))
+
+			out = append(out, auth.APIToken{
+				TokenHashHex: hex.EncodeToString(sum[:]),
+				SiteID:       cfg.Auth.DefaultSiteID,
+				Label:        strings.TrimSpace(label),
+				Role:         auth.RoleAPI,
+			})
+		}
+	}
+
+	if cfg.Dashboard.BearerToken != "" {
+		sum := sha256.Sum256([]byte(cfg.Dashboard.BearerToken))
+		out = append(out, auth.APIToken{
+			TokenHashHex: hex.EncodeToString(sum[:]),
+			SiteID:       cfg.Auth.DefaultSiteID,
+			Label:        "bearer-legacy",
+			Role:         auth.RoleAPI,
+		})
+	}
+
+	return out
+}
+
 // appConfig is the typed view of statnive-live.yaml.
 type appConfig struct {
 	MasterSecretPath string
@@ -505,15 +664,46 @@ type appConfig struct {
 		RequestsPerMinute int
 	}
 	Dashboard struct {
-		// BearerToken is the pre-shared secret required on every
-		// dashboard request when set. Empty = no auth (dev only).
-		// Replaced by Phase 2b's bcrypt + sessions + RBAC.
+		// BearerToken is the legacy Phase 3b pre-shared secret. Kept
+		// for backward-compat: when set it is promoted into Auth.APITokens
+		// as a single implicit ci-smoke entry so the Phase 5a-smoke
+		// harness continues to work while operators migrate.
 		BearerToken string
 		// SPAEnabled gates the embedded Preact dashboard at /app/*.
-		// Defaults false — production builds MUST stay off until Phase
-		// 2b lands sessions + RBAC, otherwise an empty BearerToken
-		// would expose stats world-readable. Local dev sets true.
+		// Phase 2b (this file) now supplies session + RBAC auth, so the
+		// hard gate is lifted — operators may enable SPA in production.
 		SPAEnabled bool
+	}
+	Auth struct {
+		Session struct {
+			TTL        time.Duration
+			CookieName string
+			Secure     bool
+			SameSite   string // "lax" only; other values rejected in v1
+			CacheTTL   time.Duration
+		}
+		BcryptCost      int
+		LoginRateLimit  struct {
+			Requests int
+			Window   time.Duration
+		}
+		Lockout struct {
+			Fails   int
+			Decay   time.Duration
+			Lockout time.Duration
+		}
+		APITokens []struct {
+			TokenHashHex string
+			SiteID       uint32
+			Label        string
+			Role         string
+		}
+		Bootstrap struct {
+			SiteID   uint32
+			Username string
+		}
+		DefaultSiteID uint32
+		DemoBanner    string
 	}
 }
 
@@ -551,6 +741,25 @@ func loadConfig() (appConfig, error) {
 	v.SetDefault("audit.path", "./audit.jsonl")
 	v.SetDefault("ratelimit.requests_per_minute", 6000)
 	v.SetDefault("dashboard.bearer_token", "")
+
+	// Auth (Phase 2b). Secure defaults: 14-day cookie, SameSite=Lax,
+	// bcrypt cost 12, 10 login attempts / min / IP, 10 fails / 15 min →
+	// 5 min per-email lockout. Session-cache TTL 60 s.
+	v.SetDefault("auth.session.ttl", "336h")
+	v.SetDefault("auth.session.cookie_name", "statnive_session")
+	v.SetDefault("auth.session.secure", true)
+	v.SetDefault("auth.session.same_site", "lax")
+	v.SetDefault("auth.session.cache_ttl", "60s")
+	v.SetDefault("auth.bcrypt_cost", 12)
+	v.SetDefault("auth.login_rate_limit.requests", 10)
+	v.SetDefault("auth.login_rate_limit.window", "1m")
+	v.SetDefault("auth.lockout.fails", 10)
+	v.SetDefault("auth.lockout.decay", "15m")
+	v.SetDefault("auth.lockout.lockout", "5m")
+	v.SetDefault("auth.bootstrap.site_id", 1)
+	v.SetDefault("auth.bootstrap.username", "admin")
+	v.SetDefault("auth.default_site_id", 1)
+	v.SetDefault("auth.demo_banner", "")
 
 	if readErr := v.ReadInConfig(); readErr != nil {
 		var notFound viper.ConfigFileNotFoundError
@@ -592,6 +801,26 @@ func loadConfig() (appConfig, error) {
 
 	cfg.Dashboard.BearerToken = v.GetString("dashboard.bearer_token")
 	cfg.Dashboard.SPAEnabled = v.GetBool("dashboard.spa_enabled")
+
+	cfg.Auth.Session.TTL = v.GetDuration("auth.session.ttl")
+	cfg.Auth.Session.CookieName = v.GetString("auth.session.cookie_name")
+	cfg.Auth.Session.Secure = v.GetBool("auth.session.secure")
+	cfg.Auth.Session.SameSite = strings.ToLower(v.GetString("auth.session.same_site"))
+	cfg.Auth.Session.CacheTTL = v.GetDuration("auth.session.cache_ttl")
+	cfg.Auth.BcryptCost = v.GetInt("auth.bcrypt_cost")
+	cfg.Auth.LoginRateLimit.Requests = v.GetInt("auth.login_rate_limit.requests")
+	cfg.Auth.LoginRateLimit.Window = v.GetDuration("auth.login_rate_limit.window")
+	cfg.Auth.Lockout.Fails = v.GetInt("auth.lockout.fails")
+	cfg.Auth.Lockout.Decay = v.GetDuration("auth.lockout.decay")
+	cfg.Auth.Lockout.Lockout = v.GetDuration("auth.lockout.lockout")
+	cfg.Auth.Bootstrap.SiteID = uint32(v.GetUint32("auth.bootstrap.site_id"))
+	cfg.Auth.Bootstrap.Username = v.GetString("auth.bootstrap.username")
+	cfg.Auth.DefaultSiteID = uint32(v.GetUint32("auth.default_site_id"))
+	cfg.Auth.DemoBanner = v.GetString("auth.demo_banner")
+
+	// auth.api_tokens is a list of {token_hash, site_id, label, role}
+	// entries. Viper's UnmarshalKey handles the list-of-maps shape.
+	_ = v.UnmarshalKey("auth.api_tokens", &cfg.Auth.APITokens)
 
 	return cfg, nil
 }

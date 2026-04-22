@@ -1,8 +1,8 @@
 [
   {
-    "name": "initial JS (gz) — Preact + signals + Overview + Nav + filters + switcher",
+    "name": "initial JS (gz) — Preact + signals + Overview + Nav + filters + switcher + Login (Phase 2b)",
     "path": "../internal/dashboard/spa/dist/assets/index-*.js",
-    "limit": "13 KB",
+    "limit": "14 KB",
     "gzip": true
   },
   {
