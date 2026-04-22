@@ -79,7 +79,8 @@ func (r *Registry) List(ctx context.Context) ([]Site, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sites list: %w", err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	var out []Site
 

@@ -288,7 +288,8 @@ func (s *clickhouseStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, e
 	if err != nil {
 		return nil, fmt.Errorf("trend query: %w", err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	var out []DailyPoint
 
