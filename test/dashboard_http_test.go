@@ -464,28 +464,36 @@ func newDashboardTestServer(t *testing.T, ctx context.Context, bearerToken strin
 		t.Fatalf("ratelimit: %v", err)
 	}
 
-	// Phase 2b replaced the single-token bearer middleware with the
-	// auth.APITokenMiddleware + RequireAuthenticated composite. The
-	// integration contract (401 without header, 200 with correct
-	// header) is identical — we just hash the token at setup time
-	// and feed it through the new middleware.
-	tokenHash := sha256.Sum256([]byte(bearerToken))
-	authDeps := auth.MiddlewareDeps{
-		Audit: auditLog,
-		APITokens: []auth.APIToken{
-			{
-				TokenHashHex: hex.EncodeToString(tokenHash[:]),
-				SiteID:       0,
-				Label:        "integration-test",
+	// Phase 2b replaced the single-token bearer middleware with
+	// auth.APITokenMiddleware + RequireAuthenticated. The empty-token
+	// test mode (tests that don't care about auth) previously got the
+	// no-op middleware; preserve that shape so the existing table of
+	// tests that pass bearerToken="" stays on the happy path.
+	authMW := noopMiddleware
+
+	if bearerToken != "" {
+		tokenHash := sha256.Sum256([]byte(bearerToken))
+		authDeps := auth.MiddlewareDeps{
+			Audit: auditLog,
+			APITokens: []auth.APIToken{
+				{
+					TokenHashHex: hex.EncodeToString(tokenHash[:]),
+					SiteID:       0,
+					Label:        "integration-test",
+				},
 			},
-		},
+		}
+		apiTokenMW := auth.APITokenMiddleware(authDeps)
+		requireAuthed := auth.RequireAuthenticated(auditLog)
+		authMW = func(next http.Handler) http.Handler {
+			return apiTokenMW(requireAuthed(next))
+		}
 	}
 
 	router := chi.NewRouter()
 	router.Group(func(r chi.Router) {
 		r.Use(rateLimitMW)
-		r.Use(auth.APITokenMiddleware(authDeps))
-		r.Use(auth.RequireAuthenticated(auditLog))
+		r.Use(authMW)
 		dashboard.Mount(r, dashboard.Deps{
 			Store:  cached,
 			Sites:  sites.New(store.Conn()),
@@ -499,6 +507,8 @@ func newDashboardTestServer(t *testing.T, ctx context.Context, bearerToken strin
 
 	return srv, store
 }
+
+func noopMiddleware(next http.Handler) http.Handler { return next }
 
 func getJSON(t *testing.T, url, bearerToken string) *http.Response {
 	t.Helper()
