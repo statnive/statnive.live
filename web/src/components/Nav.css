@@ -1,0 +1,31 @@
+#statnive-app .statnive-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  border-bottom: 1px solid var(--rule-soft);
+  margin: var(--s-2) 0 var(--s-4);
+}
+
+#statnive-app .statnive-nav-tab {
+  padding: var(--s-2) var(--s-3);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+#statnive-app .statnive-nav-tab:hover,
+#statnive-app .statnive-nav-tab:focus {
+  color: var(--green-dk);
+  border-bottom-color: var(--green-lt);
+  outline: none;
+}
+
+#statnive-app .statnive-nav-tab.is-active {
+  color: var(--green-dk);
+  border-bottom-color: var(--green);
+}
