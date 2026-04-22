@@ -1,5 +1,7 @@
 import { Overview } from './panels/Overview';
 import { Nav } from './components/Nav';
+import { DatePicker } from './components/DatePicker';
+import { FilterPanel } from './components/FilterPanel';
 import { LazyPanel } from './components/LazyPanel';
 import { hashSignal } from './state/hash';
 import './App.css';
@@ -36,6 +38,8 @@ export function App() {
         </h1>
       </header>
       <Nav />
+      <DatePicker />
+      <FilterPanel />
       {renderPanel()}
     </main>
   );
