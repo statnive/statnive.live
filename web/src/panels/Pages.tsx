@@ -4,6 +4,7 @@ import { apiGet } from '../api/client';
 import type { PageRow } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
+import { siteSignal } from '../state/site';
 import { DualBar } from './DualBar';
 import { fmtInt } from '../lib/fmt';
 import { rowMax } from '../lib/rows';
@@ -35,6 +36,7 @@ export default function Pages() {
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    siteSignal.value,
     rangeSignal.value.from,
     rangeSignal.value.to,
     filtersSignal.value.path,

@@ -4,6 +4,7 @@ import { apiGet } from '../api/client';
 import type { SEORow } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
+import { siteSignal } from '../state/site';
 import { LazyChart } from '../components/LazyChart';
 import { fmtInt, fmtRials } from '../lib/fmt';
 import { toVisitorSeries, visitorLineChartOptions } from '../lib/chart';
@@ -34,6 +35,7 @@ export default function SEO() {
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    siteSignal.value,
     rangeSignal.value.from,
     rangeSignal.value.to,
     filtersSignal.value.device,

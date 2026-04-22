@@ -19,8 +19,11 @@ export function isValidIrstRange(from: string, to: string): boolean {
   return from <= to;
 }
 
+// `to` is exclusive in the handler's half-open [from, to) filter, so
+// use tomorrow IRST to include today's events. Backend's default-to
+// parses to tomorrow IRST midnight for the same reason.
 function defaultRange(): { from: string; to: string } {
-  return { from: daysAgoIRST(7), to: daysAgoIRST(0) };
+  return { from: daysAgoIRST(7), to: daysAgoIRST(-1) };
 }
 
 // rangeSignal mirrors filtersSignal's from/to but exists separately so
@@ -40,13 +43,15 @@ export const rangeSignal = signal<{ from: string; to: string }>(
 export type DatePreset = '7d' | '30d' | '90d' | 'custom';
 
 export function presetToRange(p: DatePreset): { from: string; to: string } {
+  // `to = daysAgoIRST(-1)` is tomorrow IRST — half-open upper bound
+  // that INCLUDES today. See defaultRange() for the rationale.
   switch (p) {
     case '7d':
-      return { from: daysAgoIRST(7), to: daysAgoIRST(0) };
+      return { from: daysAgoIRST(7), to: daysAgoIRST(-1) };
     case '30d':
-      return { from: daysAgoIRST(30), to: daysAgoIRST(0) };
+      return { from: daysAgoIRST(30), to: daysAgoIRST(-1) };
     case '90d':
-      return { from: daysAgoIRST(90), to: daysAgoIRST(0) };
+      return { from: daysAgoIRST(90), to: daysAgoIRST(-1) };
     default:
       return defaultRange();
   }

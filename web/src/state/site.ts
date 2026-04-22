@@ -19,10 +19,32 @@ export const activeSiteSignal = signal<Site | null>(null);
 // populated by SiteSwitcher's boot fetch.
 export const sitesSignal = signal<Site[]>([]);
 
+// Exported so Playwright e2e specs can set the value via addInitScript
+// without hard-coding the literal across every beforeEach.
+export const STORAGE_KEY = 'statnive.activeSiteId';
+
+function bootSiteId(): number {
+  // Read persisted site_id at module load so panels' initial apiGet
+  // calls (which read siteSignal.value at mount, before SiteSwitcher's
+  // /api/sites fetch resolves) hit the right tenant. Falls back to 1
+  // when sessionStorage is empty or unavailable — SiteSwitcher's boot
+  // effect overwrites this with the first enabled site from /api/sites.
+  try {
+    const raw = typeof window !== 'undefined'
+      ? window.sessionStorage.getItem(STORAGE_KEY)
+      : null;
+    if (!raw) return 1;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  } catch {
+    return 1;
+  }
+}
+
 // siteSignal keeps the numeric site_id that apiGet reads. Writable
 // directly (tests + legacy callers) and auto-synced from
 // activeSiteSignal via the effect below.
-export const siteSignal = signal<number>(1);
+export const siteSignal = signal<number>(bootSiteId());
 
 effect(() => {
   const active = activeSiteSignal.value;
@@ -30,8 +52,6 @@ effect(() => {
     siteSignal.value = active.id;
   }
 });
-
-const STORAGE_KEY = 'statnive.activeSiteId';
 
 export function persistActiveSite(id: number): void {
   try {

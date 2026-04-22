@@ -110,7 +110,7 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 	}
 	defer rows.Close()
 
-	var out []SourceRow
+	out := []SourceRow{}
 
 	for rows.Next() {
 		var r SourceRow
@@ -150,7 +150,7 @@ func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, erro
 	}
 	defer rows.Close()
 
-	var out []PageRow
+	out := []PageRow{}
 
 	for rows.Next() {
 		var r PageRow
@@ -201,7 +201,7 @@ func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) 
 	}
 	defer rows.Close()
 
-	var out []SEORow
+	out := []SEORow{}
 
 	for rows.Next() {
 		var r SEORow
@@ -241,7 +241,7 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 	}
 	defer rows.Close()
 
-	var out []CampaignRow
+	out := []CampaignRow{}
 
 	for rows.Next() {
 		var r CampaignRow
@@ -291,7 +291,7 @@ func (s *clickhouseStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, e
 
 	defer func() { _ = rows.Close() }()
 
-	var out []DailyPoint
+	out := []DailyPoint{}
 
 	for rows.Next() {
 		var p DailyPoint
