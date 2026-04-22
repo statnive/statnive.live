@@ -1,0 +1,93 @@
+#statnive-app .statnive-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+#statnive-app .statnive-table th,
+#statnive-app .statnive-table td {
+  text-align: left;
+  padding: var(--s-1) var(--s-2);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+#statnive-app .statnive-table th {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+  background: transparent;
+}
+
+#statnive-app .statnive-table tbody tr {
+  /* Skip offscreen rows in long lists — `rendering-content-visibility`. */
+  content-visibility: auto;
+  contain-intrinsic-size: 0 32px;
+}
+
+#statnive-app .statnive-table tbody tr:hover {
+  background: var(--green-lt);
+}
+
+#statnive-app .statnive-dualbar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+}
+
+#statnive-app .statnive-dualbar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: 11px;
+}
+
+#statnive-app .statnive-dualbar-track {
+  flex: 1;
+  height: 8px;
+  background: transparent;
+  border: 1px solid var(--rule-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+#statnive-app .statnive-dualbar-fill {
+  display: block;
+  height: 100%;
+}
+
+#statnive-app .statnive-dualbar-fill.is-visitors {
+  background: var(--green);
+}
+
+#statnive-app .statnive-dualbar-fill.is-revenue {
+  background: var(--ochre);
+}
+
+#statnive-app .statnive-dualbar-value {
+  min-width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#statnive-app .statnive-channel-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  color: var(--ink);
+}
+
+#statnive-app .statnive-empty {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+  opacity: 0.7;
+  padding: var(--s-3) 0;
+}
