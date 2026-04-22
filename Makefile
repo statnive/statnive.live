@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := $(shell go list -mod=vendor ./... 2>/dev/null | grep -v '/web/node_modules/')
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep smoke
 
 all: lint test build
 
@@ -94,6 +94,15 @@ disk-full-test:
 
 ## perf-tests: All Phase 7a stress tests (crash + ch-outage + disk-full).
 perf-tests: crash-test ch-outage-test disk-full-test
+
+## smoke: End-to-end boot smoke against docker-compose ClickHouse.
+## Builds the binary, seeds CH, probes every prod surface on the REAL
+## cmd/statnive-live router graph (/healthz, /tracker.js, /app/ + hashed
+## asset, POST /api/event × 10 with CH count-back, /api/stats/overview
+## bearer-auth enforcement). Requires Docker daemon running. Leaves CH
+## up (same convention as wal-killtest).
+smoke: build
+	./test/smoke/harness.sh
 
 ## wal-killtest: 5-iteration kill-9 smoke (chained into make audit).
 ## Asserts CH count >= sent * (1 - 0.0005) after each random-offset SIGKILL.
