@@ -112,6 +112,19 @@ func (c *CachedStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, 
 	return v.([]CampaignRow), nil
 }
 
+func (c *CachedStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, error) {
+	v, err := c.cache.Wrap(
+		"trend:"+f.Hash(),
+		cache.ResolveTTL(c.now(), f.To),
+		func() (any, error) { return c.inner.Trend(ctx, f) },
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return v.([]DailyPoint), nil
+}
+
 // Realtime is always cached at TTLRealtime (10s) regardless of clock —
 // the underlying query reads the current hour bucket which doesn't
 // have a Filter.To to inspect.

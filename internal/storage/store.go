@@ -23,6 +23,7 @@ type Store interface {
 	Pages(ctx context.Context, f *Filter) ([]PageRow, error)
 	SEO(ctx context.Context, f *Filter) ([]SEORow, error)
 	Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, error)
+	Trend(ctx context.Context, f *Filter) ([]DailyPoint, error)
 	Realtime(ctx context.Context, siteID uint32) (*RealtimeResult, error)
 
 	// v1.1 — wait on daily_geo / daily_devices rollups.
