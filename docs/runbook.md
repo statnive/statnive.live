@@ -145,6 +145,40 @@ benchstat bench.out bench.new.txt
 A regression > 5% on any line is a PR-blocker. Improvements are
 welcome but must be re-baselined in the same PR.
 
+### Pre-cutover verification — `make smoke`
+
+`make smoke` is the canonical one-command readiness check for the
+production wiring. It drives the real `cmd/statnive-live/main.go` binary
+against docker-compose ClickHouse and probes every surface a Phase 10
+operator would touch:
+
+1. `GET /healthz` — health reporter keys (`status`, `wal_fill_ratio`,
+   `clickhouse`, `wal_fsync_p99_ms`)
+2. `GET /tracker.js` — embedded IIFE tracker + nosniff +
+   `application/javascript`
+3. `GET /app/` — SPA shell + CSP + nosniff + Referrer-Policy + bearer
+   placeholder rewritten
+4. `GET /app/assets/*.js` — hashed SPA bundle + long-cache
+5. `POST /api/event` (×10) — ingest → WAL → consumer → ClickHouse
+   count-back
+6. `GET /api/stats/overview` — bearer-auth enforcement (401 without,
+   200 + 5 KPI keys with)
+
+```bash
+make smoke
+```
+
+Wall time ≈ 90 s on a laptop (ClickHouse boot dominates; the probes
+themselves run in <2 s). Idempotent — re-run back-to-back with no
+manual cleanup.
+
+**Phase 10 operator use:** after the offline bundle lands on the
+Iranian-DC VPS and `deploy/airgap-install.sh` completes, run `make
+smoke` against the freshly-installed binary before cutover. Every probe
+green = every production surface is serving correctly. See
+[`test/smoke/README.md`](../test/smoke/README.md) for env overrides and
+debugging notes.
+
 ### Air-Gap Verification (manual)
 
 The binary must function with **zero** outbound network. Verify on a
