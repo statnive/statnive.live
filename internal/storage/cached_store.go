@@ -112,6 +112,28 @@ func (c *CachedStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, 
 	return v.([]CampaignRow), nil
 }
 
+// Trend caches the daily visitor series (Overview headline chart +
+// SEO panel) under the same ResolveTTL rules as the other rollup-backed
+// endpoints — current-hour buckets refresh every 10 s, today every
+// 60 s, yesterday every hour, historical ~indefinitely.
+func (c *CachedStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, error) {
+	v, err := c.cache.Wrap(
+		"trend:"+f.Hash(),
+		cache.ResolveTTL(c.now(), f.To),
+		func() (any, error) { return c.inner.Trend(ctx, f) },
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	out, ok := v.([]DailyPoint)
+	if !ok {
+		return nil, fmt.Errorf("cached_store: trend cache value has unexpected type %T", v)
+	}
+
+	return out, nil
+}
+
 // Realtime is always cached at TTLRealtime (10s) regardless of clock —
 // the underlying query reads the current hour bucket which doesn't
 // have a Filter.To to inspect.

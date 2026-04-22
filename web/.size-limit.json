@@ -1,14 +1,26 @@
 [
   {
-    "name": "statnive-spa.js (gz)",
-    "path": "../internal/dashboard/spa/dist/assets/*.js",
-    "limit": "10 KB",
+    "name": "initial JS (gz) — Preact + signals + Overview + Nav + filters + switcher",
+    "path": "../internal/dashboard/spa/dist/assets/index-*.js",
+    "limit": "13 KB",
+    "gzip": true
+  },
+  {
+    "name": "uPlot chart chunk (gz) — loads on first chart mount only",
+    "path": "../internal/dashboard/spa/dist/assets/Chart-*.js",
+    "limit": "25 KB",
+    "gzip": true
+  },
+  {
+    "name": "lazy panel chunks (gz) — Sources + Pages + SEO + Campaigns + Realtime + TrendChart + DualBar",
+    "path": "../internal/dashboard/spa/dist/assets/{Sources,Pages,SEO,Campaigns,Realtime,TrendChart,DualBar,LazyChart}-*.js",
+    "limit": "8 KB",
     "gzip": true
   },
   {
     "name": "statnive-spa.css (gz)",
     "path": "../internal/dashboard/spa/dist/assets/*.css",
-    "limit": "3 KB",
+    "limit": "5 KB",
     "gzip": true
   }
 ]

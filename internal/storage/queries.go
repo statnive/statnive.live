@@ -256,6 +256,55 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 	return out, rows.Err()
 }
 
+// Trend aggregates hourly_visitors to a daily series over the requested
+// filter window. Powers the uPlot visitors trend on Overview + the 24h
+// sparkline on Realtime. Uses WITH FILL so days with zero traffic still
+// emit a row — the SPA never has to fake empty buckets.
+//
+// Unlike SEO, this is NOT channel-filtered: the dashboard's headline
+// trend is "all traffic", not "organic only". Reads from hourly_visitors
+// (not daily_pages) because daily_pages partitions by pathname, which
+// would require a second SUM() pass per row.
+func (s *clickhouseStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, error) {
+	if err := f.Validate(); err != nil {
+		return nil, err
+	}
+
+	where, args := whereTimeAndTenant(f, "hour")
+
+	// WITH FILL bounds: TO is exclusive in the dashboard contract; CH's
+	// WITH FILL ... TO is also exclusive, so pass f.To unchanged.
+	args = append(args, f.From, f.To)
+
+	rows, err := s.conn.Query(ctx, fmt.Sprintf(`
+		SELECT
+			toDate(hour) AS day,
+			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
+			toUInt64(sum(pageviews))            AS pageviews
+		FROM statnive.hourly_visitors %s
+		GROUP BY day
+		ORDER BY day WITH FILL FROM toDate(?) TO toDate(?) STEP INTERVAL 1 DAY
+	`, where), args...)
+	if err != nil {
+		return nil, fmt.Errorf("trend query: %w", err)
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var out []DailyPoint
+
+	for rows.Next() {
+		var p DailyPoint
+		if err := rows.Scan(&p.Day, &p.Visitors, &p.Pageviews); err != nil {
+			return nil, fmt.Errorf("trend scan: %w", err)
+		}
+
+		out = append(out, p)
+	}
+
+	return out, rows.Err()
+}
+
 // Realtime reads the latest hourly_visitors bucket. Architecture Rule 3
 // forbids true 5-minute resolution; this is "active in the last hour"
 // surfaced via the existing rollup.

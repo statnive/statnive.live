@@ -1,0 +1,25 @@
+#statnive-app .statnive-site-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+#statnive-app .statnive-site-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#statnive-app .statnive-site-switcher select {
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+}

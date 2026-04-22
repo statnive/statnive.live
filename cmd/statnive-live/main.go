@@ -225,6 +225,7 @@ func run() error {
 		r.Use(dashboardAuthMW)
 		dashboard.Mount(r, dashboard.Deps{
 			Store:  cachedStore,
+			Sites:  registry,
 			Audit:  auditLog,
 			Logger: logger,
 		})

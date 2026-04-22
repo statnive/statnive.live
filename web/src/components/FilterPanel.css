@@ -1,0 +1,37 @@
+#statnive-app .statnive-filterpanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+  border-top: 1px dashed var(--rule-soft);
+  border-bottom: 1px dashed var(--rule-soft);
+  margin-bottom: var(--s-4);
+}
+
+#statnive-app .statnive-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+#statnive-app .statnive-filter-label {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-right: var(--s-1);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#statnive-app .statnive-filter-row input[type="text"] {
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  width: 120px;
+}
