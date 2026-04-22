@@ -179,6 +179,42 @@ green = every production surface is serving correctly. See
 [`test/smoke/README.md`](../test/smoke/README.md) for env overrides and
 debugging notes.
 
+### Dashboard e2e debugging (`npm --prefix web run e2e`)
+
+Phase 5c ships 25 Playwright tests at `web/e2e/` covering auth, panels,
+navigation, filters, realtime, and multi-tenant site-switching. Each
+test's highest-tier assertion is a CH-oracle correlation query
+(`docker exec clickhouse-client`) — the UI's rendered KPI must match
+what the rollup tables report.
+
+**Running locally:**
+
+```bash
+docker compose -f deploy/docker-compose.dev.yml up -d clickhouse
+make build                      # produces bin/statnive-live with fresh SPA embedded
+npm --prefix web ci             # first run only
+npm --prefix web run e2e        # 25 tests, ~30s wall time
+```
+
+**Interactive debugging:**
+
+```bash
+npm --prefix web run e2e:ui     # Playwright UI mode — filter, replay, inspect traces
+```
+
+**Inspecting a failing CI run:** download the `playwright-report`
+artifact from the failed `dashboard-e2e` job, then:
+
+```bash
+unzip playwright-report.zip -d /tmp/report && cd /tmp/report
+npx playwright show-report      # launches interactive HTML report + trace viewer
+```
+
+**Reuse state:** globalSetup boots `bin/statnive-live` on port 18299
+with bearer `e2e-tok-xyz` and seeds site_ids 801 + 802. globalTeardown
+cleans those rows so local CH stays tidy. Port 18299 is distinct from
+the smoke harness (18199) so both can coexist during dev.
+
 ### Air-Gap Verification (manual)
 
 The binary must function with **zero** outbound network. Verify on a
