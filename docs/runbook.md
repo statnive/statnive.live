@@ -461,13 +461,34 @@ host (NOT production):
 
 - **Every release:** before `git tag v*`, restore last night's backup,
   walk steps 5–7, confirm parity. A failed drill blocks the release.
-- **Nightly cron:** automated nightly drill via
-  [`.github/workflows/backup-drill-nightly.yml`](../.github/workflows/backup-drill-nightly.yml)
-  (Phase 2c). Host-side cron wrapper: see `deploy/backup/README.md` for
-  the cron template.
+- **Nightly cron (host-side):** authoritative nightly drill runs on
+  the operator's drill host via cron — see `deploy/backup/README.md`
+  for the template. This is the release-blocking SoT.
+- **CI drill (on-demand):** `.github/workflows/backup-drill-nightly.yml`
+  can be triggered manually via `gh workflow run backup-drill-nightly`
+  or the GitHub UI. See "Known issues" below for why the scheduled
+  nightly cron was removed.
 - **Before any schema migration:** full + incremental snapshot
   immediately before `make migrate`. Same restore drill afterward
   proves the migration itself didn't corrupt the data set.
+
+### Known issues
+
+- **CI drill is workflow_dispatch-only (2026-04-23).** The
+  `backup-drill-nightly` GitHub Actions workflow used to run on a
+  nightly `0 4 * * *` cron. It was demoted to manual-dispatch because
+  `clickhouse/clickhouse-server:24.12-alpine` refuses `DROP TABLE IF
+  EXISTS` against materialized-view inner tables without the
+  `/var/lib/clickhouse/flags/force_drop_table` flag — even for empty
+  tables and with `max_table_size_to_drop=10_000_000_000_000` (10 TB)
+  set in a `config.d/` fragment — breaking `clickhouse-backup
+  restore_remote`'s pre-create drop loop. Reproduced in PRs #36→#40.
+  Operator-side drills via `deploy/backup/drill.sh` against real CH
+  are unaffected. Tracked as **v1.1-ci-drill** in `PLAN.md`;
+  re-enablement depends on either (a) a CH point release that drops
+  the MV-inner-table flag requirement, (b) a workaround that
+  continuously recreates the flag file during restore, or (c) a
+  different CH image with the same Atomic-engine semantics.
 
 ## Disk full (CH error code 243)
 

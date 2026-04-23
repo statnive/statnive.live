@@ -1,18 +1,16 @@
 name: backup-drill-nightly
 
-# Nightly round-trip: seed → clickhouse-backup create+upload → wipe CH →
-# restore_remote → row-count parity + rollup mergeability. Proves the
-# backup pipeline (clickhouse-backup + S3 + age in production; MinIO
-# sidecar in CI) is still end-to-end restorable.
+# Round-trip: seed → clickhouse-backup create+upload → wipe CH →
+# restore_remote → row-count parity + rollup mergeability.
 #
-# Nightly-only, mirroring wal-killtest-nightly — a full restore costs
-# ~5 min and the surface moves slowly.
+# **workflow_dispatch only** until a CH 24.12-alpine Atomic-engine
+# gate on the force_drop_table flag is resolved (see
+# docs/runbook.md § Backup & restore / Known issues + PLAN.md
+# v1.1-ci-drill). The manual drill in docs/runbook.md:416-467 remains
+# the release-blocking source of truth; operators run it on their
+# drill host before each release + nightly via host-cron.
 
 on:
-  schedule:
-    # 04:00 UTC — one hour after wal-killtest-nightly so the two
-    # long-running drills never fight for the same runner pool.
-    - cron: '0 4 * * *'
   workflow_dispatch: {}
 
 permissions:
