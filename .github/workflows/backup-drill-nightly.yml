@@ -19,7 +19,10 @@ permissions:
   contents: read
 
 env:
-  CH_BACKUP_VERSION: v2.5.20
+  # Docker Hub tag format — Altinity drops the leading `v` for images.
+  # The GitHub release at v2.5.20 is the same build; runbook.md uses the
+  # GitHub `v*` form for the tarball download path.
+  CH_BACKUP_VERSION: "2.5.20"
   MINIO_IMAGE: minio/minio:RELEASE.2024-10-02T17-50-41Z
   MINIO_MC_IMAGE: minio/mc:RELEASE.2024-10-02T08-27-28Z
   MINIO_USER: test

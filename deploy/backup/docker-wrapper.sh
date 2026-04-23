@@ -7,11 +7,12 @@
 #
 # Env passthroughs:
 #   CLICKHOUSE_PASSWORD, S3_ACCESS_KEY, S3_SECRET_KEY, S3_ENDPOINT,
-#   CH_BACKUP_VERSION (defaults to v2.5.20 — matches runbook SOP)
+#   CH_BACKUP_VERSION (defaults to 2.5.20 — Docker Hub format, no `v`;
+#                       runbook SOP uses v2.5.20 for the GitHub tarball URL)
 set -euo pipefail
 
 WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
-VERSION="${CH_BACKUP_VERSION:-v2.5.20}"
+VERSION="${CH_BACKUP_VERSION:-2.5.20}"
 
 exec docker run --rm --network=host \
   -v statnive_ch_data:/var/lib/clickhouse \
