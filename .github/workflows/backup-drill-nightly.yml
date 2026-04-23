@@ -1,0 +1,153 @@
+name: backup-drill-nightly
+
+# Nightly round-trip: seed → clickhouse-backup create+upload → wipe CH →
+# restore_remote → row-count parity + rollup mergeability. Proves the
+# backup pipeline (clickhouse-backup + S3 + age in production; MinIO
+# sidecar in CI) is still end-to-end restorable.
+#
+# Nightly-only, mirroring wal-killtest-nightly — a full restore costs
+# ~5 min and the surface moves slowly.
+
+on:
+  schedule:
+    # 04:00 UTC — one hour after wal-killtest-nightly so the two
+    # long-running drills never fight for the same runner pool.
+    - cron: '0 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  CH_BACKUP_VERSION: v2.5.20
+  MINIO_IMAGE: minio/minio:RELEASE.2024-10-02T17-50-41Z
+  MINIO_MC_IMAGE: minio/mc:RELEASE.2024-10-02T08-27-28Z
+  MINIO_USER: test
+  MINIO_PASSWORD: testtest123
+  S3_ENDPOINT: http://127.0.0.1:9001
+  CH_HOST_PORT: "19000"
+  STATNIVE_MASTER_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+jobs:
+  backup-drill:
+    name: Backup drill (create + upload + cold restore + parity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Setup Node (web-build is a build-step dependency)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
+      - name: Vendor check
+        run: make vendor-check
+
+      - name: Build statnive-live (applies migrations on first boot)
+        run: make build
+
+      - name: Install clickhouse-client on runner
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends apt-transport-https ca-certificates curl gnupg
+          curl -fsSL https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key \
+            | sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] https://packages.clickhouse.com/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/clickhouse.list
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clickhouse-client
+          clickhouse-client --version
+
+      - name: Boot ClickHouse (waits for healthcheck)
+        run: docker compose -f deploy/docker-compose.dev.yml up -d --wait clickhouse
+
+      - name: Boot MinIO sidecar + create bucket
+        run: |
+          docker run -d --name statnive-minio \
+            -p 127.0.0.1:9001:9000 \
+            -e "MINIO_ROOT_USER=${MINIO_USER}" \
+            -e "MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}" \
+            --health-cmd='curl -fsS http://127.0.0.1:9000/minio/health/live' \
+            --health-interval=2s --health-retries=15 \
+            "${MINIO_IMAGE}" server /data
+          # --wait-for on docker run isn't a thing; poll health status instead.
+          for i in $(seq 1 30); do
+            s=$(docker inspect -f '{{.State.Health.Status}}' statnive-minio 2>/dev/null || echo starting)
+            [ "$s" = "healthy" ] && break
+            sleep 1
+          done
+          docker run --rm --network=host \
+            -e "MC_HOST_m=http://${MINIO_USER}:${MINIO_PASSWORD}@127.0.0.1:9001" \
+            "${MINIO_MC_IMAGE}" mb -p m/statnive-backup
+
+      - name: Apply migrations (boot binary briefly)
+        run: |
+          STATNIVE_CLICKHOUSE_ADDR="127.0.0.1:${CH_HOST_PORT}" \
+          ./bin/statnive-live -c config/statnive-live.yaml &
+          SPID=$!
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
+            sleep 1
+          done
+          kill "${SPID}" 2>/dev/null || true
+          wait 2>/dev/null || true
+
+      - name: Seed synthetic events
+        run: CH_PORT="${CH_HOST_PORT}" make seed-backup-drill
+
+      - name: Capture pre-backup row counts
+        run: |
+          for t in events_raw hourly_visitors daily_pages daily_sources; do
+            N=$(clickhouse-client --host 127.0.0.1 --port "${CH_HOST_PORT}" -q \
+                  "SELECT sum(rows) FROM system.parts WHERE table='$t' AND active")
+            printf 'pre_%s=%s\n' "$t" "${N}" >> "${GITHUB_ENV}"
+          done
+
+      - name: Create + upload backup (clickhouse-backup sidecar)
+        # docker-wrapper.sh bind-mounts $GITHUB_WORKSPACE at the same
+        # path inside the container, so absolute host paths resolve
+        # identically inside the sidecar.
+        env:
+          S3_ACCESS_KEY: ${{ env.MINIO_USER }}
+          S3_SECRET_KEY: ${{ env.MINIO_PASSWORD }}
+        run: |
+          bash deploy/backup/docker-wrapper.sh \
+            --config="${GITHUB_WORKSPACE}/deploy/backup/config-ci.yml" \
+            create_remote nightly-drill
+
+      - name: Drop tables (simulate cold host) + re-apply migrations
+        # `clickhouse-backup restore_remote` will recreate the tables
+        # from the backup metadata, but we drop them first to prove the
+        # restore path actually does the work. Faster than a full CH
+        # container teardown + reboot.
+        run: |
+          for t in events_raw hourly_visitors daily_pages daily_sources mv_hourly_visitors mv_daily_pages mv_daily_sources schema_migrations sites users sessions goals; do
+            clickhouse-client --host 127.0.0.1 --port "${CH_HOST_PORT}" -q \
+              "DROP TABLE IF EXISTS statnive.$t SYNC" || true
+          done
+
+      - name: Restore + assert parity via drill.sh
+        env:
+          S3_ACCESS_KEY: ${{ env.MINIO_USER }}
+          S3_SECRET_KEY: ${{ env.MINIO_PASSWORD }}
+        run: |
+          EXPECT_ROWS="events_raw=${pre_events_raw},hourly_visitors=${pre_hourly_visitors},daily_pages=${pre_daily_pages},daily_sources=${pre_daily_sources}" \
+          CLICKHOUSE_BACKUP="$(pwd)/deploy/backup/docker-wrapper.sh" \
+          CH_PORT="${CH_HOST_PORT}" \
+          bash deploy/backup/drill.sh --config="$(pwd)/deploy/backup/config-ci.yml" --mode=full --name=nightly-drill
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker rm -f statnive-minio 2>/dev/null || true
+          docker compose -f deploy/docker-compose.dev.yml down -v 2>/dev/null || true

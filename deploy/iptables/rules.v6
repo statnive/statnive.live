@@ -1,0 +1,21 @@
+# deploy/iptables/rules.v6 — statnive-live host firewall (IPv6)
+#
+# Apply: ip6tables-restore < deploy/iptables/rules.v6
+# Mirrors rules.v4 with the IPv6 ICMPv6 carve-outs that the kernel
+# needs for Neighbor Discovery to function (RFC 4861 — dropping these
+# breaks IPv6 reachability even when the firewall "looks" fine).
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -i lo -j ACCEPT
+-A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+-A INPUT -p ipv6-icmp --icmpv6-type neighbour-solicitation -j ACCEPT
+-A INPUT -p ipv6-icmp --icmpv6-type neighbour-advertisement -j ACCEPT
+-A INPUT -p ipv6-icmp --icmpv6-type router-advertisement -j ACCEPT
+-A INPUT -p ipv6-icmp --icmpv6-type packet-too-big -j ACCEPT
+-A INPUT -p tcp --dport 22 -j ACCEPT
+-A INPUT -p tcp --dport 80 -j ACCEPT
+-A INPUT -p tcp --dport 443 -j ACCEPT
+-A INPUT -p ipv6-icmp --icmpv6-type echo-request -m limit --limit 1/s --limit-burst 3 -j ACCEPT
+COMMIT

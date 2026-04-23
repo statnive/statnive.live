@@ -1,0 +1,40 @@
+# deploy/backup/config.yml — production clickhouse-backup config.
+#
+# Canonical SOP: docs/runbook.md § Backup & restore (Phase 7b2).
+# Drills automated by deploy/backup/drill.sh (Phase 2c).
+#
+# Env vars expected at runtime:
+#   CLICKHOUSE_PASSWORD  — same password the statnive-live binary uses
+#   S3_ACCESS_KEY        — least-privilege key scoped to statnive-backup bucket
+#   S3_SECRET_KEY
+#   S3_REGION            — e.g. eu-central-1 / ap-southeast-1
+#   DATA_DIR             — CH data_path (e.g. /var/lib/clickhouse). Never hardcode.
+
+general:
+  remote_storage: s3
+  backups_to_keep_local: 2
+  backups_to_keep_remote: 120   # 30d retention × 4 incrementals/day
+
+clickhouse:
+  username: default
+  password: ${CLICKHOUSE_PASSWORD}
+  host: 127.0.0.1
+  port: 9000
+  data_path: ${DATA_DIR}
+
+s3:
+  access_key: ${S3_ACCESS_KEY}
+  secret_key: ${S3_SECRET_KEY}
+  bucket: statnive-backup
+  region: ${S3_REGION}
+  path: clickhouse/{cluster}/{shard}
+  compression_format: zstd
+  compression_level: 19
+
+# age encryption sidecar. Public key lives at /etc/statnive-live/backup-age.pub
+# (readable by anyone). Private key is kept on an offline operator
+# workstation — restore requires the operator to hand-carry it to the
+# drill host and set chmod 0600.
+custom_encryption:
+  pre_upload_command: 'age -r $(cat /etc/statnive-live/backup-age.pub) -o $FILE.age $FILE && rm $FILE'
+  post_download_command: 'age -d -i /etc/statnive-live/backup-age.key -o $FILE ${FILE}.age && rm ${FILE}.age'

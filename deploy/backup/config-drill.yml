@@ -1,0 +1,38 @@
+# deploy/backup/config-drill.yml — drill-host clickhouse-backup config.
+#
+# Differs from config.yml only in:
+#   - clickhouse.host points at the drill instance
+#   - S3 credentials are read-only (list + download)
+#
+# Operator procedure: copy this file onto the drill host, set
+# CLICKHOUSE_PASSWORD + S3_* env vars, place /etc/statnive-live/backup-age.key
+# with mode 0600, then run:
+#
+#   clickhouse-backup --config deploy/backup/config-drill.yml list remote
+#   clickhouse-backup --config deploy/backup/config-drill.yml restore_remote "<NAME>"
+#   bash deploy/backup/drill.sh --config deploy/backup/config-drill.yml --mode=full
+
+general:
+  remote_storage: s3
+  backups_to_keep_local: 2
+  backups_to_keep_remote: 120
+
+clickhouse:
+  username: default
+  password: ${CLICKHOUSE_PASSWORD}
+  host: drill-clickhouse
+  port: 9000
+  data_path: ${DATA_DIR}
+
+s3:
+  access_key: ${S3_READ_ACCESS_KEY}
+  secret_key: ${S3_READ_SECRET_KEY}
+  bucket: statnive-backup
+  region: ${S3_REGION}
+  path: clickhouse/{cluster}/{shard}
+  compression_format: zstd
+  compression_level: 19
+
+custom_encryption:
+  pre_upload_command: 'age -r $(cat /etc/statnive-live/backup-age.pub) -o $FILE.age $FILE && rm $FILE'
+  post_download_command: 'age -d -i /etc/statnive-live/backup-age.key -o $FILE ${FILE}.age && rm ${FILE}.age'
