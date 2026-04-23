@@ -10,7 +10,8 @@ export type PanelName =
   | 'pages'
   | 'seo'
   | 'campaigns'
-  | 'realtime';
+  | 'realtime'
+  | 'admin';
 
 export const DEFAULT_PANEL: PanelName = 'overview';
 
@@ -21,6 +22,7 @@ const VALID: ReadonlySet<string> = new Set<PanelName>([
   'seo',
   'campaigns',
   'realtime',
+  'admin',
 ]);
 
 export interface HashState {

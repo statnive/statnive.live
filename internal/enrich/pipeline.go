@@ -13,9 +13,12 @@ package enrich
 
 import (
 	"context"
+	"encoding/hex"
 	"log/slog"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/identity"
@@ -33,8 +36,18 @@ type Deps struct {
 	Bot     *BotDetector
 	Channel *ChannelMapper
 	Burst   *ingest.BurstGuard // optional — nil disables the per-visitor cap
+	Goals   GoalMatcher        // optional — nil disables goal marking; prod injects *goals.Snapshot
 	Audit   *audit.Logger      // optional — nil silences burst-drop audit lines
 	Logger  *slog.Logger
+}
+
+// GoalMatcher is the ingest-side contract the pipeline calls after
+// channel attribution. internal/goals.Snapshot implements this; test
+// paths inject goals.NopMatcher. Kept in enrich to avoid a direct
+// import of internal/goals here (enrich would otherwise form a
+// larger import surface; this way the dependency flows inward).
+type GoalMatcher interface {
+	Match(siteID uint32, eventName string) (goalID uuid.UUID, valueRials uint64, ok bool)
 }
 
 // Pipeline owns no goroutines and no channels. Construct once, call
@@ -118,7 +131,7 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 
 	keys, vals := flattenProps(raw.Props)
 
-	return ingest.EnrichedEvent{
+	ev := ingest.EnrichedEvent{
 		SiteID:      raw.SiteID,
 		TSUTC:       raw.TSUTC,
 		UserIDHash:  raw.UserIDHash,
@@ -158,7 +171,30 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 		PropVals:      vals,
 		UserSegment:   raw.UserSegment,
 		IsBot:         boolU8(isBot),
-	}, true
+	}
+
+	// Stage 7 — goal matching. Server-authoritative on event_value:
+	// /api/event has no request signature (CLAUDE.md Security #3), so
+	// a client-supplied event_value is untrusted. When a goal matches,
+	// the admin-configured value_rials wins over whatever the tracker
+	// sent. Matching only runs on non-bot, non-pageview shape events
+	// (pageviews aren't goal candidates in v1 per doc 17 row 17).
+	if p.deps.Goals != nil && ev.IsBot == 0 {
+		if gID, val, matched := p.deps.Goals.Match(ev.SiteID, ev.EventName); matched {
+			ev.IsGoal = 1
+			ev.EventValue = val
+
+			if p.deps.Audit != nil {
+				p.deps.Audit.Event(context.Background(), audit.EventAdminGoalFired,
+					slog.Uint64("site_id", uint64(ev.SiteID)),
+					slog.String("target_goal_id", gID.String()),
+					slog.String("visitor_hash", hex.EncodeToString(visitorHash[:])),
+				)
+			}
+		}
+	}
+
+	return ev, true
 }
 
 func boolU8(b bool) uint8 {

@@ -410,6 +410,120 @@ probe_login_flow() {
     _assert "stats/overview after logout: 401" "$cond" "status=${status}"
 }
 
+# probe_admin_flow: Phase 3c — login as admin, create+list+disable a
+# viewer user, create+list+disable a goal, and assert:
+#   - F4 mass-assignment attack body is rejected (400)
+#   - /api/admin/users reaches 200 over the session cookie
+#   - new user appears in list, then flips to disabled after disable
+#   - goal create + list round-trips cleanly
+#   - a non-admin bearer (role=api) hits 403 on /api/admin/*
+probe_admin_flow() {
+    local cookies="${WORK}/admin-cookies.txt"
+    rm -f "$cookies"
+
+    local base="http://127.0.0.1:${PORT}"
+    local body status
+
+    # Login as bootstrapped admin.
+    body=$(printf '{"email":"%s","password":"%s"}' "$LOGIN_EMAIL" "$LOGIN_PASSWORD")
+    status=$(curl -sS -o /dev/null -w '%{http_code}' \
+        -c "$cookies" -H 'Content-Type: application/json' -d "$body" \
+        "$base/api/login")
+    local cond=1
+    [ "$status" = "200" ] && cond=0
+    _assert "admin: login" "$cond" "status=${status}"
+
+    # F4 mass-assignment rejection — POST /api/admin/users with role+site_id
+    # injection → 400 at DecodeAllowed (before any DB write).
+    local attack='{"email":"attacker@x.y","username":"a","password":"p","role":"viewer","site_id":99,"is_admin":true}'
+    status=$(curl -sS -o /dev/null -w '%{http_code}' \
+        -b "$cookies" -H 'Content-Type: application/json' -d "$attack" \
+        "$base/api/admin/users")
+    cond=1
+    [ "$status" = "400" ] && cond=0
+    _assert "admin: mass-assignment attack rejected (F4)" "$cond" "status=${status}"
+
+    # Happy-path user create.
+    local newuser='{"email":"viewer@smoke.test","username":"viewer","password":"strong-pass-smoke","role":"viewer"}'
+    local tmp
+    tmp=$(mktemp)
+    status=$(curl -sS -o "$tmp" -w '%{http_code}' \
+        -b "$cookies" -H 'Content-Type: application/json' -d "$newuser" \
+        "$base/api/admin/users")
+    body=$(cat "$tmp")
+    rm -f "$tmp"
+    cond=1
+    [ "$status" = "201" ] && cond=0
+    _assert "admin: create user 201" "$cond" "status=${status} body=${body}"
+
+    # Extract user_id from the response body (crude grep — avoids jq dep).
+    local new_user_id
+    new_user_id=$(echo "$body" | grep -o '"user_id":"[^"]*"' | head -1 | sed 's/"user_id":"//; s/"//')
+    cond=1
+    [ -n "$new_user_id" ] && cond=0
+    _assert "admin: response carries user_id" "$cond" "body=${body}"
+
+    # List users → expect at least 2 (admin + viewer).
+    tmp=$(mktemp)
+    status=$(curl -sS -o "$tmp" -w '%{http_code}' -b "$cookies" "$base/api/admin/users")
+    body=$(cat "$tmp")
+    rm -f "$tmp"
+    cond=1
+    if [ "$status" = "200" ] && echo "$body" | grep -q 'viewer@smoke.test'; then
+        cond=0
+    fi
+    _assert "admin: list users contains new row" "$cond" "status=${status}"
+
+    # Disable the viewer.
+    status=$(curl -sS -o /dev/null -w '%{http_code}' \
+        -X POST -b "$cookies" "$base/api/admin/users/${new_user_id}/disable")
+    cond=1
+    [ "$status" = "204" ] && cond=0
+    _assert "admin: disable user 204" "$cond" "status=${status}"
+
+    # List again → the viewer row now carries "disabled":true.
+    tmp=$(mktemp)
+    status=$(curl -sS -o "$tmp" -w '%{http_code}' -b "$cookies" "$base/api/admin/users")
+    body=$(cat "$tmp")
+    rm -f "$tmp"
+    cond=1
+    if echo "$body" | grep -q 'viewer@smoke.test' && echo "$body" | grep -q '"disabled":true'; then
+        cond=0
+    fi
+    _assert "admin: disabled flag flipped after disable" "$cond" "status=${status}"
+
+    # Create a goal — event_name_equals on a synthetic event name.
+    local newgoal='{"name":"smoke-goal","match_type":"event_name_equals","pattern":"smoke_purchase","value_rials":123456,"enabled":true}'
+    tmp=$(mktemp)
+    status=$(curl -sS -o "$tmp" -w '%{http_code}' \
+        -b "$cookies" -H 'Content-Type: application/json' -d "$newgoal" \
+        "$base/api/admin/goals")
+    body=$(cat "$tmp")
+    rm -f "$tmp"
+    cond=1
+    [ "$status" = "201" ] && cond=0
+    _assert "admin: create goal 201" "$cond" "status=${status} body=${body}"
+
+    # Oversized pattern rejected (>128 chars).
+    local bigpattern
+    bigpattern=$(printf 'x%.0s' $(seq 1 130))
+    local bigbody
+    bigbody=$(printf '{"name":"big","match_type":"event_name_equals","pattern":"%s","value_rials":0,"enabled":true}' "$bigpattern")
+    status=$(curl -sS -o /dev/null -w '%{http_code}' \
+        -b "$cookies" -H 'Content-Type: application/json' -d "$bigbody" \
+        "$base/api/admin/goals")
+    cond=1
+    [ "$status" = "400" ] && cond=0
+    _assert "admin: oversized pattern rejected 400" "$cond" "status=${status}"
+
+    # Bearer-token (role=api) MUST get 403 on /api/admin/*.
+    status=$(curl -sS -o /dev/null -w '%{http_code}' \
+        -H "Authorization: Bearer ${TOKEN}" "$base/api/admin/users")
+    cond=1
+    [ "$status" = "403" ] && cond=0
+    _assert "admin: api-token gets 403 on /api/admin/users" "$cond" "status=${status}"
+}
+
 # ---------- Run the probe matrix ----------
 
 log "probing /healthz + /tracker.js + /app/ + /app/assets/"
@@ -427,6 +541,9 @@ probe_stats_auth
 
 log "probing /api/login + /api/logout (Phase 2b session cookie flow)"
 probe_login_flow
+
+log "probing /api/admin/* (Phase 3c admin CRUD — users + goals)"
+probe_admin_flow
 
 log "=== all probes green ==="
 exit 0

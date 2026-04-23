@@ -83,3 +83,21 @@ auth:
     username: "admin"
   default_site_id: 1
   demo_banner: ""               # Phase 9 dogfood fills this; empty in Phase 2b
+
+# Phase 3c goals — stored in ClickHouse (migration 005), NOT in this
+# YAML. Admin UI (/app/#admin) + `POST /api/admin/goals` are the
+# canonical write surface. The ingest pipeline loads an in-memory
+# snapshot at boot + reloads on SIGHUP or inline after every admin
+# mutation. No config keys — goals are per-site data, not global
+# policy.
+#
+# Canonical SamplePlatform goals (doc 18 §112) — create through the
+# admin UI on first login or run:
+#
+#   clickhouse-client -q "INSERT INTO statnive.goals
+#     (goal_id, site_id, name, match_type, pattern, value_rials, enabled)
+#     VALUES
+#       (generateUUIDv4(), 1, 'Subscribe', 'event_name_equals', 'subscribe', 0, 1),
+#       (generateUUIDv4(), 1, 'Signup',    'event_name_equals', 'signup',    0, 1),
+#       (generateUUIDv4(), 1, 'Watch',     'event_name_equals', 'watch',     0, 1);"
+#   kill -HUP $(pgrep -f statnive-live)

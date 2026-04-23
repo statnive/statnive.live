@@ -87,3 +87,33 @@ const (
 	EventRBACDenied     EventName = "auth.rbac.denied"
 	EventAuthBootstrap  EventName = "auth.bootstrap"
 )
+
+// Admin CRUD events. Emitted by internal/admin/* handlers + the
+// goals-snapshot reload path.
+//
+// Field-shape invariants (Phase 3c):
+//   - actor_user_id, target_user_id, target_goal_id — RAW UUID strings
+//     via uuid.UUID.String(). These are operator/metadata surrogates
+//     (doc 24 §admin_users), NOT visitor identity. Privacy Rule 4 bans
+//     raw visitor user_id from audit sinks; operator admin UUIDs are a
+//     distinct concept and never match the pii_leak_test.go regex set.
+//   - email_hash — SHA-256 of lowercase-trimmed email (matches Phase 2b
+//     EventLogin* shape); raw email never in audit.
+//   - goal_pattern_hash — SHA-256 of the cleartext pattern. Hashed
+//     defensively in case a malicious admin stuffs visitor data into
+//     the pattern field; admin UI still sees the raw pattern.
+//   - Never log old/new password hash or raw session tokens.
+const (
+	EventAdminUserCreated  EventName = "admin.user.created"
+	EventAdminUserUpdated  EventName = "admin.user.updated"
+	EventAdminUserDisabled EventName = "admin.user.disabled"
+	EventAdminUserEnabled  EventName = "admin.user.enabled"
+	EventAdminUserPwReset  EventName = "admin.user.password_reset"
+	EventAdminGoalCreated  EventName = "admin.goal.created"
+	EventAdminGoalUpdated  EventName = "admin.goal.updated"
+	EventAdminGoalDisabled EventName = "admin.goal.disabled"
+	EventAdminGoalFired    EventName = "admin.goal.fired"    // ingest-side, per event match
+	EventAdminGoalRejected EventName = "admin.goal.rejected" // write-time validation fail
+	EventGoalsReloadOK     EventName = "goals.reload_succeeded"
+	EventGoalsReloadFailed EventName = "goals.reload_failed"
+)

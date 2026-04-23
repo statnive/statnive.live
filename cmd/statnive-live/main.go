@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/statnive/statnive.live/internal/admin"
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/cert"
@@ -32,6 +33,7 @@ import (
 	"github.com/statnive/statnive.live/internal/dashboard"
 	"github.com/statnive/statnive.live/internal/dashboard/spa"
 	"github.com/statnive/statnive.live/internal/enrich"
+	"github.com/statnive/statnive.live/internal/goals"
 	"github.com/statnive/statnive.live/internal/health"
 	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/ingest"
@@ -162,6 +164,21 @@ func run() error {
 
 	burstGuard := ingest.NewBurstGuard(cfg.Ingest.MaxPageviewsPerMinutePerVisitor)
 
+	// Phase 3c — goals snapshot. Admin CRUD writes rows to
+	// statnive.goals; the in-memory Snapshot is the hot-path matcher
+	// (atomic.Pointer hot-swap, zero CH round-trip per event). Admin
+	// mutations call Snapshot.Reload inline; SIGHUP also triggers a
+	// reload so external config flips (direct CH INSERT by an
+	// operator) propagate to ingest without a restart.
+	goalStore := goals.NewClickHouseStore(store.Conn(), cfg.ClickHouse.Database)
+
+	goalSnapshot, err := goals.NewSnapshot(rootCtx, goalStore)
+	if err != nil {
+		return fmt.Errorf("goals snapshot: %w", err)
+	}
+
+	logger.Info("goals snapshot loaded", "count", goalSnapshot.Size())
+
 	pipeline := enrich.NewPipeline(enrich.Deps{
 		Salt:    saltMgr,
 		Bloom:   bloom,
@@ -170,6 +187,7 @@ func run() error {
 		Bot:     enrich.NewBotDetector(logger),
 		Channel: channelMapper,
 		Burst:   burstGuard,
+		Goals:   goalSnapshot,
 		Audit:   auditLog,
 		Logger:  logger,
 	})
@@ -326,15 +344,21 @@ func run() error {
 		})
 	})
 
-	// Admin CRUD reserved slot — Phase 3c fills this in. Stays admin-
-	// only so viewers can't probe it for 501s during Phase 2b.
+	// Admin CRUD — admin-only. Viewers + api-tokens are rejected with
+	// 403 + auth.rbac.denied audit event by RequireRole.
 	router.Group(func(r chi.Router) {
 		r.Use(rateLimitMW)
 		r.Use(sessionMW)
 		r.Use(apiTokenMW)
 		r.Use(requireAuthed)
 		r.Use(auth.RequireRole(auditLog, auth.RoleAdmin))
-		// Placeholder — Phase 3c adds /api/admin/users, /api/admin/goals, etc.
+		admin.Mount(r, admin.Deps{
+			Auth:     authStore,
+			Goals:    goalStore,
+			Snapshot: goalSnapshot,
+			Audit:    auditLog,
+			Logger:   logger,
+		})
 	})
 
 	router.Method(http.MethodGet, "/healthz", health.Handler(health.Reporter{
@@ -434,7 +458,7 @@ func run() error {
 	}
 
 	g.Go(func() error {
-		runSIGHUP(gctx, logger, auditLog, tlsLoader, channelMapper)
+		runSIGHUP(gctx, logger, auditLog, tlsLoader, channelMapper, goalSnapshot)
 
 		return nil
 	})
@@ -478,10 +502,17 @@ func newTLSLoader(cfg appConfig, auditLog *audit.Logger, logger *slog.Logger) (*
 }
 
 // runSIGHUP fans SIGHUP out to every reload-aware subsystem: TLS cert
-// reload, audit-log file reopen, and the channel mapper's sources reload.
-// One signal handler avoids per-package signal.Notify calls that race on
-// the same signal.
-func runSIGHUP(ctx context.Context, logger *slog.Logger, auditLog *audit.Logger, tlsLoader *cert.Loader, mapper *enrich.ChannelMapper) {
+// reload, audit-log file reopen, the channel mapper's sources reload,
+// and (Phase 3c) the goals snapshot. One signal handler avoids
+// per-package signal.Notify calls that race on the same signal.
+//
+// Order is TLS → audit.Reopen → channels → goals. Each reload is
+// independent: a failure in one does NOT short-circuit the others
+// (cert-expiry refresh must never be blocked by a goals SQL hiccup).
+func runSIGHUP(
+	ctx context.Context, logger *slog.Logger, auditLog *audit.Logger,
+	tlsLoader *cert.Loader, mapper *enrich.ChannelMapper, goalSnap *goals.Snapshot,
+) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGHUP)
 	defer signal.Stop(ch)
@@ -505,6 +536,19 @@ func runSIGHUP(ctx context.Context, logger *slog.Logger, auditLog *audit.Logger,
 
 			if err := mapper.Reload(); err != nil {
 				logger.Warn("channel mapper reload failed", "err", err)
+			}
+
+			if goalSnap != nil {
+				if err := goalSnap.Reload(ctx); err != nil {
+					logger.Warn("goals reload failed", "err", err)
+					auditLog.Event(ctx, audit.EventGoalsReloadFailed,
+						slog.String("err", err.Error()),
+					)
+				} else {
+					auditLog.Event(ctx, audit.EventGoalsReloadOK,
+						slog.Int("count", goalSnap.Size()),
+					)
+				}
 			}
 		}
 	}

@@ -29,6 +29,8 @@ function loaderFor(name: string): () => Promise<LazyModule> {
       return () => import('../panels/Campaigns');
     case 'realtime':
       return () => import('../panels/Realtime');
+    case 'admin':
+      return () => import('../panels/Admin');
     default:
       // Unknown panels fall through to a loader that resolves to
       // <Loader /> — callers should never pass an unknown name since
