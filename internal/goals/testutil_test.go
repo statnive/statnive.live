@@ -2,7 +2,6 @@ package goals
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -13,9 +12,9 @@ import (
 // Not concurrent-safe beyond the mutex — tests don't exercise parallel
 // writes against the same fakeStore instance.
 type fakeStore struct {
-	mu       sync.Mutex
-	byID     map[uuid.UUID]*Goal
-	listErr  error // injectable for Snapshot.Reload fail-closed tests
+	mu      sync.Mutex
+	byID    map[uuid.UUID]*Goal
+	listErr error // injectable for Snapshot.Reload fail-closed tests
 }
 
 func newFakeStore() *fakeStore {
@@ -121,4 +120,3 @@ func (f *fakeStore) Disable(ctx context.Context, siteID uint32, id uuid.UUID) er
 }
 
 var _ Store = (*fakeStore)(nil)
-var _ = errors.New // keep errors import reserved for future fault-injection

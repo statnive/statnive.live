@@ -213,6 +213,7 @@ func TestGoalStep_P99Under200ns(t *testing.T) {
 	snap, _ := NewSnapshot(ctx, fs)
 
 	// Bench the typical miss path (most events don't match any goal).
+	//nolint:thelper // the closure is the benchmark body itself, not a helper.
 	res := testing.Benchmark(func(b *testing.B) {
 		for b.Loop() {
 			snap.Match(1, "non-existent-event-name")

@@ -12,9 +12,9 @@
     "gzip": true
   },
   {
-    "name": "lazy panel chunks (gz) — Sources + Pages + SEO + Campaigns + Realtime + TrendChart + DualBar",
-    "path": "../internal/dashboard/spa/dist/assets/{Sources,Pages,SEO,Campaigns,Realtime,TrendChart,DualBar,LazyChart}-*.js",
-    "limit": "8 KB",
+    "name": "lazy panel chunks (gz) — Sources/Pages/SEO/Campaigns/Realtime/Admin + TrendChart/DualBar",
+    "path": "../internal/dashboard/spa/dist/assets/{Sources,Pages,SEO,Campaigns,Realtime,Admin,TrendChart,DualBar,LazyChart}-*.js",
+    "limit": "10 KB",
     "gzip": true
   },
   {

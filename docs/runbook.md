@@ -588,6 +588,102 @@ a strong passphrase. Phase 11 (SaaS self-serve signup) MUST add NIST
 rules). Until then the operator is responsible for choosing
 passwords of adequate length + entropy.
 
+## Phase 3c — Admin CRUD operator SOPs
+
+### Provision a new operator user (via dashboard)
+
+Sign in to `/app/` as an existing admin → "Admin" nav tab → "Users"
+→ fill the form (email, username, password, role) → "Create user".
+The new user can sign in at `/app/login` immediately. Role choices:
+
+- `admin` — full `/api/admin/*` CRUD + stats dashboard
+- `viewer` — read-only stats dashboard; no admin nav tab
+- `api` — `/api/stats/*` access via `Authorization: Bearer <token>`
+  only; no cookie session, no admin routes
+
+All mutations live in `audit.jsonl` as `admin.user.*` events with
+`actor_user_id` + `target_user_id` + hashed email — raw email never
+hits the audit sink.
+
+### Disable a user (e.g. credential compromise)
+
+Admin → Users tab → row → "Disable". Server-side:
+1. CachedStore flips `users.disabled = 1` (ReplacingMergeTree bump).
+2. `RevokeAllUserSessions` cascade invalidates every active session
+   for that user (in-memory cache cleared; CH sessions marked revoked).
+3. Next request carrying the user's cookie returns 401 within the
+   60-second session-cache TTL.
+
+Re-enable is **not supported in v1** (the Enable endpoint is a no-op
+202 pending `auth.Store.SetDisabled` in v1.1). To recover a disabled
+user today, create a new user with the same email and delete the
+disabled row via `clickhouse-client` if the email conflict is a
+concern.
+
+### Add a goal (mark custom events as conversions)
+
+Admin → Goals tab → fill form → "Create goal".
+
+- **Event name (exact match)** — the literal `event_name` your tracker
+  sends via `statnive.track('purchase', {...})`. v1 ships exact-match
+  only (`event_name_equals`). Path-based matching (`path_prefix`,
+  `path_regex`) lands in v1.1 — the Enum8 column extends without a
+  migration.
+- **Value (rials)** — optional revenue attribution. When set, the
+  ingest pipeline stamps this on every matching event's `event_value`
+  **overriding** any client-supplied value (server-authoritative; see
+  Security note below). Leave 0 to use whatever value the tracker
+  sends (e.g. dynamic checkout totals).
+
+Canonical SamplePlatform examples (from research doc 18 §112):
+
+| Event name  | Value (rials) | Notes                     |
+|-------------|---------------|---------------------------|
+| `subscribe` | 0             | Free signup conversion    |
+| `signup`    | 0             | Account creation          |
+| `watch`     | 0             | Content engagement        |
+| `purchase`  | 500_000       | Override tracker amount   |
+
+**Security note — why server-wins on `event_value`.** The `/api/event`
+endpoint intentionally has no HMAC signature (CLAUDE.md Security #3
+— hostname validation is the tracker's only auth). Any visitor's
+browser JS can POST `{"event_value": 99999999}` and inflate RPV /
+revenue dashboards. When you set a non-zero `value_rials` on a goal,
+the server overrides the client value; when you leave it 0, the
+tracker value passes through. v1.1 adds HMAC-signed tracker payloads
+for trusted client values.
+
+### Rotate the goals cache without a restart
+
+Admin mutations reload the in-memory snapshot inline — no action
+needed. For direct-CH goal INSERTs (e.g. `clickhouse-client` from the
+operator laptop), send `SIGHUP` to the running binary:
+
+```bash
+kill -HUP $(pgrep -f statnive-live)
+```
+
+`audit.jsonl` will carry a `goals.reload_succeeded` event within
+~100 ms (or `goals.reload_failed` if the reload errored; previous
+snapshot is retained — fail-closed).
+
+### First-run: load SamplePlatform's canonical goals
+
+Not seeded automatically (per research doc 18 — event names are
+site-specific). Create them through the dashboard after first login,
+or use `clickhouse-client` + SIGHUP:
+
+```bash
+docker exec statnive-clickhouse-dev clickhouse-client -q "
+INSERT INTO statnive.goals (goal_id, site_id, name, match_type, pattern, value_rials, enabled)
+VALUES
+  (generateUUIDv4(), 1, 'Subscribe', 'event_name_equals', 'subscribe', 0, 1),
+  (generateUUIDv4(), 1, 'Signup', 'event_name_equals', 'signup', 0, 1),
+  (generateUUIDv4(), 1, 'Watch', 'event_name_equals', 'watch', 0, 1);
+"
+kill -HUP $(pgrep -f statnive-live)
+```
+
 ## Phase 7b status (2026-04-21)
 
 All Phase 7b deliverables shipped:

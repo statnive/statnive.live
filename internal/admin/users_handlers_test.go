@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -74,6 +75,7 @@ func TestUsers_CreateHappy(t *testing.T) {
 	}
 
 	var got userResponse
+
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
 
 	if got.SiteID != admin.SiteID {
@@ -236,7 +238,7 @@ func TestUsers_NoSessionReturns401(t *testing.T) {
 	deps, _, _ := newTestDeps()
 
 	h := NewUsers(deps)
-	r := httptest.NewRequest("GET", "/api/admin/users", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
 
 	w := httptest.NewRecorder()
 	h.List(w, r)

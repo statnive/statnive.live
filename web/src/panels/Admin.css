@@ -1,0 +1,120 @@
+.statnive-admin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.statnive-admin-tabs {
+  display: flex;
+  gap: var(--s-1);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.statnive-admin-tabs button {
+  padding: var(--s-2) var(--s-3);
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.statnive-admin-tabs button.is-active {
+  color: var(--green);
+  border-bottom-color: var(--green);
+}
+
+.statnive-admin-new {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--s-3);
+  padding: var(--s-3);
+  background: var(--rule-soft);
+  border-radius: 4px;
+}
+
+.statnive-admin-new h3 {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.statnive-admin-new label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  font-size: 0.875rem;
+}
+
+.statnive-admin-new input,
+.statnive-admin-new select {
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.statnive-admin-new button {
+  align-self: end;
+  padding: var(--s-2) var(--s-3);
+  border: none;
+  border-radius: 4px;
+  background: var(--green);
+  color: var(--paper);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.statnive-admin-new button:hover {
+  background: var(--green-dk);
+}
+
+.statnive-admin-new button[disabled] {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.statnive-admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.statnive-admin-table th,
+.statnive-admin-table td {
+  text-align: left;
+  padding: var(--s-1) var(--s-2);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.statnive-admin-table th {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.statnive-admin-table button {
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.statnive-admin-table button:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.statnive-admin-error {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  background: var(--green-lt);
+  border-left: 3px solid var(--error);
+  color: var(--error);
+  font-size: 0.875rem;
+}

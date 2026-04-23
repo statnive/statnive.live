@@ -93,6 +93,7 @@ func (s *ClickHouseStore) Create(ctx context.Context, g *Goal) error {
 	}
 
 	now := s.now().UTC()
+
 	if g.GoalID == uuid.Nil {
 		g.GoalID = uuid.New()
 	}

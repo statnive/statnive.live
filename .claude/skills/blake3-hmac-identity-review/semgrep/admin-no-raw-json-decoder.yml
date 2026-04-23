@@ -1,0 +1,38 @@
+# admin-no-raw-json-decoder — F4 guard enforcement (Phase 3c).
+#
+# Any Go file under internal/admin/ that decodes a request body MUST go
+# through httpjson.DecodeAllowed — never json.NewDecoder directly. The
+# DecodeAllowed helper is where DisallowUnknownFields + MaxBodyBytes +
+# the allow-list reflection check live; routing a new mutation around
+# it widens the mass-assignment surface silently.
+#
+# Paired with the regression test at internal/admin/decode_test.go
+# (TestDecodeAllowed_RejectsMassAssignmentAttack) which pins the
+# {"role":"admin","site_id":99,"is_admin":true} attack body against
+# the helper itself. This Semgrep rule catches the other direction —
+# future handlers that bypass the helper entirely.
+#
+# Scope is internal/admin/** only. internal/auth/handlers.go uses
+# httpjson.DecodeAllowed too (auth.decodeLogin was refactored in slice
+# 2) but keeping the enforcement narrow avoids false positives if a
+# future surface (e.g. tracker decoding binary sendBeacon blobs)
+# legitimately needs a custom decoder.
+
+rules:
+  - id: admin-no-raw-json-decoder
+    message: >-
+      internal/admin handlers MUST decode request bodies via
+      httpjson.DecodeAllowed — never raw json.NewDecoder. DecodeAllowed
+      enforces DisallowUnknownFields + MaxBodyBytes + the allow-list
+      reflection check; bypassing it widens the mass-assignment
+      surface (Verification §52 / F4 / CVE-2024-10924 class).
+    severity: ERROR
+    languages: [go]
+    paths:
+      include:
+        - "internal/admin/**/*.go"
+      exclude:
+        - "**/*_test.go"
+        - "vendor/**"
+    patterns:
+      - pattern: json.NewDecoder(...)

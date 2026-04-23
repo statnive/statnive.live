@@ -59,6 +59,8 @@ func toUserResponse(u *auth.User) userResponse {
 // List handles GET /api/admin/users. Returns every user for the
 // caller's site_id. No pagination in v1 — admin deployments have
 // O(10s) of users; Phase 11 SaaS adds cursor pagination.
+//
+//nolint:dupl // symmetric with Goals.List but over a different entity.
 func (h *Users) List(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {
@@ -413,5 +415,5 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// ensure keep context import (used via r.Context())
+// Ensure keep context import (used via r.Context()).
 var _ context.Context

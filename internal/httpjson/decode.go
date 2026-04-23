@@ -57,11 +57,11 @@ func DecodeAllowed(r *http.Request, dst any, allowedFields []string) error {
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(dst); err != nil {
-		return fmt.Errorf("%w: %v", ErrMalformedBody, err)
+		return fmt.Errorf("%w: %w", ErrMalformedBody, err)
 	}
 
 	if err := assertJSONTagsSubset(dst, allowedFields); err != nil {
-		return fmt.Errorf("%w: %v", ErrMalformedBody, err)
+		return fmt.Errorf("%w: %w", ErrMalformedBody, err)
 	}
 
 	return nil

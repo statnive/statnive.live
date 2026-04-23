@@ -1,3 +1,9 @@
+// Package admin owns the HTTP handlers for /api/admin/* — user + goal
+// CRUD. Router (cmd/statnive-live/main.go) stacks
+// auth.RequireRole(admin) before admin.Mount, so handlers here assume
+// auth.UserFrom(ctx) returns a non-nil admin user. Every write handler
+// decodes via httpjson.DecodeAllowed (enforced by the Semgrep rule
+// admin-no-raw-json-decoder in blake3-hmac-identity-review).
 package admin
 
 import (

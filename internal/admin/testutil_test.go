@@ -304,8 +304,10 @@ func (f *fakeGoalsStore) Disable(ctx context.Context, siteID uint32, id uuid.UUI
 	return f.Update(ctx, g)
 }
 
-var _ auth.Store = (*fakeAuthStore)(nil)
-var _ goals.Store = (*fakeGoalsStore)(nil)
+var (
+	_ auth.Store  = (*fakeAuthStore)(nil)
+	_ goals.Store = (*fakeGoalsStore)(nil)
+)
 
 // adminRequest builds a request with an admin *User pre-attached to
 // the context + optional chi URL params.

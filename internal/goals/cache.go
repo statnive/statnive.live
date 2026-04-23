@@ -2,6 +2,7 @@ package goals
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -73,7 +74,7 @@ func (s *Snapshot) Match(siteID uint32, eventName string) (uuid.UUID, uint64, bo
 // retained. Safe to call concurrently; last writer wins.
 func (s *Snapshot) Reload(ctx context.Context) error {
 	if s.store == nil {
-		return fmt.Errorf("snapshot: nil store")
+		return errors.New("snapshot: nil store")
 	}
 
 	active, err := s.store.ListActive(ctx)
@@ -128,5 +129,7 @@ func (NopMatcher) Match(uint32, string) (uuid.UUID, uint64, bool) {
 	return uuid.Nil, 0, false
 }
 
-var _ Matcher = (*Snapshot)(nil)
-var _ Matcher = NopMatcher{}
+var (
+	_ Matcher = (*Snapshot)(nil)
+	_ Matcher = NopMatcher{}
+)

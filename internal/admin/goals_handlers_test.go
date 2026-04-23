@@ -71,6 +71,7 @@ func TestGoals_CreateHappy(t *testing.T) {
 	}
 
 	var got goalResponse
+
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
 
 	if got.SiteID != admin.SiteID {

@@ -86,24 +86,31 @@ func TestValidate_RejectsInvalidInputs(t *testing.T) {
 	}
 }
 
-func TestFakeStore_CRUDHappyPath(t *testing.T) {
-	t.Parallel()
-
-	fs := newFakeStore()
-	ctx := context.Background()
+func createOneTestGoal(t *testing.T, fs *fakeStore) *Goal {
+	t.Helper()
 
 	g := &Goal{
 		SiteID: 1, Name: "Purchase", MatchType: MatchTypeEventNameEquals,
 		Pattern: "purchase", ValueRials: 500_000, Enabled: true,
 	}
 
-	if err := fs.Create(ctx, g); err != nil {
+	if err := fs.Create(context.Background(), g); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	if g.GoalID == uuid.Nil {
 		t.Fatal("Create did not assign goal_id")
 	}
+
+	return g
+}
+
+func TestFakeStore_CreateGetList(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeStore()
+	ctx := context.Background()
+	g := createOneTestGoal(t, fs)
 
 	got, err := fs.Get(ctx, 1, g.GoalID)
 	if err != nil {
@@ -123,13 +130,21 @@ func TestFakeStore_CRUDHappyPath(t *testing.T) {
 	if err != nil || len(active) != 1 {
 		t.Fatalf("ListActive: len=%d err=%v", len(active), err)
 	}
+}
+
+func TestFakeStore_UpdateThenDisable(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeStore()
+	ctx := context.Background()
+	g := createOneTestGoal(t, fs)
 
 	g.Name = "Purchase-v2"
 	if err := fs.Update(ctx, g); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
-	got, _ = fs.Get(ctx, 1, g.GoalID)
+	got, _ := fs.Get(ctx, 1, g.GoalID)
 	if got.Name != "Purchase-v2" {
 		t.Errorf("Update Name = %q", got.Name)
 	}
@@ -138,7 +153,7 @@ func TestFakeStore_CRUDHappyPath(t *testing.T) {
 		t.Fatalf("Disable: %v", err)
 	}
 
-	active, _ = fs.ListActive(ctx)
+	active, _ := fs.ListActive(ctx)
 	if len(active) != 0 {
 		t.Errorf("after Disable, ListActive len=%d, want 0", len(active))
 	}
@@ -164,10 +179,4 @@ func TestFakeStore_GetCrossSiteReturnsNotFound(t *testing.T) {
 	}
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-
-	return b
-}
+// min is a Go 1.21+ builtin — no local helper needed.

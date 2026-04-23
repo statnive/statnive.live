@@ -32,6 +32,8 @@ function renderPanel() {
       return <LazyPanel name="campaigns" />;
     case 'realtime':
       return <LazyPanel name="realtime" />;
+    case 'admin':
+      return <LazyPanel name="admin" />;
     default:
       return <Overview />;
   }

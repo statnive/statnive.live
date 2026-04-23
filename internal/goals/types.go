@@ -26,12 +26,9 @@ const (
 
 // Valid reports whether m is one of the known match types.
 func (m MatchType) Valid() bool {
-	switch m {
-	case MatchTypeEventNameEquals:
-		return true
-	}
-
-	return false
+	// v1 has exactly one match type; kept as an equality check so v1.1
+	// (path_equals / path_prefix) can extend this to a switch cleanly.
+	return m == MatchTypeEventNameEquals
 }
 
 // MaxPatternLen is the admin-UI + decoder cap on `pattern` length.

@@ -54,6 +54,8 @@ func toGoalResponse(g *goals.Goal) goalResponse {
 }
 
 // List handles GET /api/admin/goals — all goals for the actor's site.
+//
+//nolint:dupl // symmetric with Users.List but over a different entity.
 func (h *Goals) List(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {
@@ -279,7 +281,7 @@ func (h *Goals) emitGoalEvent(
 }
 
 func (h *Goals) emitGoalRejected(
-	r *http.Request, actor *auth.User, g *goals.Goal, err error,
+	r *http.Request, actor *auth.User, _ *goals.Goal, err error,
 ) {
 	if h.deps.Audit == nil {
 		return

@@ -54,8 +54,11 @@ func GenerateSlug(hostname string) string {
 
 	// Strip a small set of common TLDs so "example.com" + "example.org"
 	// both propose "example" — operators can still manually override.
-	for _, tld := range []string{".com", ".org", ".net", ".io", ".dev",
-		".co.uk", ".co", ".ir", ".live", ".app"} {
+	tlds := []string{
+		".com", ".org", ".net", ".io", ".dev",
+		".co.uk", ".co", ".ir", ".live", ".app",
+	}
+	for _, tld := range tlds {
 		if strings.HasSuffix(h, tld) {
 			h = strings.TrimSuffix(h, tld)
 
@@ -71,15 +74,18 @@ func GenerateSlug(hostname string) string {
 	prevDash := false
 
 	for _, r := range h {
-		switch {
-		case r < 0x80 && (unicode.IsLetter(r) || unicode.IsDigit(r)):
+		if r < 0x80 && (unicode.IsLetter(r) || unicode.IsDigit(r)) {
 			b.WriteRune(r)
+
 			prevDash = false
-		default:
-			if !prevDash {
-				b.WriteByte('-')
-				prevDash = true
-			}
+
+			continue
+		}
+
+		if !prevDash {
+			b.WriteByte('-')
+
+			prevDash = true
 		}
 	}
 
@@ -130,7 +136,7 @@ func (r *Registry) IsSlugAvailable(ctx context.Context, slug string) (bool, erro
 func (r *Registry) ReserveSlug(ctx context.Context, slug string, siteID uint32) error {
 	slug = strings.ToLower(strings.TrimSpace(slug))
 	if slug == "" {
-		return fmt.Errorf("sites: empty slug")
+		return errors.New("sites: empty slug")
 	}
 
 	if _, reserved := reservedSlugs[slug]; reserved {
