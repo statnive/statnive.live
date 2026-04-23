@@ -128,16 +128,14 @@ jobs:
             --config="${GITHUB_WORKSPACE}/deploy/backup/config-ci.yml" \
             create_remote nightly-drill
 
-      - name: Drop tables (simulate cold host) + re-apply migrations
-        # `clickhouse-backup restore_remote` will recreate the tables
-        # from the backup metadata, but we drop them first to prove the
-        # restore path actually does the work. Faster than a full CH
-        # container teardown + reboot.
+      - name: Simulate cold host — tear down + reboot CH
+        # Full container reset proves the restore path actually materializes
+        # tables from scratch. Simpler + more realistic than DROP TABLE,
+        # and avoids CH's `force_drop_table` flag requirement for MV
+        # inner-tables in this image (24.12-alpine).
         run: |
-          for t in events_raw hourly_visitors daily_pages daily_sources mv_hourly_visitors mv_daily_pages mv_daily_sources schema_migrations sites users sessions goals; do
-            clickhouse-client --host 127.0.0.1 --port "${CH_HOST_PORT}" -q \
-              "DROP TABLE IF EXISTS statnive.$t SYNC" || true
-          done
+          docker compose -f deploy/docker-compose.dev.yml down -v
+          docker compose -f deploy/docker-compose.dev.yml up -d --wait clickhouse
 
       - name: Restore + assert parity via drill.sh
         env:
