@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/statnive/statnive.live/internal/admin"
 	"github.com/statnive/statnive.live/internal/audit"
 )
 
@@ -94,13 +95,14 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 // decodeLogin reads + normalizes the login body. ok=false means the
 // request body was malformed or missing required fields; caller writes
 // the uniform 401.
-func decodeLogin(w http.ResponseWriter, r *http.Request) (loginRequest, bool) {
+//
+// Uses admin.DecodeAllowed (Phase 3c) so the F4 mass-assignment guard
+// is one helper with one implementation. The `{"role":"admin"}` attack
+// body is rejected identically here and in every /api/admin/* handler.
+func decodeLogin(_ http.ResponseWriter, r *http.Request) (loginRequest, bool) {
 	var req loginRequest
 
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
-	dec.DisallowUnknownFields() // F4 mass-assignment guard (Verification §52)
-
-	if err := dec.Decode(&req); err != nil {
+	if err := admin.DecodeAllowed(r, &req, []string{"email", "password"}); err != nil {
 		return loginRequest{}, false
 	}
 
