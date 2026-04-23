@@ -1,0 +1,40 @@
+# deploy/backup/config-ci.yml — CI-only clickhouse-backup config.
+#
+# DO NOT DEPLOY to production. Points at a MinIO sidecar and skips the
+# age encryption wrapper (age key custody is not a CI concern — the CI
+# job only verifies the create → upload → restore → parity round-trip).
+#
+# Consumed by:
+#   - .github/workflows/backup-drill-nightly.yml
+#   - `make backup-drill-local` for local smoke
+#
+# Env vars expected:
+#   CLICKHOUSE_PASSWORD  (usually empty in dev)
+#   S3_ACCESS_KEY        (= MinIO root user, default: test)
+#   S3_SECRET_KEY        (= MinIO root password, default: testtest123)
+#   S3_ENDPOINT          (= http://127.0.0.1:9001)
+
+general:
+  remote_storage: s3
+  backups_to_keep_local: 2
+  backups_to_keep_remote: 10
+
+clickhouse:
+  username: default
+  password: ${CLICKHOUSE_PASSWORD}
+  host: 127.0.0.1
+  # Host-side port is 19000 in deploy/docker-compose.dev.yml.
+  port: 19000
+  data_path: /var/lib/clickhouse
+
+s3:
+  access_key: ${S3_ACCESS_KEY}
+  secret_key: ${S3_SECRET_KEY}
+  bucket: statnive-backup
+  region: us-east-1
+  endpoint: ${S3_ENDPOINT}
+  disable_ssl: true
+  force_path_style: true
+  path: clickhouse/ci
+  compression_format: zstd
+  compression_level: 3

@@ -415,9 +415,10 @@ custom_encryption:
 
 ### Restore drill — manual procedure (Phase 7b2)
 
-Phase 2c will automate this via `deploy/backup/drill.sh` + a CI job.
-Until then, run the steps below on a dedicated drill host (NOT
-production):
+Automated by `deploy/backup/drill.sh` + `.github/workflows/backup-drill-nightly.yml`
+as of Phase 2c (PR #36). The manual procedure below is still the SOP
+when an operator is triaging a drill failure by hand on a dedicated
+host (NOT production):
 
 1. Install `clickhouse-backup` on the drill host (same version as
    production):
@@ -460,8 +461,10 @@ production):
 
 - **Every release:** before `git tag v*`, restore last night's backup,
   walk steps 5–7, confirm parity. A failed drill blocks the release.
-- **Nightly cron:** automated nightly drill (Phase 2c — script lives
-  at `deploy/backup/drill.sh` once written).
+- **Nightly cron:** automated nightly drill via
+  [`.github/workflows/backup-drill-nightly.yml`](../.github/workflows/backup-drill-nightly.yml)
+  (Phase 2c). Host-side cron wrapper: see `deploy/backup/README.md` for
+  the cron template.
 - **Before any schema migration:** full + incremental snapshot
   immediately before `make migrate`. Same restore drill afterward
   proves the migration itself didn't corrupt the data set.

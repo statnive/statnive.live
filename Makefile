@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := $(shell go list -mod=vendor ./... 2>/dev/null | grep -v '/web/node_modules/')
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep smoke
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local
 
 all: lint test build
 
@@ -251,6 +251,18 @@ airgap-test:
 ## clean: Remove build + runtime artifacts (NOT vendor/, NOT config/master.key)
 clean:
 	rm -rf $(BIN_DIR) wal/ data/ tmp/ coverage.out coverage.html *.prof audit.jsonl
+
+## systemd-verify: Phase 2c — grep-based hardening check for deploy/systemd/statnive-live.service
+systemd-verify:
+	@bash deploy/systemd/harden-verify.sh deploy/systemd/statnive-live.service
+
+## seed-backup-drill: Phase 2c — seed ~10 K synthetic events for the backup drill (needs docker CH up)
+seed-backup-drill:
+	@bash test/seed/backup-drill.sh
+
+## backup-drill-local: Phase 2c — run the CI backup drill locally (needs CH + MinIO up on 19000/9001)
+backup-drill-local:
+	@bash deploy/backup/drill.sh --config=deploy/backup/config-ci.yml --mode=full
 
 ## help: Show this help
 help:
