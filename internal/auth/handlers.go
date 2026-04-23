@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/statnive/statnive.live/internal/admin"
 	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/httpjson"
 )
 
 // loginRequest is the tight-whitelist body for POST /api/login.
@@ -102,7 +102,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 func decodeLogin(_ http.ResponseWriter, r *http.Request) (loginRequest, bool) {
 	var req loginRequest
 
-	if err := admin.DecodeAllowed(r, &req, []string{"email", "password"}); err != nil {
+	if err := httpjson.DecodeAllowed(r, &req, []string{"email", "password"}); err != nil {
 		return loginRequest{}, false
 	}
 

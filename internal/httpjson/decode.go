@@ -1,13 +1,14 @@
-// Package admin owns the HTTP CRUD surface for operator actions:
-// user provisioning, goal definitions. Every mutation is gated by
-// auth.RequireRole(auth.RoleAdmin) at the router level (see
-// cmd/statnive-live/main.go), so handlers in this package assume
-// UserFrom(ctx) returns a non-nil admin user.
+// Package httpjson provides the shared F4 mass-assignment guard used
+// by every write handler: POST /api/login + every /api/admin/*
+// mutation. One helper, one implementation — the Semgrep rule
+// `admin-no-raw-json-decoder` rejects any direct json.NewDecoder
+// under internal/admin/** so the contract stays enforced.
 //
-// Every write handler uses DecodeAllowed below — never raw
-// json.NewDecoder. Enforced by the blake3-hmac-identity-review skill's
-// `admin-no-raw-json-decoder` Semgrep rule.
-package admin
+// Lives in its own package (not internal/admin) because
+// internal/auth/handlers.go needs it too, and internal/admin imports
+// internal/auth via deps.go — putting DecodeAllowed in internal/admin
+// would create an import cycle.
+package httpjson
 
 import (
 	"encoding/json"
