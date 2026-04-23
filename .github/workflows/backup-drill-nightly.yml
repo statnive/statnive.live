@@ -75,13 +75,12 @@ jobs:
         run: docker compose -f deploy/docker-compose.dev.yml up -d --wait clickhouse
 
       - name: Unlock MV inner-table drops for CI
-        # CH 24.12-alpine's Atomic engine gates DROP on the force_drop_table
-        # flag for materialized-view inner tables, even on size 0. Setting
-        # max_table_size_to_drop=0 disables the restriction entirely
-        # (CH docs: "Value 0 means all tables can be deleted without
-        # restriction"). Safe for CI; never deploy this override to prod.
+        # CH's DatabaseCatalog::checkIfTableCanBeDropped requires the
+        # force_drop_table flag when `max_size_to_drop == 0 || table_size >
+        # max_size_to_drop` — setting it to 10 TB means the check passes
+        # for any realistic CI table. Safe for CI; never deploy to prod.
         run: |
-          docker exec statnive-clickhouse-dev sh -c 'printf "<clickhouse>\n  <max_table_size_to_drop>0</max_table_size_to_drop>\n  <max_partition_size_to_drop>0</max_partition_size_to_drop>\n</clickhouse>\n" > /etc/clickhouse-server/config.d/99-ci-drop-unlimited.xml'
+          docker exec statnive-clickhouse-dev sh -c 'printf "<clickhouse>\n  <max_table_size_to_drop>10000000000000</max_table_size_to_drop>\n  <max_partition_size_to_drop>10000000000000</max_partition_size_to_drop>\n</clickhouse>\n" > /etc/clickhouse-server/config.d/99-ci-drop-unlimited.xml'
           docker exec statnive-clickhouse-dev clickhouse-client --port 9000 -q "SYSTEM RELOAD CONFIG"
 
       - name: Boot MinIO sidecar + create bucket
@@ -145,7 +144,7 @@ jobs:
         run: |
           docker compose -f deploy/docker-compose.dev.yml down -v
           docker compose -f deploy/docker-compose.dev.yml up -d --wait clickhouse
-          docker exec statnive-clickhouse-dev sh -c 'printf "<clickhouse>\n  <max_table_size_to_drop>0</max_table_size_to_drop>\n  <max_partition_size_to_drop>0</max_partition_size_to_drop>\n</clickhouse>\n" > /etc/clickhouse-server/config.d/99-ci-drop-unlimited.xml'
+          docker exec statnive-clickhouse-dev sh -c 'printf "<clickhouse>\n  <max_table_size_to_drop>10000000000000</max_table_size_to_drop>\n  <max_partition_size_to_drop>10000000000000</max_partition_size_to_drop>\n</clickhouse>\n" > /etc/clickhouse-server/config.d/99-ci-drop-unlimited.xml'
           docker exec statnive-clickhouse-dev clickhouse-client --port 9000 -q "SYSTEM RELOAD CONFIG"
 
       - name: Restore + assert parity via drill.sh
