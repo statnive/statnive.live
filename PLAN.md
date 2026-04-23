@@ -62,7 +62,7 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 
 ## Development Phases
 
-### Status — 2026-04-19
+### Status — 2026-04-23
 
 | Phase | Status | Notes |
 |---|---|---|
@@ -90,10 +90,51 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 | **8 — Deployment & launch** | ⏳ Pending | Hetzner CX32 staging, airgap-bundle, monitoring, runbook, v1 launch. |
 | **9 — Phase A dogfood** | ⏳ Pending | statnive.com → demo.statnive.live. |
 | **10 — Phase B SamplePlatform** | ⏳ Pending | Iranian DC bare metal, paid DB23 GeoIP. |
-| **11 — Phase C SaaS** | ⏳ Pending | Polar.sh checkout + webhooks, signup, path-based tenancy. |
+| **11a — SaaS self-serve signup (free tier)** | ⏳ Pending | 🎯 **Milestone 3**. `POST /api/signup` (email + password + hostname → site + admin user), DNS-resolvable check, 5/hr/IP rate-limit, email verification (24 h grace), path-based tenant routing `app.statnive.live/s/<slug>/`, onboarding page, free 10K PV/mo. **No billing.** Reuses `httpjson.DecodeAllowed` + `sites.ReserveSlug` from Phase 3c. |
+| **11b — SaaS paid tiers (Polar.sh)** | ⏳ Pending | 🎯 **Milestone 4**. `POST /api/billing/checkout` → Polar, `POST /api/admin/billing` (Polar webhook; HMAC signature verified), 4 Products × monthly+yearly ($9 / $19 / $69 / $199), plan-gated features (Funnel CRUD, higher quotas), upgrade-banner on over-quota. Polar is Merchant of Record — no per-country tax registration. Customer Portal + Benefits = v2. |
+| **v1.1-tokens — API-token rotation endpoint** | ⏳ Pending | `POST /api/admin/tokens` (hash + rotate without binary restart). **Blocks 11a** (SaaS multi-tenancy requires leaked-token rotation without restart). Can fold into the 11a PR or ship standalone. |
+| **v1.1-pwreset — Password-reset email flow** | ⏳ Pending | Forgot-password link → signed token → reset landing page → `POST /api/auth/password-reset`. **Blocks 11a** (customers forget passwords; no self-serve product without it). NIST 800-63B password policy ships in this slice alongside Phase 11a's signup validation. |
+| **v1.1-csrf — CSRF double-submit + step-up auth** | ⏳ Pending | Double-submit token on `/api/admin/*` + `RequireFreshAuth(5 m)` on privilege-granting handlers (password change, role change, billing change). **Blocks 11b** (paid multi-tenant surface raises the value of a leaked admin cookie). |
 | **CLI** (operator surface) | 🔮 v1.1 | Subcommands: serve, migrate, license, sites, users, backup, doctor, secret, stats. Details in [`docs/cli-operator-surface.md`](docs/cli-operator-surface.md). |
 | **MCP server** (agent surface) | 🔮 v2 | Read-only analytics tools over stdio (air-gap-safe) or HTTP. See [`docs/cli-operator-surface.md § MCP`](docs/cli-operator-surface.md). |
 | **Brand & design tokens** | 📐 Reference ready | Wordmark + summit logo, cream/ink/Persian-Teal palette, Fraunces + IBM Plex ramp. Full spec in [`docs/brand.md`](docs/brand.md). |
+
+### Shipping Roadmap — 4 milestones (2026-04-23)
+
+After Phase 3c merged, the remaining v1 work is sequenced to ship **four product milestones in order**. Each milestone is a customer-visible checkpoint; intermediate phases are foundation.
+
+| # | Phase | Effort | Cumulative | Ships when done |
+|---|---|---|---|---|
+| 1 | **2c — Operational hardening** | 2 days | Day 2 | systemd unit, firewall rules, backup script, LUKS docs |
+| 2 | **6-polish — First-run UX** | 1 day | Day 3 | Fresh install → first event visible <5 min |
+| 3 | **7d — Lint + security scans** | 3 days | Week 1 | govulncheck + CodeQL + Semgrep in every PR + ~40 pre-existing findings cleared |
+| 4 | **8 — Deploy + airgap bundle** | 1 week | Week 2 | `make airgap-bundle` → SCP → install → v1 binary running |
+| 5 | **9 — Dogfood on statnive.com** | 2 days | Week 2 | 🎯 **Milestone 1: statnive.com live on Statnive** |
+| 6 | **7e — Load-gate + 7-scenario chaos matrix** | 4 weeks | Week 6 | 72 h soak @ 7K EPS + full chaos matrix green (HARD GATE on M2) |
+| 7 | **10 P1 — SamplePlatform cutover (web only)** | 4 weeks | Week 10 | 🎯 **Milestone 2: SamplePlatform live (Iranian DC)** |
+| 8 | **v1.1-tokens — API-token rotation endpoint** | 3 days | Week 10.5 | `POST /api/admin/tokens` — rotation without binary restart |
+| 9 | **v1.1-pwreset — Password-reset email flow** | 1 week | Week 11.5 | Forgot-password → email → reset landing page |
+| 10 | **11a — SaaS self-serve signup (free tier)** | 2 weeks | Week 13.5 | 🎯 **Milestone 3: public signup, 10K PV/mo free, no billing** |
+| 11 | **v1.1-csrf — CSRF double-submit + step-up auth** | 1 week | Week 14.5 | Admin mutations hardened for multi-tenant paid surface |
+| 12 | **11b — Polar.sh checkout + webhooks + plan gating** | 3 weeks | Week 17.5 | 🎯 **Milestone 4: paying SaaS customers** |
+
+**Ongoing after Milestone 2.** Phase 10 P2–P5 (SamplePlatform iOS / Android / TV rollout) runs over ~10 months in the background, NOT on Milestone 4's critical path. Each sub-phase repeats the 7e load-gate at a larger EPS envelope (P1 450 EPS → P5 40K EPS peak) before onboarding the next app.
+
+**Parallelization.** After Phase 8 (deploy bundle) lands at Week 2, three tracks can run independently if two developers are available:
+
+- **Track A** — `9 → 7e → 10 P1` → Milestone 2 at Week 10
+- **Track B** — `v1.1-tokens + v1.1-pwreset → 11a` → Milestone 3 at Week 8 (overlaps M2 timeline)
+- **Track C** — `v1.1-csrf → 11b` → Milestone 4 at Week 13 (overlaps too)
+
+Two-developer execution compresses the 17.5-week sequential estimate to ~13 weeks (~6 weeks saved). Solo execution = strictly sequential per the critical-path table. Caveat: Track B uses Hetzner staging, not the Iranian DC, so Track A's 7e load-gate failure does not block Track B.
+
+**Decision caveats to revisit before starting each milestone:**
+
+- **M2 — SamplePlatform contract timing.** If SamplePlatform has a fixed go-live date, Phase 10 P1 Week 10 becomes a hard deadline. Confirm with product before starting 7e.
+- **M3 — email verification lives inside 11a**, not deferred to v1.1. Phase 11a without email verification is spammable; add the ~3-day email-verification scope to the Phase 11a week estimate.
+- **M4 — Polar lock-in.** Switching to Stripe after shipping 11b = ~1 week of rework. Confirm Polar is the right choice (MoR trade-off vs. fee, EU VAT coverage) before starting 11b.
+- **M4 — feature-gating philosophy.** "Paid tiers unlock goals/funnels" is the default in the original plan. Recommend: leave Goals (Phase 3c) free across all tiers; gate only the eventual Funnel CRUD (v2) + higher quotas behind paid. Keeps Milestone 3's upgrade story simple ("more usage = upgrade", not "more features = upgrade").
+- **v1.1 fold-or-standalone.** v1.1-tokens / -pwreset / -csrf can fold into their blocking milestone's PR (less ceremony) or ship as three small standalone PRs (easier review). Decide per slice at execution time.
 
 ### Phase 0: Project Setup (Week 1)
 
@@ -131,7 +172,7 @@ Full tree with `[shipped]`/`[planned]`/`[scaffolded]` per-file markers in [`docs
 - [x] Input validation (`MaxBytesReader` 8KB, ±1h drift) — shipped in Phase 1.
 - [x] Hostname validation (HMAC skipped per doc 20); emits `audit.ingest.hostname_unknown`.
 - [x] Audit log (`internal/audit/`, `O_APPEND`, `Reopen()` for logrotate, typed `EventName`).
-- [ ] systemd hardening, iptables, LUKS docs, backup script — Phase 2c.
+- [ ] systemd hardening, iptables, LUKS docs, backup script — Phase 2c (Foundation for Milestone 1 — statnive.com).
 - [x] Security assertions in `test/integration_test.go` + `test/security_test.go`.
 
 ### Phase 3: Dashboard API (Weeks 7–9)
@@ -181,7 +222,7 @@ Brand tokens from [`docs/brand.md`](docs/brand.md) — `web/src/tokens.css` impo
 
 **Deferred to v1.1:** comparison-period toggle, CSV export, command palette.
 
-### Phase 6: Configuration & First-Run (Week 15)
+### Phase 6: Configuration & First-Run (Week 15) — Polish for Milestone 1
 
 - [x] YAML config loader (viper). Goals storage flipped CH-backed in Phase 3c (see Phase 6 note); funnels stay deferred to v2.
 - [x] First-run: admin user creation (Phase 2b bootstrap env) + Goal CRUD (Phase 3c CH-backed, not YAML).
@@ -205,7 +246,7 @@ Brand tokens from [`docs/brand.md`](docs/brand.md) — `web/src/tokens.css` impo
 - [ ] **Generator_seq oracle schema** (doc 29 §6.1) — migration `003_load_gate_columns.sql` adds `test_run_id` (UUID), `test_generator_seq` (UInt64), `generator_node_id` (UInt16), `send_ts` (DateTime64(3)) to `events_raw` with typed `DEFAULT` sentinels (not Nullable — Rule 5 carve-out in CLAUDE.md); projection `proj_oracle` for sub-second per-run aggregations. Phase 7e prerequisite — scaffolded alongside Locust harness.
 - [ ] **PII wire-scan migration to Vector.dev + VRL** (doc 29 §3.4, §6.3) — supersedes one-shot [`test/pii_leak_test.go`](test/pii_leak_test.go) with live <1s detection at 15K+ EPS via VRL regex (ipv4/ipv6/email/user_id). Halts graduation gate on `rate() > 0`. Phase 7e deliverable.
 
-### Phase 7e: Load-simulation gate scaffolding (Weeks 17–20, overlaps Phase 8)
+### Phase 7e: Load-simulation gate scaffolding (Weeks 17–20, overlaps Phase 8) — Hard gate for Milestone 2
 
 **Guardrail (scheduled):** `load-gate-harness` skill — triggers on `test/perf/gate/**`, `test/perf/chaos/**`, `test/perf/generator/**`, `deploy/observability/**`. Advisory during scaffolding; HARD GATE on Phase 10 P1 cutover.
 
@@ -220,7 +261,7 @@ Canonical spec: [`../jaan-to/docs/research/29-Production-load-simulation-gate-st
 - [ ] **Replay-attestation template** — `docs/replay-attestation-template.md`; SamplePlatform analytics owner signs a per-phase export statement (regex-scrub spec + salt rotation + auto-delete kill-switch).
 - [ ] **Acceptance:** P1 dry-run on 2-node test bed passes all 6 chaos scenarios + 0→450 EPS breakpoint + oracle SQL returns zero loss/duplicates before Phase 10 Week 21 begins.
 
-### Phase 8: Deployment & Launch (Weeks 17–18)
+### Phase 8: Deployment & Launch (Weeks 17–18) — Foundation for Milestone 1 (v1 binary ready)
 
 **Guardrails:** [`air-gap-validator`](.claude/skills/air-gap-validator/README.md), [`clickhouse-rollup-correctness`](.claude/skills/clickhouse-rollup-correctness/README.md), [`clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md). Plus `AgriciDaniel/claude-cybersecurity` one-shot audit.
 
@@ -232,7 +273,7 @@ Canonical spec: [`../jaan-to/docs/research/29-Production-load-simulation-gate-st
 - [ ] Offline GeoIP update procedure (SCP BIN + SIGHUP); internal NTP requirement docs
 - [ ] SamplePlatform tracker integration; air-gap acceptance test; v1 launch
 
-### Phase 9: Dogfood on statnive.com (Weeks 19–20)
+### Phase 9: Dogfood on statnive.com (Weeks 19–20) — 🎯 Milestone 1: statnive.com live
 
 - [ ] Hetzner CX32 (~€13/mo) as D1 initial. Upgrade to AX42 at ~10 SaaS customers (Phase C).
 - [ ] DNS A/AAAA for `statnive.live` + `demo.statnive.live`; manual PEM via certbot + cron+SIGHUP
@@ -242,7 +283,7 @@ Canonical spec: [`../jaan-to/docs/research/29-Production-load-simulation-gate-st
 - [ ] Tracker snippet in `statnive-website/` Astro base layout
 - [ ] Acceptance: 24h → non-zero visitors; viewer blocked from `/api/admin/*`; all 8 `/api/stats/*` return data
 
-### Phase 10: SamplePlatform dedicated Iranian VPS (Weeks 21–24)
+### Phase 10: SamplePlatform dedicated Iranian VPS (Weeks 21–24) — 🎯 Milestone 2: SamplePlatform live (P1 cutover; P2–P5 roll out over ~10 months post-M2)
 
 **HARD GATE on cutover:** [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md) — Iranian-ASN compound-key tiering before the first byte. AS44244 / AS197207 / AS57218 on `(ip, site_id)` at 1K req/s sustained / 2K burst; 100/200 fallback elsewhere; 25K req/s per-site global cap. ASN via `iptoasn.com` public-domain TSV (MaxMind / IPLocate CC-BY-SA rejected). k6 scenarios `normal`/`burst`/`ddos`/`cgnat` must pass.
 
@@ -274,22 +315,37 @@ Per-phase Iranian DC sizing:
 - [ ] SamplePlatform pastes `<script src="https://SamplePlatform.statnive.live/tracker.js" defer></script>` + root-domain cookie walking (Clarity pattern, doc 21)
 - [ ] Acceptance per sub-phase (doc 29 §4): P1 72h soak @ 240 EPS + 7-scenario chaos (+ G international-egress per doc 30 §3) + 0→450 EPS breakpoint → binary SLO sign-off before SamplePlatform web cutover; P2/P3/P4/P5 repeat the gate at their respective envelopes (1K / 4K / 9K-18K match / 40K peak) before onboarding each app. PII wire-scan `rate()` = 0 throughout. Air-gap end-to-end + backup+restore remain prerequisite (§17 / §37).
 
-### Phase 11: International SaaS self-serve (Weeks 26–30)
+### v1.1 — Pre-SaaS prerequisites
 
-**HARD GATE on first signup:** [`gdpr-code-review`](.claude/skills/gdpr-code-review/README.md) + [`dsar-completeness-checker`](.claude/skills/dsar-completeness-checker/README.md) paired. 12-item privacy-by-design + sink-matrix integration test (`system.tables` enumerated dynamically). DPA draft at `docs/dpa-draft.md` with doc 27 §line 77-79 HLL-anonymous language. Weekly rollup rebuild cron (`robfig/cron`, Sunday 03:00 IRST) as bounded-time safety net.
+These three v1.1 items block Phase 11a or 11b. Each can fold into its blocking milestone's PR (ship the endpoint alongside the feature that needs it) or land standalone — decision made at execution time based on PR-review bandwidth.
 
-- [ ] `POST /api/signup` (email + password + hostname → site + admin user)
-- [ ] `POST /api/admin/billing` (Polar.sh webhook — verify `X-Polar-Signature` HMAC-SHA256; `subscription.{created,updated,canceled}` only; idempotent by event.id)
-- [ ] **Mass-assignment guard on every write endpoint (F4, Verification §52).** `POST /api/signup`, `POST /api/admin/billing`, `POST /api/admin/users`, `POST /api/admin/goals`, and any future mutating handler uses (a) `json.NewDecoder(r.Body).DisallowUnknownFields()` to reject unknown keys, (b) per-endpoint `AllowedFields []string` whitelist enforced pre-unmarshal, (c) `site_id` / `role` / `is_admin` / `plan` sourced from session context (or the verified Polar webhook payload, for billing only) — never from request body. Laravel-style mass-assignment (`site_id=2, role=admin`) is how cross-tenant privilege escalation sneaks in. Go-adapted from jaan-to-plugin research doc 04 + doc 67 patterns.
-- [ ] **Path-based tenant routing** in `dashboard/router.go` — `app.statnive.live/s/<slug>/...`; middleware extracts slug → `site_id` via `internal/sites/sites.go`
-- [ ] `internal/sites/sites.go` — slug generation, uniqueness, blocklist, create/disable
-- [ ] Signup guardrails: DNS-resolvable, not on blocklist, unique in `sites`, 5/hr/IP
-- [ ] Free tier 10K PV/mo via `daily_users` (v1.1) or `count(DISTINCT visitor_hash)` over `hourly_visitors`; soft throttle + `quota_exceeded=1` tag + upsell banner
-- [ ] Polar.sh (Merchant of Record): 4 Products × monthly+yearly; `POST /api/billing/checkout` → `POST api.polar.sh/v1/checkouts/` with `external_customer_id=site_id`. Customer Portal + Benefits = v2; v1 = email support
-- [ ] Paid tiers unlock quota + goals/funnels CRUD (gate keyed by `sites.plan`)
-- [ ] Onboarding at `/s/<slug>/onboarding` (copy-paste + user-triggered refresh)
-- [ ] Email transactional (signup/receipt/quota) — opt-in via `email.enabled`
-- [ ] Acceptance: fresh signup → tracker → first event <5min; cross-site isolation; sandbox `subscription.created` updates `sites.plan`; webhook idempotent; 6th signup/hr rejected
+- **v1.1-tokens — API-token rotation endpoint** (blocks 11a). `POST /api/admin/tokens` hashes + stores a new raw token; `DELETE /api/admin/tokens/{label}` revokes. Today tokens live in config or env (`STATNIVE_API_TOKENS`) and require a binary restart to rotate — unacceptable for multi-tenant SaaS where a leaked token from one customer's CI must be revokable without downtime for others. Reuses Phase 2b's `APIToken` hashed-by-SHA-256 pattern; adds a small CH table + admin handler.
+- **v1.1-pwreset — Password-reset email flow** (blocks 11a). Forgot-password link on `/app/login` → `POST /api/auth/password-reset-request` (email + rate-limit) → signed time-limited token via email → reset landing page → `POST /api/auth/password-reset`. Requires `email.enabled` SMTP config. NIST 800-63B password policy (8+ chars, HaveIBeenPwned top-10k blocklist) ships in this slice alongside the signup path in Phase 11a.
+- **v1.1-csrf — CSRF double-submit + step-up auth** (blocks 11b). Double-submit token cookie + request header on every `/api/admin/*` mutation; `RequireFreshAuth(5m)` on privilege-granting handlers (password change, role change, billing change, token rotation). SameSite=Lax held the line for Phase 2b; the paid-tier multi-tenant surface raises the value of a leaked admin cookie, so belt-and-braces applies here.
+
+### Phase 11a: SaaS self-serve signup — free tier (🎯 Milestone 3, Weeks 26–28)
+
+**HARD GATE on first signup:** [`gdpr-code-review`](.claude/skills/gdpr-code-review/README.md) + [`dsar-completeness-checker`](.claude/skills/dsar-completeness-checker/README.md) paired. 12-item privacy-by-design + sink-matrix integration test (`system.tables` enumerated dynamically). DPA draft at `docs/dpa-draft.md` with doc 27 §line 77-79 HLL-anonymous language. Weekly rollup rebuild cron (`robfig/cron`, Sunday 03:00 IRST) as bounded-time safety net. Applies to 11a because this is when the first public tenant lands — even free-tier tenants are covered by GDPR.
+
+- [ ] `POST /api/signup` (email + password + hostname → site + admin user). Reuses `httpjson.DecodeAllowed` from Phase 3c for the F4 mass-assignment guard (site_id + role sourced from server-side, never body).
+- [ ] **Path-based tenant routing** in `dashboard/router.go` — `app.statnive.live/s/<slug>/...`; middleware extracts slug → `site_id` via `internal/sites/sites.go`.
+- [ ] Slug generation / uniqueness / blocklist — **already shipped in Phase 3c** (`sites.GenerateSlug`, `sites.IsSlugAvailable`, `sites.ReserveSlug`, `sites.ReservedSlugs`). Phase 11a just calls them from the signup handler.
+- [ ] Signup guardrails: DNS-resolvable hostname, not on blocklist, unique in `sites`, 5/hr/IP rate-limit.
+- [ ] Email verification with 24-hour grace window — signup creates the tenant in a `pending` plan; first event emits a tracker warning banner until email is verified; 24 h after signup, unverified tenants get disabled.
+- [ ] Free tier 10K PV/mo via `daily_users` (v1.1) or `count(DISTINCT visitor_hash)` over `hourly_visitors`; soft throttle + `quota_exceeded=1` tag + upsell banner.
+- [ ] Onboarding at `/s/<slug>/onboarding` (copy-paste tracker snippet + "Check for first event" button triggering a user-initiated refresh).
+- [ ] Email transactional (signup confirmation + welcome) — opt-in via `email.enabled`. Password-reset email path comes from v1.1-pwreset (landing here or shipping standalone).
+- [ ] **Mass-assignment guard review on every new write endpoint (F4, Verification §52).** `POST /api/signup` + any new admin endpoint in 11a uses the `httpjson.DecodeAllowed` helper established in Phase 3c; sensitive fields (`site_id`, `role`, `plan`) never come from the request body. Laravel-style mass-assignment (`site_id=2, role=admin`) is how cross-tenant privilege escalation sneaks in — re-audit every new handler before merge.
+- [ ] Acceptance: fresh signup → tracker snippet pasted → first event visible in dashboard <5 min; cross-site isolation (URL manipulation blocked); 6th signup/hr from same IP rejected; unverified tenant disabled at T+24h.
+
+### Phase 11b: SaaS paid tiers — Polar.sh (🎯 Milestone 4, Weeks 28–30)
+
+- [ ] `POST /api/billing/checkout` → `POST api.polar.sh/v1/checkouts/` with `external_customer_id=site_id`. No Go SDK — REST calls directly. Sandbox: `sandbox-api.polar.sh`.
+- [ ] `POST /api/admin/billing` (Polar.sh webhook — verify `X-Polar-Signature` HMAC-SHA256; `subscription.{created,updated,canceled}` only; idempotent by `event.id`). Source of truth for `sites.plan`.
+- [ ] Polar.sh (Merchant of Record) → no per-country tax registration. 4 Products × monthly+yearly (Free self-hosted only, Starter $9, Growth $19, Business $69, Scale $199). Customer Portal + Benefits = v2; v1 = email support.
+- [ ] Paid tiers unlock quota (Starter 100K PV, Growth 1M, Business 10M, Scale 100M) + Funnel CRUD (Goals CRUD already free per Phase 3c — recommend leaving them free). Gate keyed by `sites.plan`.
+- [ ] Email transactional (receipt/quota) — opt-in via `email.enabled`.
+- [ ] Acceptance: sandbox `subscription.created` → `sites.plan` flips; `subscription.canceled` reverts at period end; webhook is idempotent against duplicate Polar deliveries; upgrade-banner click → Polar checkout → return → plan flip within 30s.
 
 ## License Management (Self-Hosted)
 
