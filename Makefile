@@ -78,6 +78,27 @@ privacy-gate-selftest:
 		|| (echo "FAIL: rule fired on should-not-trigger fixtures"; exit 1)
 	@echo "OK: slog-no-raw-pii clean on hashed-PII fixtures"
 
+## skill-sanitizer: supply-chain guard on skill content (Phase 7d F6).
+## Scans .claude/skills/** + docs/** for Unicode Tag Block / zero-width /
+## bidi codepoints. CI runs it via .github/workflows/security-gate.yml.
+skill-sanitizer:
+	@./scripts/skill-sanitizer.sh
+
+## skill-sanitizer-selftest: assert the scanner fires on should-trigger
+## fixtures and does NOT fire on should-not-trigger fixtures. Run after
+## any change to the scanner regex.
+skill-sanitizer-selftest:
+	@echo "==> should-trigger fixtures (expect exit 1)"
+	@if ./scripts/skill-sanitizer.sh --selftest test/fixtures/skill-sanitizer/should-trigger/ >/dev/null 2>&1; then \
+		echo "FAIL: scanner did not fire on should-trigger fixtures"; exit 1; \
+	else \
+		echo "OK: scanner fires on should-trigger"; \
+	fi
+	@echo "==> should-not-trigger fixtures (expect exit 0)"
+	@./scripts/skill-sanitizer.sh --selftest test/fixtures/skill-sanitizer/should-not-trigger/ >/dev/null \
+		|| (echo "FAIL: scanner fired on should-not-trigger"; exit 1)
+	@echo "OK: scanner clean on should-not-trigger"
+
 ## tenancy-grep: CI gate — Architecture Rules 1 + 8 (no events_raw queries; whereTimeAndTenant first)
 tenancy-grep:
 	@if grep -rEn 'FROM[[:space:]]+(statnive\.)?events_raw' internal/storage/queries.go; then \
