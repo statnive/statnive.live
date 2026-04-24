@@ -1,0 +1,33 @@
+/*
+ * Bundled font faces for the statnive-live dashboard.
+ *
+ * Each @fontsource/* import resolves to a CSS file containing
+ * @font-face rules with url() pointing at WOFF2 subsets (latin +
+ * latin-ext) under node_modules/@fontsource/<family>/files/. Vite
+ * rewrites those url()s during build, hashes the WOFF2 files, and
+ * copies them into /app/assets/*.woff2 so the dashboard is served
+ * entirely first-party (air-gap invariant, CSP font-src 'self').
+ *
+ * Licensing: all three families are SIL OFL 1.1. Attribution in
+ * LICENSE-third-party.md; raw OFL text shipped in each package's
+ * LICENSE file under node_modules (not reshipped in the binary —
+ * OFL §5 "embedded in a larger document" exception covers the
+ * compiled SPA).
+ *
+ * Font budget (gz, measured by size-limit): WOFF2 subsets are served
+ * as separate assets and do NOT count against the 14 KB JS / 5 KB CSS
+ * initial-chunk ceilings. Browser only downloads subsets touched by
+ * the unicode-range actually rendered on screen.
+ */
+
+/* Display — Space Grotesk 500 (wordmark, KPI values, h2 titles). */
+@import '@fontsource/space-grotesk/500.css';
+
+/* Body — DM Sans 400 + 500 (tables, copy, forms, chips, links). */
+@import '@fontsource/dm-sans/400.css';
+@import '@fontsource/dm-sans/500.css';
+
+/* Mono — JetBrains Mono 400 + 500 (labels, metrics, timezone chip,
+   tracker-snippet code blocks, tabular nums). */
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
