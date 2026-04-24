@@ -41,6 +41,9 @@ jobs:
       - name: Tenancy gate (Architecture Rules 1 + 8)
         run: make tenancy-grep
 
+      - name: Skill-content sanitizer (Phase 7d F6)
+        run: make skill-sanitizer
+
       # Phase 7d cleared the 185-finding baseline; lint now runs against
       # the full repo, not just the PR delta.
       - name: Lint

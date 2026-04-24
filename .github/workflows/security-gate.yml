@@ -1,0 +1,140 @@
+name: security-gate
+
+# Phase 7d per-PR static + supply-chain gate. Separate from ci.yml so
+# the security jobs can be re-run in isolation on release cuts without
+# re-triggering the 7-job build-test-lint matrix.
+#
+# Research backing: doc 23 §Phase 2 Security Layer ("Trail of Bits
+# static-analysis (CodeQL, Semgrep, SARIF) + gopls MCP (govulncheck) +
+# claude-cybersecurity 8 OWASP agents") prescribes this exact stack.
+#
+# All action refs are SHA-pinned per CLAUDE.md Security #? (no tag-only
+# pins — air-gap-validator rejects them on PR review).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write  # SARIF upload to GitHub Security tab
+
+jobs:
+  govulncheck:
+    name: govulncheck (Go supply-chain)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # Install via go install; pin to a known-good version rather than
+      # @latest so the gate is reproducible. govulncheck is generally
+      # forward-compatible with the Go toolchain it runs against.
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+
+      - name: Run govulncheck
+        # -mod=vendor so govulncheck reads the vendored tree (same
+        # posture as the go-licenses job). Exits non-zero on any HIGH
+        # or CRITICAL finding.
+        run: $(go env GOPATH)/bin/govulncheck -mod=vendor ./...
+
+  semgrep-all:
+    name: semgrep (all project-local rules)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Install semgrep
+        run: pip install --no-cache-dir semgrep==1.91.0
+
+      # Supersedes the optional `make identity-gate` (local-dev only).
+      # Scans every .claude/skills/**/semgrep rule against internal/ +
+      # cmd/ + web/ + tracker/. A fresh scan against main is the
+      # baseline (no historical suppression file).
+      - name: Run semgrep (identity + privacy + GeoIP + iran-dc + WAL rules)
+        run: |
+          semgrep scan \
+            --error \
+            --config=.claude/skills/blake3-hmac-identity-review/semgrep \
+            --config=.claude/skills/gdpr-code-review/semgrep \
+            --config=.claude/skills/geoip-pipeline-review/semgrep \
+            --config=.claude/skills/iranian-dc-deploy/semgrep \
+            --config=.claude/skills/wal-durability-review/semgrep \
+            --sarif \
+            --output=semgrep.sarif \
+            internal/ cmd/ web/ tracker/
+
+      - name: Upload semgrep SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@396bb3e45325a47dd9ef434068033c6d5bb0d11a  # v3.27.5
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+      - name: Assert slog-no-raw-pii selftest fixtures
+        # Separate from the main scan — this confirms the rule itself
+        # still functions on its canonical good + bad inputs so a future
+        # rule rewrite can't silently break the privacy gate.
+        run: |
+          semgrep scan --error \
+            --config=.claude/skills/gdpr-code-review/semgrep \
+            .claude/skills/gdpr-code-review/test/fixtures/should-not-trigger/ \
+            || (echo "FAIL: rule fired on should-not-trigger fixtures"; exit 1)
+          if semgrep scan --error \
+              --config=.claude/skills/gdpr-code-review/semgrep \
+              .claude/skills/gdpr-code-review/test/fixtures/should-trigger/ \
+              >/dev/null 2>&1; then
+            echo "FAIL: rule did not fire on should-trigger fixtures"; exit 1
+          fi
+          echo "OK: slog-no-raw-pii fixtures round-trip"
+
+  codeql:
+    name: CodeQL (Go + JavaScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, javascript]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@396bb3e45325a47dd9ef434068033c6d5bb0d11a  # v3.27.5
+        with:
+          languages: ${{ matrix.language }}
+          # Stock default queries; no custom suite. SARIF fingerprint
+          # baselines (F8) are deferred to v1.1 per PLAN.md :89.
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@396bb3e45325a47dd9ef434068033c6d5bb0d11a  # v3.27.5
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@396bb3e45325a47dd9ef434068033c6d5bb0d11a  # v3.27.5
+        with:
+          category: /language:${{ matrix.language }}
