@@ -3,6 +3,7 @@ import { Nav } from './Nav';
 import { DatePicker } from './DatePicker';
 import { FilterPanel } from './FilterPanel';
 import { SiteSwitcher } from './SiteSwitcher';
+import { Footer } from './Footer';
 import { userSignal } from '../state/auth';
 import './AppShell.css';
 
@@ -58,6 +59,8 @@ export function AppShell({ children, onLogout }: AppShellProps) {
       <FilterPanel />
 
       <main class="statnive-main">{children}</main>
+
+      <Footer />
     </div>
   );
 }
