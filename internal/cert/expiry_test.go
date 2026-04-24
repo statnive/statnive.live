@@ -36,7 +36,7 @@ func TestExpiry_FiresWarnAndCriticalOnce(t *testing.T) {
 	// Fake clock: advance progressively past each band crossing.
 	var fakeNow time.Time
 
-	w := cert.NewExpiryWatcher(loader, auditLog, func() time.Time { return fakeNow })
+	w := cert.NewExpiryWatcher(loader, auditLog, nil, func() time.Time { return fakeNow })
 
 	// At T-365d (exactly when the cert was issued) — fresh, no event.
 	fakeNow = notAfter.Add(-365 * 24 * time.Hour)
@@ -114,7 +114,7 @@ func TestExpiry_RecoversWhenCertRenewed(t *testing.T) {
 		t.Fatalf("loader: %v", err)
 	}
 
-	w := cert.NewExpiryWatcher(loader, auditLog, time.Now)
+	w := cert.NewExpiryWatcher(loader, auditLog, nil, time.Now)
 
 	// First check: fires critical.
 	w.CheckNow()

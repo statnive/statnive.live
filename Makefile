@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := $(shell go list -mod=vendor ./... 2>/dev/null | grep -v '/web/node_modules/')
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local
 
 all: lint test build
 
@@ -230,13 +230,37 @@ web-airgap-grep: web-build
 	fi
 	@echo "web-airgap-grep: clean"
 
-## airgap-bundle: Build offline install bundle (Phase 8 — placeholder)
-airgap-bundle:
-	@echo "TODO Phase 8: build statically-linked binary + vendor + IP2Location DB23 + SHA256SUMS"
+## airgap-bundle: Assemble the offline install tarball + SHA256SUMS.
+## Override VERSION=v0.8.0 to pin; defaults to `git describe` or `dev`.
+## Optional: ENABLE_VENDOR_TAR=1 includes a vendor.tar.gz for source audits.
+## Optional: SIGNING_KEY=/path/to/ed25519.key ssh-keygen -Y signs SHA256SUMS.
+##
+## Output: build/statnive-live-<VERSION>-linux-amd64-airgap/   (unpacked tree)
+##         build/statnive-live-<VERSION>-linux-amd64-airgap.tar.gz
+##         build/SHA256SUMS
+##         build/SHA256SUMS.sig                                 (if SIGNING_KEY set)
+VERSION ?= $(shell git describe --tags --dirty 2>/dev/null || echo dev)
+BUNDLE_NAME := statnive-live-$(VERSION)-linux-amd64-airgap
+BUNDLE_DIR  := build/$(BUNDLE_NAME)
 
-## release: Full release gate (Phase 8 — placeholder)
-release:
-	@echo "TODO Phase 8: release-gate (lint + test + test-integration + airgap-test + bundle + sign)"
+airgap-bundle: build
+	@bash deploy/airgap-bundle.sh \
+		VERSION="$(VERSION)" \
+		BUNDLE_DIR="$(BUNDLE_DIR)" \
+		BUNDLE_NAME="$(BUNDLE_NAME)" \
+		BIN="$(BIN_DIR)/$(BIN_NAME)" \
+		ENABLE_VENDOR_TAR="$(ENABLE_VENDOR_TAR)" \
+		SIGNING_KEY="$(SIGNING_KEY)"
+
+## airgap-bundle-verify: Re-check SHA256SUMS against the unpacked tree.
+## Run after `make airgap-bundle` to validate the composition before shipping.
+airgap-bundle-verify:
+	@cd build && sha256sum -c SHA256SUMS
+
+## release: Full release gate — lint + test + integration + audit + airgap-bundle.
+## Does NOT push; CI is the publishing surface. Local sanity gate only.
+release: lint test test-integration audit airgap-bundle
+	@echo "release: $(VERSION) bundle + SHA256SUMS at build/"
 
 ## dev-secret: Generate a random 32-byte master.key for local dev (chmod 0600)
 dev-secret:

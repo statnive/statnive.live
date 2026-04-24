@@ -29,6 +29,11 @@ type BackpressureConfig struct {
 	// RetryAfterSeconds is the value sent in the Retry-After header on
 	// 503 responses. Default 5.
 	RetryAfterSeconds int
+	// OnSample is called once per TTL refresh with the sampled fill
+	// ratio. Used by main.go to feed the Phase 8 alerts sink — the
+	// emitter computes band transitions (0.80 / 0.90 / 0.95) and
+	// writes to /var/log/statnive-live/alerts.jsonl. Nil-safe.
+	OnSample func(ratio float64)
 }
 
 // BackpressureMiddleware returns 503 + Retry-After when the WAL fill
@@ -61,6 +66,7 @@ func BackpressureMiddleware(reporter FillRatioReporter, cfg BackpressureConfig) 
 		reporter:  reporter,
 		threshold: cfg.Threshold,
 		ttl:       cfg.CacheTTL,
+		onSample:  cfg.OnSample,
 	}
 
 	return func(next http.Handler) http.Handler {
@@ -81,6 +87,7 @@ type fillRatioGate struct {
 	reporter  FillRatioReporter
 	threshold float64
 	ttl       time.Duration
+	onSample  func(ratio float64)
 
 	mu          sync.Mutex
 	lastChecked time.Time
@@ -106,6 +113,10 @@ func (g *fillRatioGate) degraded() bool {
 	g.cachedAbove.Store(above)
 	g.lastChecked = time.Now()
 	g.mu.Unlock()
+
+	if g.onSample != nil {
+		g.onSample(ratio)
+	}
 
 	return above
 }

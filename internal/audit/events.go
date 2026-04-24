@@ -122,3 +122,25 @@ const (
 	EventGoalsReloadOK     EventName = "goals.reload_succeeded"
 	EventGoalsReloadFailed EventName = "goals.reload_failed"
 )
+
+// GeoIP hot-reload events. Emitted by internal/enrich/geoip.go on
+// SIGHUP; the pre-swap validation probe (doc 28 §Gap 1) means a failed
+// reload leaves the previous DB active — emit the reload_failed event
+// but keep serving lookups from the old handle.
+const (
+	EventGeoIPReloaded     EventName = "geoip.reloaded"
+	EventGeoIPReloadFailed EventName = "geoip.reload_failed"
+)
+
+// Phase 8 alerts (operator-facing, duplicated to /var/log/statnive-live/alerts.jsonl).
+// Each alert has a matching `_resolved` event the emitter fires when the
+// condition clears — the Phase 6-polish-5 Notice UI auto-dismisses on
+// the paired resolve event.
+const (
+	EventAlertWALHighFillRatio     EventName = "alert.wal_high_fill_ratio"
+	EventAlertWALHighFillResolved  EventName = "alert.wal_high_fill_resolved"
+	EventAlertClickHouseDown       EventName = "alert.clickhouse_down"
+	EventAlertClickHouseUp         EventName = "alert.clickhouse_up"
+	EventAlertDiskHighFillRatio    EventName = "alert.disk_high_fill_ratio"
+	EventAlertDiskHighFillResolved EventName = "alert.disk_high_fill_resolved"
+)
