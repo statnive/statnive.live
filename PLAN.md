@@ -119,6 +119,7 @@ After Phase 3c merged, the remaining v1 work is sequenced to ship **four product
 | 10 | **11a — SaaS self-serve signup (free tier)** | 2 weeks | Week 13.5 | 🎯 **Milestone 3: public signup, 10K PV/mo free, no billing** |
 | 11 | **v1.1-csrf — CSRF double-submit + step-up auth** | 1 week | Week 14.5 | Admin mutations hardened for multi-tenant paid surface |
 | 12 | **11b — Polar.sh checkout + webhooks + plan gating** | 3 weeks | Week 17.5 | 🎯 **Milestone 4: paying SaaS customers** |
+| 13 | **flags — Statnive Flags (local-first feature flags)** | 3 weeks | Week 20.5 | 🎯 **Milestone 5: local-eval flags for self-hosted + SaaS** |
 
 **Ongoing after Milestone 2.** Phase 10 P2–P5 (SamplePlatform iOS / Android / TV rollout) runs over ~10 months in the background, NOT on Milestone 4's critical path. Each sub-phase repeats the 7e load-gate at a larger EPS envelope (P1 450 EPS → P5 40K EPS peak) before onboarding the next app.
 
@@ -208,7 +209,9 @@ Flat `internal/storage/queries.go` (one Go function per endpoint) — we do NOT 
 - [x] Cross-day returning visitors validated via `_statnive` cookie round-trip.
 - [x] Real-tracker integration test → rollup verification — Phase 7b2 shipped the payload-golden contract (Vitest captures sendBeacon body in `tracker/test/payload-golden.test.mjs`; Go integration test replays each payload through the full pipeline → ClickHouse in `test/tracker_correctness_test.go`). Phase 7b2-completion (PR #28) wires both into CI — `tracker-vitest` job runs the Vitest; `integration-tests` job runs the Go replay against docker-compose ClickHouse.
 
-**Deferred to v1.1:** engagement ping (10s heartbeat), throttle-with-last-event, base36 date, envelope+payload separation.
+**Deferred to v1.1 — Safe Autocapture Pack** (doc 31 §"Safe defaults" / doc 32 §A / doc 34 §E). Separate `tracker/pack-safe.js` module, ~1 KB gz, opt-in per `<script data-pack="safe">` or `statnive.enablePack('safe')` — keeps base tracker at ~687 B gz. Adds `$pageleave`, Core Web Vitals (LCP/FID/CLS/FCP), scroll-depth buckets (25/50/75/100), rage clicks (>3 clicks in 1 s), outbound-link clicks, file-downloads, form-submit success/failure. Inherits Sec-GPC / DNT / consent short-circuit (Privacy Rule 9). Adds one column `event_type Enum8(...)` to `events_raw` via migration 007. Excludes element text, form values, DOM snapshots, canvas/WebGL/font-enum, device-memory — already banned by Privacy Rule 7.
+
+**Deferred further to v2:** engagement ping (10 s heartbeat), throttle-with-last-event, base36 date, envelope+payload separation.
 
 ### Phase 5: Dashboard Frontend (Weeks 11–13)
 
@@ -232,6 +235,7 @@ Brand tokens from [`docs/brand.md`](docs/brand.md) — `web/src/tokens.css` impo
 - [x] **Phase 6-polish (PR #42)** — admin sites CRUD (`POST /api/admin/sites` + `GET /api/admin/sites` + `PATCH /api/admin/sites/{id}`) extends the Phase 3c admin surface; `sites.Registry` gains `CreateSite`/`ListAdmin`/`UpdateSiteEnabled` on top of the existing `GenerateSlug`/`IsSlugAvailable`/`ReserveSlug` primitives.
 - [x] **Phase 6-polish (PR #42)** — SPA Admin panel gets a third Sites tab (lazy-loaded alongside Users + Goals) with a per-row tracker snippet `<pre>` block rendered from `window.location.origin`. `SiteSwitcher.tsx` empty-state becomes a `no sites yet — add one` nav link for admins.
 - [x] **Phase 6-polish (PR #42)** — `docs/quickstart.md` is the 5-minute copy-paste path: clone → openssl master-secret → docker compose CH → boot binary → Admin → Sites → paste snippet → first event. `test/smoke/harness.sh` replaces its raw `INSERT INTO statnive.sites` seed with a `probe_site_creation` that exercises `/api/admin/sites` end-to-end; the smoke gate now validates the true fresh-install path on every PR.
+- [ ] **Phase 6-polish-2 — Literal wait-for-first-event gate on Overview** (doc 33 §6 / doc 34 §A; folds into any near-term frontend PR, ~1 day). When `siteOverview.totalVisitors === 0 && siteCreatedAt < 24 h`, render `<InstallVerifyCard>` in place of the Overview panel. Polls `/api/stats/overview` every 5 s, auto-flips on first event. Install snippet inline with copy-button + `?debug=1` tracker-verify link. PostHog's lesson: an empty dashboard teaches "this tool doesn't work"; a "waiting" state teaches "this tool works, I just haven't finished setup." Zero backend change; Preact conditional in `web/src/panels/Overview.tsx`. Phase 5c e2e gains `install-verify.spec.ts`.
 
 ### Phase 7: Testing & Hardening (Week 16)
 
@@ -328,6 +332,8 @@ These three v1.1 items block Phase 11a or 11b. Each can fold into its blocking m
 - **v1.1-tokens — API-token rotation endpoint** (blocks 11a). `POST /api/admin/tokens` hashes + stores a new raw token; `DELETE /api/admin/tokens/{label}` revokes. Today tokens live in config or env (`STATNIVE_API_TOKENS`) and require a binary restart to rotate — unacceptable for multi-tenant SaaS where a leaked token from one customer's CI must be revokable without downtime for others. Reuses Phase 2b's `APIToken` hashed-by-SHA-256 pattern; adds a small CH table + admin handler.
 - **v1.1-pwreset — Password-reset email flow** (blocks 11a). Forgot-password link on `/app/login` → `POST /api/auth/password-reset-request` (email + rate-limit) → signed time-limited token via email → reset landing page → `POST /api/auth/password-reset`. Requires `email.enabled` SMTP config. NIST 800-63B password policy (8+ chars, HaveIBeenPwned top-10k blocklist) ships in this slice alongside the signup path in Phase 11a.
 - **v1.1-csrf — CSRF double-submit + step-up auth** (blocks 11b). Double-submit token cookie + request header on every `/api/admin/*` mutation; `RequireFreshAuth(5m)` on privilege-granting handlers (password change, role change, billing change, token rotation). SameSite=Lax held the line for Phase 2b; the paid-tier multi-tenant surface raises the value of a leaked admin cookie, so belt-and-braces applies here.
+- **v1.1-onboarding-email — Branching transactional flow** (doc 32 §C / doc 33 §6.3; optional prereq to 11a). Three emails with branching on activation state: **T+1 h** if `events.count(site_id)=0` → install-help, link to `docs/quickstart.md`; **T+24 h** if activated but no goal → "create your first goal" walkthrough; **T+7 d** if active → real-person reply invitation (reply-to = operator, measured by reply rate). Pause sequence if 2 consecutive emails fail to flip activation (PostHog's "v5 → simpler" lesson, doc 32 §C.6.3). SMTP plumbing reuses v1.1-pwreset's `email.enabled`. Self-hosted deployments skip by leaving `email.enabled=false`. ~3 days on top of v1.1-pwreset.
+- **v1.1-install-cli — Deterministic tracker-install CLI** (doc 31 §"concrete recommendation" / doc 34 §A "minimal equivalent worth building"; optional prereq to 11a for non-WP frameworks). `statnive-install` sub-command of the binary: framework detector (WordPress `wp-config.php`, Next.js `package.json` + `next` dep + `app/` vs `pages/` router shape, Astro `astro.config.*` + adapter scan, plain HTML fallback) → diff preview → operator confirm → snippet insertion + `.bak` backup → synthetic event round-trip verification. **Zero LLM, zero outbound, zero repo-content-leaves-laptop**. Explicitly REJECTS PostHog's cloud-agent `npx @posthog/wizard` model per doc 34 §"Reject as default" — the failure modes (corrupted `.env.local`, Astro frontmatter mangling, OAuth break) are not worth the ergonomic win. WP + Next.js + plain HTML for v1.1; Laravel + Django + Flask + Astro = v1.2 fast-follow. ~1 week.
 
 ### Phase 11a: SaaS self-serve signup — free tier (🎯 Milestone 3, Weeks 26–28)
 
@@ -343,6 +349,7 @@ These three v1.1 items block Phase 11a or 11b. Each can fold into its blocking m
 - [ ] Email transactional (signup confirmation + welcome) — opt-in via `email.enabled`. Password-reset email path comes from v1.1-pwreset (landing here or shipping standalone).
 - [ ] **Mass-assignment guard review on every new write endpoint (F4, Verification §52).** `POST /api/signup` + any new admin endpoint in 11a uses the `httpjson.DecodeAllowed` helper established in Phase 3c; sensitive fields (`site_id`, `role`, `plan`) never come from the request body. Laravel-style mass-assignment (`site_id=2, role=admin`) is how cross-tenant privilege escalation sneaks in — re-audit every new handler before merge.
 - [ ] Acceptance: fresh signup → tracker snippet pasted → first event visible in dashboard <5 min; cross-site isolation (URL manipulation blocked); 6th signup/hr from same IP rejected; unverified tenant disabled at T+24h.
+- [ ] **Activation funnel on admin dashboard** (doc 32 §C / doc 33 §6 — PostHog's per-product activation model). **Intent**: `admin.signup.complete` + `admin.snippet.copy` audit events. **Activation**: first event ingested + one `/api/stats/overview` view + one goal created (reuses Phase 3c goals CRUD). **Retention signal**: admin login on 3 distinct days within a 14-day window. Ships as read-only `/app/#admin/activation` panel; data lives in tenant's own `events_raw` + `audit.jsonl`; zero schema impact beyond 2 new audit-event constants.
 
 ### Phase 11b: SaaS paid tiers — Polar.sh (🎯 Milestone 4, Weeks 28–30)
 
@@ -352,6 +359,21 @@ These three v1.1 items block Phase 11a or 11b. Each can fold into its blocking m
 - [ ] Paid tiers unlock quota (Starter 100K PV, Growth 1M, Business 10M, Scale 100M) + Funnel CRUD (Goals CRUD already free per Phase 3c — recommend leaving them free). Gate keyed by `sites.plan`.
 - [ ] Email transactional (receipt/quota) — opt-in via `email.enabled`.
 - [ ] Acceptance: sandbox `subscription.created` → `sites.plan` flips; `subscription.canceled` reverts at period end; webhook is idempotent against duplicate Polar deliveries; upgrade-banner click → Polar checkout → return → plan flip within 30s.
+
+### Phase flags: Statnive Flags — local-first feature flags (🎯 Milestone 5, Weeks 31–33)
+
+**Guardrails:** [`blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md), [`tenancy-choke-point-enforcer`](.claude/skills/tenancy-choke-point-enforcer/README.md), [`air-gap-validator`](.claude/skills/air-gap-validator/README.md).
+
+Research anchor: doc 32 §A / doc 34 §C — the closest public pattern to Statnive's air-gap requirement. PostHog's local evaluation drops flag latency from ~500 ms → 10–20 ms and works fully offline; doc 34 calls it "almost a blueprint" for a Statnive product.
+
+- [ ] Signed flag definitions (Ed25519, same key pattern as license JWT) SIGHUP-reloaded from `config/flags.json` — never poll from remote; definitions are an operator-deployed artifact, not a runtime fetch.
+- [ ] In-memory Go eval; stable bucketing via BLAKE3 on `(flag_key, visitor_hash)`. Deterministic across restarts.
+- [ ] Ban dynamic cohorts / remote targeting / persisted flag values — anything that breaks offline eval is anti-feature by design (doc 34 §C explicit warning adopted as a rule).
+- [ ] Schema: migration `006_flags.sql` (ReplacingMergeTree, `{{if .Cluster}}` templated); `FlagsSnapshot` atomic.Pointer hot-swap mirroring `goals.Snapshot` (Phase 3c pattern).
+- [ ] Handler `/api/admin/flags` CRUD reusing `httpjson.DecodeAllowed` (Phase 3c mass-assignment guard, Verification §52).
+- [ ] Tracker module: `statnive.flag(key) → boolean | string` resolves against a locally-fetched, signed snapshot served by the binary; evaluates in-browser with the same BLAKE3 bucketing.
+- [ ] `$flag_called` emitted as bundle-internal plumbing event — never billable per doc 33 §2 pricing principle ("dogfooded events across products are free").
+- [ ] **Acceptance:** flag eval p99 <5 ms in-process; 100% offline under `iptables -P OUTPUT DROP` (blackout-sim, Verification §37); flag change → new eval result within 1 s of SIGHUP; cross-tenant isolation enforced by `whereTimeAndTenant` + `rollup-join-tenancy` (Verification §50).
 
 ## License Management (Self-Hosted)
 
@@ -378,9 +400,14 @@ Not open-source. Self-hosted customers need a license.
 | CSV export | 1wk | Med | v2 |
 | Public REST API | 1wk | Low | v2 |
 | **Operator CLI** | 1wk | Med | **v1.1** |
+| **Statnive Query — read-only constrained SQL surface** | 2wk | High | **v1.2** |
 | **MCP server** | 2wk | High | **v2** |
 | Microsoft Clarity integration | 1d | Future | post-v2 |
 | **LLM-triage prompt-injection defense (F10 bookmark)** | — | Conditional | **If-then** |
+
+> **Statnive Query — v1.2 scope.** `POST /api/query/sql` admin-only HogQL-flavored SQL endpoint (doc 32 §A "expose SQL sooner" / doc 34 §D "copy in simplified form now"). Forced predicates: `WHERE site_id = ?` injected from session context; `AND time >= ? AND time < ?` required; row limit hard-capped at 500 (matching PostHog's cap). **Banned**: raw joins on `events_raw`, `SELECT *` on `events_raw.properties`, any mutation. `GET /api/query/schema` returns column list + types for `events_raw` + each rollup (schema browser). Ships with 10 seed `queries_templates` rows (unique users over time, funnel by two events, top referrers, top paths, retention matrix, etc.). Extends the existing `Store` + `Filter` + `whereTimeAndTenant` chain — read-only, so `tenancy-choke-point-enforcer` guards everything. Gives ~70% of PostHog HogQL power-user value at ~20% of implementation complexity.
+
+> **Materialized hot properties — trigger, not scheduled** (doc 32 §A "query mechanics"). PostHog reports 55% avg / 25× p99 ClickHouse perf improvement after promoting heavily-read JSON properties to materialized columns. Statnive's 3 v1 rollups already do this at aggregate level; the future risk is `events_raw.properties` reads once custom-event volume grows. **Trigger**: when custom-event volume exceeds 20% of total ingest, **or** a single property read rate exceeds 1 k queries/hour, promote that property via `ALTER TABLE events_raw ADD COLUMN <name> <type> MATERIALIZED properties.<name>` migration. No action today; documented so the signal is recognized when it arrives.
 
 > **F10 bookmark — if-then, not scheduled.** If a v1.1/v2 feature ever ships (a) an LLM-triaged error / crash-telemetry endpoint, (b) a GitHub-issue-bot that reads user-submitted issues, or (c) AI-assisted NL → ClickHouse query generation, adopt jaan-to-plugin research doc 77 §6–9: untrusted-input envelope (`<untrusted_input>` delimiter tags + explicit system-prompt override rules), CTQRS scoring (Completeness / Technical / Quality / Reproducibility / Severity), layered code-evidence validation, pre-integration sanitization (strip code blocks, credential patterns, shell metacharacters). Doc 30 anti-pattern already bans default-on `app_exception` telemetry, so (a) is unlikely in v1; (b) and (c) are post-v1. No skill, no test, no CI gate until a triggering feature enters scope. Revisit at v2 scoping.
 
@@ -391,6 +418,14 @@ Authoritative inventory in [`docs/tooling.md`](docs/tooling.md) + the 14 `.claud
 ## Brand & Design
 
 Full spec — wordmark + summit logo, cream/ink/Persian-Teal palette, Fraunces + IBM Plex type ramp, token CSS, typography rules, voice rules, compliance hooks — in [`docs/brand.md`](docs/brand.md). Applies to statnive.live marketing + demo + tenant dashboards + SamplePlatform dashboard + README/docs.
+
+**Marketing/brand PostHog-borrows (live in `statnive-website/` submodule, NOT this repo).** Cross-referenced here because M3 (public SaaS signup) depends on #1 + #3 existing before paid conversion matters. Source: docs 33 §3–§7.
+
+- **Live pricing calculator** (doc 33 §5.3). Slider → exact bill, no "Contact Sales" button. Publish discounts publicly (25% OSS, 50% Iranian non-profits, 100% Iranian universities). Grandfather clause in writing: any price increase preserves existing pricing for 12 months minimum. — ~2 days in `statnive-website`.
+- **"You'll hate statnive if…" homepage section** (doc 33 §4 #3). 5 bullets preempting objections: no session replay; no 30-products duct tape; no ads, no data resale; hosted in Iran; no sales calls. — ~1 hour.
+- **Public handbook at statnive.live/handbook** (doc 33 §4.1). Strategy, pricing principles, refund policy, roadmap — all MDX in the Astro repo. Most raw material already exists in `jaan-to/docs/` + this file. — ~1 week initial pass.
+- **Community Q&A + thumbs feedback on every docs page** (doc 33 §7). Giscus (self-hostable, GitHub Discussions backing) + 30-line JS thumbs → POST to `/api/event`. — ~1 day.
+- **Dogfood the marketing site** (doc 33 §3.5). `demo.statnive.live` surfaces a read-only dashboard: pricing-page intent, install-doc completion, first-snippet-copy CTR, signup conversion funnel. Reuses the 8 existing `/api/stats/*` endpoints. — ~1 day.
 
 ## SaaS Model, Server Costs, Air-Gapped Deployment
 
