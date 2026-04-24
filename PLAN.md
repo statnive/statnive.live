@@ -4,7 +4,16 @@
 
 Sixteen research documents (docs 14–29), 500+ sources, 2,000+ lines of drop-in Go code. Architecture, features, schema, security, and Iranian-DC operational decisions are finalized. Docs 24 (AGPL-safe Pirsch extraction), 25 (skill install matrix), 27 (three-gap closure — WAL / CGNAT / GDPR-on-HLL), 28 (final-three-gap closure — GeoIP pipeline / Iranian DC deploy / ClickHouse ops), 29 (production load-simulation gate — 5-phase graduation matrix + generator_seq oracle + 6-scenario chaos) drive the Week 17+ schedule.
 
-**statnive-live** is the standalone analytics platform (separate from the WordPress plugin "statnive"). Targets Iranian high-traffic sites; SamplePlatform is first customer.
+**statnive-live** serves two target markets: (1) Iranian high-traffic sites — SamplePlatform is the first customer on the Iranian-DC air-gapped deployment; (2) outside-Iran sites on the managed SaaS at `statnive.live`. See § Scope below for the precise binary / WP-plugin boundary and deployment postures.
+
+## Scope
+
+**This plan targets the `statnive-live` Go binary — the standalone analytics server at `statnive-live/` (separate GitHub repo, submodule of the parent workflow repo).** Same binary ships in two deployment postures:
+
+- **Self-hosted** — operator runs `./deploy/airgap-install.sh` on their Linux server (Hetzner VPS, Asiatech Iranian DC, enterprise on-prem) with zero required outbound calls.
+- **SaaS** — we run the same binary on `statnive.live` / `app.statnive.live` / `demo.statnive.live` behind Hetzner, tenanted by `site_id`.
+
+**This is NOT the WordPress plugin.** The sibling `statnive/` submodule is a separate WP analytics plugin on a separate release cadence; Phase 8 touches none of it. The two share only the parent `statnive-workflow/` repo and the `statnive` naming prefix. Concrete: no `composer.json`, no `.phpcs.xml`, no `block.json`, no `wp-cli.yml` in scope here. Everything in this plan lives under `statnive-live/` and operates on the Go binary, its systemd unit, its iptables rules, and its air-gap install tooling.
 
 **Reference streaming workload (StreamCo, confirmed 2026-04-19).** Two endpoints frame capacity; we ship the minimum first and ramp app-by-app.
 
