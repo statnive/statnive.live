@@ -1,37 +1,19 @@
-#statnive-app .statnive-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--s-2);
-  margin-bottom: var(--s-4);
-}
+/*
+ * Global chrome lives in AppShell.css. App.css holds only the shared
+ * wordmark rules (used on both the authenticated shell header and the
+ * unauthenticated Login card) so both surfaces render the brand mark
+ * identically.
+ */
 
-#statnive-app .statnive-wordmark {
-  font-size: 28px;
-  margin: 0;
-}
-
-#statnive-app .statnive-wordmark-live {
-  color: var(--green);
-  font-style: italic;
-}
-
-#statnive-app .statnive-logout {
-  margin-left: auto;
-  padding: var(--s-1) var(--s-2);
-  border: 1px solid currentColor;
-  border-radius: 4px;
-  background: transparent;
+#statnive-app :where(.statnive-wordmark) {
+  font-family: var(--display);
+  font-weight: 500;
+  letter-spacing: -0.02em;
   color: var(--ink);
-  font: inherit;
-  font-size: 0.875rem;
-  cursor: pointer;
 }
 
-#statnive-app .statnive-logout:hover,
-#statnive-app .statnive-logout:focus-visible {
+#statnive-app :where(.statnive-wordmark-live) {
   color: var(--green);
-  border-color: var(--green);
-  outline: none;
+  font-style: normal;
+  font-weight: 500;
 }

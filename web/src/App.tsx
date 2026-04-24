@@ -1,9 +1,6 @@
 import { Overview } from './panels/Overview';
-import { Nav } from './components/Nav';
-import { DatePicker } from './components/DatePicker';
-import { FilterPanel } from './components/FilterPanel';
+import { AppShell } from './components/AppShell';
 import { LazyPanel } from './components/LazyPanel';
-import { SiteSwitcher } from './components/SiteSwitcher';
 import { Login } from './pages/Login';
 import {
   authCheckedSignal,
@@ -17,7 +14,7 @@ import './App.css';
 // Only Overview is statically imported — every other panel ships in its
 // own chunk via LazyPanel per `bundle-dynamic-imports`. Keeps initial
 // JS small (Overview is the default landing panel, so no waterfall) and
-// caps any single panel's weight against the overall 13 KB gz budget.
+// caps any single panel's weight against the overall 14 KB gz budget.
 function renderPanel() {
   switch (hashSignal.value.panel) {
     case 'overview':
@@ -52,37 +49,12 @@ export function App() {
 
   // CI bearer-token path preserves the pre-Phase-2b behavior: when the
   // meta tag has a value, the SPA treats it as authenticated without
-  // requiring a successful /api/user round-trip. Production operators
-  // should prefer session cookies; this is the smoke/e2e compatibility
-  // shim.
+  // requiring a successful /api/user round-trip.
   const authenticated = userSignal.value != null || authSignal.value !== '';
 
   if (!authenticated) {
     return <Login />;
   }
 
-  return (
-    <main>
-      <header class="statnive-header">
-        <h1 class="statnive-wordmark">
-          statnive<em class="statnive-wordmark-live">.live</em>
-        </h1>
-        <SiteSwitcher />
-        {userSignal.value ? (
-          <button
-            type="button"
-            class="statnive-logout"
-            onClick={onLogout}
-            aria-label="Sign out"
-          >
-            Sign out
-          </button>
-        ) : null}
-      </header>
-      <Nav />
-      <DatePicker />
-      <FilterPanel />
-      {renderPanel()}
-    </main>
-  );
+  return <AppShell onLogout={onLogout}>{renderPanel()}</AppShell>;
 }
