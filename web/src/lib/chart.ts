@@ -17,18 +17,38 @@ export function toVisitorSeries<T extends { day: string; visitors: number }>(
 }
 
 // visitorLineChartOptions builds the uPlot options block for a single-
-// line visitors chart using the live --green brand token as stroke.
-// Call from a useMemo so getComputedStyle runs once per mount, not every
-// render.
+// line visitors chart. Uses `--chart-visitors` (brand navy) as stroke
+// with a light teal area fill, hairline y-grid, and mono tick labels.
+// Call from a useMemo so getComputedStyle runs once per mount, not
+// every render.
 export function visitorLineChartOptions(): Omit<Options, 'width' | 'height'> {
   const tokens = readBrandTokens();
   return {
     scales: { x: { time: true }, y: { auto: true } },
     series: [
       {},
-      { label: 'Visitors', stroke: tokens.green, width: 2 },
+      {
+        label: 'Visitors',
+        stroke: tokens.chartVisitors,
+        width: 2,
+        fill: `${tokens.green}22`, // ~13% alpha wash
+        points: { show: false },
+      },
     ],
-    axes: [{}, {}],
+    axes: [
+      {
+        stroke: tokens.ink2,
+        grid: { show: false },
+        ticks: { show: false },
+        font: `11px 'JetBrains Mono', ui-monospace, monospace`,
+      },
+      {
+        stroke: tokens.ink2,
+        grid: { stroke: tokens.ruleHair, width: 1 },
+        ticks: { show: false },
+        font: `11px 'JetBrains Mono', ui-monospace, monospace`,
+      },
+    ],
     cursor: { drag: { x: true, y: false } },
   };
 }

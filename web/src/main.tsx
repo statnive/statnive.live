@@ -1,4 +1,5 @@
 import { render } from 'preact';
+import './fonts.css';
 import './tokens.css';
 import './reset.css';
 import { App } from './App';

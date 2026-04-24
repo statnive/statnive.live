@@ -19,6 +19,13 @@ export default defineConfig({
     sourcemap: false,
     minify: 'esbuild',
     target: 'es2020',
+    // Never inline assets as base64 data URIs — our CSP `font-src 'self'`
+    // + `img-src 'self' data:` combination allows data: URIs for images
+    // only, not fonts. Vite's default 4 KB inline threshold would bundle
+    // small font subsets as `data:font/woff2;base64,...` which the
+    // browser then refuses per CSP. Forcing every asset to ship as a
+    // separate hashed file in /app/assets/ keeps them inside font-src.
+    assetsInlineLimit: 0,
     rollupOptions: {
       output: {
         entryFileNames: 'assets/[name]-[hash].js',

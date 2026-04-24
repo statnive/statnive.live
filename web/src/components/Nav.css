@@ -1,31 +1,73 @@
 #statnive-app .statnive-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--s-1);
+  gap: 0;
+  padding: 0 var(--s-4);
+  height: 48px;
+  align-items: flex-end;
+  background: var(--paper-2);
   border-bottom: 1px solid var(--rule-soft);
-  margin: var(--s-2) 0 var(--s-4);
 }
 
 #statnive-app .statnive-nav-tab {
-  padding: var(--s-2) var(--s-3);
-  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0 var(--s-3);
+  height: 48px;
+  color: var(--ink-2);
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   text-decoration: none;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
 }
 
 #statnive-app .statnive-nav-tab:hover,
-#statnive-app .statnive-nav-tab:focus {
-  color: var(--green-dk);
-  border-bottom-color: var(--green-lt);
+#statnive-app .statnive-nav-tab:focus-visible {
+  color: var(--ink);
+  border-bottom-color: var(--rule-soft);
   outline: none;
 }
 
 #statnive-app .statnive-nav-tab.is-active {
-  color: var(--green-dk);
+  color: var(--ink);
   border-bottom-color: var(--green);
+  font-weight: 500;
+}
+
+/* Admin accent — amber underline + ink text when Admin is active. */
+#statnive-app .statnive-nav-tab.is-active.is-active-admin {
+  color: var(--amber);
+  border-bottom-color: var(--amber);
+}
+
+/* SOON tabs — disabled visual-only entries, no route, no click. */
+#statnive-app .statnive-nav-tab.is-soon {
+  cursor: default;
+  color: var(--ink-2);
+  opacity: 0.55;
+}
+
+#statnive-app .statnive-nav-tab.is-soon:hover,
+#statnive-app .statnive-nav-tab.is-soon:focus {
+  color: var(--ink-2);
+  border-bottom-color: transparent;
+}
+
+#statnive-app .tab-soon-pill {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--rule-hair);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.3;
 }

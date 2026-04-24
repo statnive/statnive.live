@@ -1,64 +1,106 @@
-.statnive-section {
+#statnive-app .statnive-section {
   margin-bottom: var(--s-5);
 }
 
-.statnive-h2 {
-  margin-bottom: var(--s-3);
+#statnive-app .statnive-h2 {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0 0 var(--s-3);
 }
 
-.statnive-kpi-grid-primary {
+/* Primary tier — 4 big cards, revenue-connected. */
+#statnive-app .statnive-kpi-grid-primary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--s-3);
 }
 
-.statnive-kpi-grid-secondary {
+/* Secondary tier — pageviews + goals, demoted. */
+#statnive-app .statnive-kpi-grid-secondary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: var(--s-2);
-  margin-top: var(--s-4);
+  margin-top: var(--s-3);
 }
 
-.statnive-card {
-  background: var(--paper);
+#statnive-app .statnive-card {
+  background: var(--paper-2);
   border: 1px solid var(--rule-soft);
   border-radius: 8px;
-  padding: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
 }
 
-.statnive-label {
-  font-size: 12px;
-  color: var(--ink);
-  opacity: 0.7;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: var(--s-2);
+#statnive-app .statnive-kpi-grid-secondary .statnive-card {
+  padding: var(--s-2) var(--s-3);
 }
 
-.statnive-num-primary {
+#statnive-app .statnive-label {
   font-family: var(--mono);
-  font-size: 32px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0;
+}
+
+#statnive-app .statnive-num-primary {
+  font-family: var(--display);
+  font-size: 34px;
   font-weight: 500;
   color: var(--ink);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
-.statnive-num-secondary {
-  font-family: var(--mono);
-  font-size: 20px;
+#statnive-app .statnive-num-secondary {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 500;
   color: var(--ink);
-  opacity: 0.85;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
-.statnive-error {
-  color: var(--rust);
+#statnive-app .statnive-error {
+  color: var(--error);
+  font-family: var(--sans);
+  font-size: 13px;
 }
 
-.statnive-loading {
+#statnive-app .statnive-loading {
   opacity: 0.6;
+  font-family: var(--sans);
+  font-size: 13px;
 }
 
-.statnive-meta {
-  margin-top: var(--s-4);
-  font-size: 12px;
-  opacity: 0.6;
+#statnive-app .statnive-meta {
+  margin-top: var(--s-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  opacity: 0.72;
+}
+
+#statnive-app .statnive-chart {
+  background: var(--paper-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  padding: var(--s-3);
+  margin-top: var(--s-3);
+}
+
+/* KPI card with DeltaPill — reserves header row alongside label. */
+#statnive-app .statnive-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
 }

@@ -4,29 +4,39 @@
   align-items: center;
   justify-content: center;
   padding: var(--s-4);
-  background: var(--paper);
+  background: var(--ink);
+  color: var(--cream);
+  font-family: var(--sans);
 }
 
 .statnive-login-card {
   width: min(400px, 100%);
   padding: var(--s-5);
-  background: var(--rule-soft);
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 8px 24px rgb(0 0 0 / 6%);
+  background: var(--paper-2);
+  color: var(--ink);
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 20%),
+    0 12px 48px rgb(0 0 0 / 28%);
 }
 
 .statnive-login-card .statnive-wordmark {
-  margin: 0 0 var(--s-4);
-  font-size: 1.75rem;
+  margin: 0 0 var(--s-5);
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
 }
 
 .statnive-login-demo-banner {
   margin-bottom: var(--s-3);
   padding: var(--s-2) var(--s-3);
-  background: var(--green-lt);
+  background: rgb(0 166 147 / 10%);
   border-left: 3px solid var(--green);
   border-radius: 4px;
-  font-size: 0.875rem;
+  font-family: var(--sans);
+  font-size: 13px;
   color: var(--ink);
 }
 
@@ -40,16 +50,25 @@
   display: flex;
   flex-direction: column;
   gap: var(--s-1);
-  font-size: 0.875rem;
-  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
 }
 
 .statnive-login input[type='email'],
 .statnive-login input[type='password'] {
+  font-family: var(--sans);
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: normal;
   padding: var(--s-2) var(--s-3);
   border: 1px solid var(--rule-soft);
   border-radius: 4px;
-  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
 }
 
 .statnive-login input:focus {
@@ -60,13 +79,14 @@
 
 .statnive-login button[type='submit'] {
   margin-top: var(--s-2);
-  padding: var(--s-2) var(--s-3);
+  padding: var(--s-2) var(--s-4);
   border: none;
   border-radius: 4px;
-  background: var(--green);
-  color: var(--paper);
-  font: inherit;
-  font-weight: 600;
+  background: var(--ink);
+  color: var(--paper-2);
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -77,12 +97,13 @@
 }
 
 .statnive-login button[disabled] {
-  opacity: 0.7;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
 .statnive-login-error {
   margin: 0;
   color: var(--error);
-  font-size: 0.875rem;
+  font-family: var(--sans);
+  font-size: 13px;
 }

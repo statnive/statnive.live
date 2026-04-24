@@ -6,6 +6,7 @@ import { rangeSignal } from '../state/range';
 import { siteSignal } from '../state/site';
 import { filtersSignal } from '../state/filters';
 import { fmtInt, fmtPct, fmtRials } from '../lib/fmt';
+import { DeltaPill } from '../components/DeltaPill';
 import { TrendChart } from './TrendChart';
 import './Overview.css';
 
@@ -13,6 +14,16 @@ import './Overview.css';
 // derived KPI; covered by Overview.test.tsx specifically.
 function conversionPct(d: OverviewResponse): number {
   return d.visitors > 0 ? (d.goals / d.visitors) * 100 : 0;
+}
+
+// Shape of delta fields the backend may return in the future (Phase 5f).
+// Today /api/stats/overview doesn't ship these — DeltaPill hides itself
+// when undefined, so the tile still renders cleanly on v1 backends.
+interface WithDelta {
+  visitors_delta_pct?: number;
+  conversion_delta_pct?: number;
+  revenue_delta_pct?: number;
+  rpv_delta_pct?: number;
 }
 
 export function Overview() {
@@ -32,7 +43,6 @@ export function Overview() {
           to: r.to,
         }, ac.signal);
       } catch (e: unknown) {
-        // AbortError is the unmount path, not a real failure.
         if (e instanceof DOMException && e.name === 'AbortError') return;
         err.value = e instanceof Error ? e.message : String(e);
       }
@@ -69,6 +79,8 @@ export function Overview() {
     );
   }
 
+  const withDelta = d as OverviewResponse & WithDelta;
+
   // Primary tier — leads with revenue-connected metrics per CLAUDE.md
   // "Reject vanity metrics". RPV is the only number that connects every
   // other metric to revenue.
@@ -78,19 +90,31 @@ export function Overview() {
 
       <div data-testid="kpi-primary" class="statnive-kpi-grid-primary">
         <div class="statnive-card" data-kpi="visitors">
-          <div class="statnive-label">Visitors</div>
+          <div class="statnive-card-head">
+            <div class="statnive-label">Visitors</div>
+            <DeltaPill deltaPct={withDelta.visitors_delta_pct} />
+          </div>
           <div class="statnive-num-primary">{fmtInt(d.visitors)}</div>
         </div>
         <div class="statnive-card" data-kpi="conversion">
-          <div class="statnive-label">Conversion</div>
+          <div class="statnive-card-head">
+            <div class="statnive-label">Conversion</div>
+            <DeltaPill deltaPct={withDelta.conversion_delta_pct} />
+          </div>
           <div class="statnive-num-primary">{fmtPct(conversionPct(d))}</div>
         </div>
         <div class="statnive-card" data-kpi="revenue">
-          <div class="statnive-label">Revenue</div>
+          <div class="statnive-card-head">
+            <div class="statnive-label">Revenue</div>
+            <DeltaPill deltaPct={withDelta.revenue_delta_pct} />
+          </div>
           <div class="statnive-num-primary">{fmtRials(d.revenue_rials)}</div>
         </div>
         <div class="statnive-card" data-kpi="rpv">
-          <div class="statnive-label">RPV</div>
+          <div class="statnive-card-head">
+            <div class="statnive-label">RPV</div>
+            <DeltaPill deltaPct={withDelta.rpv_delta_pct} />
+          </div>
           <div class="statnive-num-primary">{fmtRials(Math.round(d.rpv_rials))}</div>
         </div>
       </div>

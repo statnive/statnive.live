@@ -1,11 +1,15 @@
 /*
- * statnive-live brand tokens — plugin guideline variant.
+ * statnive-live brand tokens — dashboard operator-console palette.
  *
  * Source of truth: docs/brand.md (kept in sync with
  * jaan-to/outputs/detect/design/statnive-brand-guideline/
- * statnive-plugin-brand-guidelines.html). PR review rejects hand-rolled
- * hex values in Preact components — they MUST reference `var(--green)`
- * etc. The `make brand-grep` Makefile target enforces this at CI time.
+ * statnive-live.html). PR review rejects hand-rolled hex values in
+ * Preact components — they MUST reference `var(--green)` etc. The
+ * `make brand-grep` Makefile target enforces this at CI time.
+ *
+ * Fonts bundled by fonts.css (imported from main.tsx) — DM Sans,
+ * Space Grotesk, JetBrains Mono, WOFF2 subsets served first-party
+ * from /app/assets/*.woff2. No external CDN, no system-ui drift.
  *
  * Scoped to #statnive-app so this CSS can never bleed into adjacent
  * embedded surfaces (lesson borrowed from the WordPress plugin's
@@ -13,39 +17,51 @@
  */
 
 #statnive-app {
-  /* Surface — warm cream + near-black ink, matches the plugin guideline
-     "warmer, less saturated" direction vs the prior Persian palette. */
-  --paper:     #EDE3D1;   /* primary background — warm cream */
-  --ink:       #1A1A1A;   /* primary text + rules */
-  --rule-soft: #E8E5DC;   /* dividers, table borders */
+  /* Surface — bright off-white page with white panel surfaces. */
+  --paper:     #FAFAF8;   /* primary page background */
+  --paper-2:   #FFFFFF;   /* panel / card surfaces */
+  --ink:       #0A2540;   /* primary text + rules — brand navy */
+  --ink-2:     #12304F;   /* pressed-state ink, secondary text */
+  --cream:     #EDE3D1;   /* on-navy text (demoted from paper to accent) */
+  --rule-soft: #E8E5DC;   /* panel borders, strong dividers */
+  --rule-hair: #EFECE4;   /* inner hairline dividers (table rows) */
 
-  /* Accent — Brand Teal (plugin guideline primary). Brighter + more
-     saturated than the legacy Persian Teal so the accent reads as
-     primary CTA, not a muted headline color. */
+  /* Accent — Brand Teal, unchanged. Primary CTA + live indicators. */
   --green:     #00A693;
   --green-dk:  #007A6C;   /* hover / pressed */
-  --green-lt:  #B0D4CC;   /* tinted backgrounds, info pills (solid
-                             equivalent of rgba(0,166,147,0.12) on paper) */
+  --green-lt:  #B0D4CC;   /* tinted backgrounds, info pills */
 
-  /* Semantic — iOS-standard error palette added by plugin guideline.
-     Used for error banners, destructive-action chips, CSP / auth
-     failure states. Not for chart series. */
-  --error:     #FF3B30;
-  --error-dk:  #B0243A;
+  /* Semantic — error palette for alerts + destructive chips. */
+  --error:     #B0243A;
+  --error-dk:  #8A1D2E;
 
-  /* Secondary palette — chart series, status badges. Never primary chrome. */
-  --navy:      #1E3551;
-  --ochre:     #B87B1A;
-  --plum:      #5F3B6E;
-  --rust:      #A84628;
+  /* Admin accent — amber underline when Admin tab is active. */
+  --amber:     #C47A0E;
 
-  /* Type ramp — plugin guideline prefers DM Sans; we keep IBM Plex as
-     fallback so the air-gapped bundle doesn't require a new WOFF2 drop.
-     When DM Sans WOFF2 files ship (future slice), the browser picks the
-     first declared family that resolves. */
-  --serif: 'Fraunces', 'Charter', Georgia, serif;
-  --sans:  'DM Sans', 'IBM Plex Sans', system-ui, sans-serif;
-  --mono:  'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  /* Chart series — visitors (navy) + revenue (green) lead, remaining
+     3 cover Campaigns / Pages / Sources comparative rows. */
+  --chart-visitors: #0A2540;
+  --chart-revenue:  #00A693;
+  --chart-ochre:    #B87B1A;
+  --chart-plum:     #5F3B6E;
+  --chart-rust:     #A84628;
+
+  /* Channel palette — chips + source-table chip colors. Mirrors the
+     17-step channel mapper in internal/enrich/channel.go. */
+  --ch-direct:   #00A693;
+  --ch-search:   #1A73E8;
+  --ch-social:   #1A1A1A;
+  --ch-email:    #7A4A6E;
+  --ch-referral: #8B7355;
+  --ch-ai:       #0A2540;
+  --ch-paid:     #8A5508;
+
+  /* Type ramp — bundled faces (fonts.css). system-ui is the
+     font-display: swap fallback during the first-paint window. */
+  --display: 'Space Grotesk', system-ui, sans-serif;
+  --sans:    'DM Sans', 'IBM Plex Sans', system-ui, sans-serif;
+  --mono:    'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  --serif:   'Fraunces', 'Charter', Georgia, serif;
 
   /* Spacing scale */
   --s-1: 4px;
