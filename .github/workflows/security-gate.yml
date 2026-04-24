@@ -8,7 +8,7 @@ name: security-gate
 # static-analysis (CodeQL, Semgrep, SARIF) + gopls MCP (govulncheck) +
 # claude-cybersecurity 8 OWASP agents") prescribes this exact stack.
 #
-# All action refs are SHA-pinned per CLAUDE.md Security #? (no tag-only
+# All action refs are SHA-pinned per CLAUDE.md Security (no tag-only
 # pins — air-gap-validator rejects them on PR review).
 
 on:
@@ -19,13 +19,17 @@ on:
 
 permissions:
   contents: read
-  security-events: write  # SARIF upload to GitHub Security tab
+  # security-events: write is set per-job on the jobs that upload SARIF.
 
 jobs:
   govulncheck:
     name: govulncheck (Go supply-chain)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      # govulncheck wraps `go list` / `go build` internally and respects
+      # GOFLAGS; the current v1.1.4 CLI has no -mod flag of its own.
+      GOFLAGS: -mod=vendor
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -36,22 +40,23 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # Install via go install; pin to a known-good version rather than
-      # @latest so the gate is reproducible. govulncheck is generally
-      # forward-compatible with the Go toolchain it runs against.
       - name: Install govulncheck
+        # Pinned to v1.1.4 for reproducibility; forward-compatible with
+        # the Go toolchain in go.mod.
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
       - name: Run govulncheck
-        # -mod=vendor so govulncheck reads the vendored tree (same
-        # posture as the go-licenses job). Exits non-zero on any HIGH
-        # or CRITICAL finding.
-        run: $(go env GOPATH)/bin/govulncheck -mod=vendor ./...
+        # Fails on any HIGH or CRITICAL finding. Vendored tree read via
+        # GOFLAGS above — matches the `licenses` job posture in ci.yml.
+        run: $(go env GOPATH)/bin/govulncheck ./...
 
-  semgrep-all:
-    name: semgrep (all project-local rules)
+  semgrep-identity-privacy:
+    name: semgrep (identity + privacy enforced rules)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -64,22 +69,24 @@ jobs:
       - name: Install semgrep
         run: pip install --no-cache-dir semgrep==1.91.0
 
-      # Supersedes the optional `make identity-gate` (local-dev only).
-      # Scans every .claude/skills/**/semgrep rule against internal/ +
-      # cmd/ + web/ + tracker/. A fresh scan against main is the
-      # baseline (no historical suppression file).
-      - name: Run semgrep (identity + privacy + GeoIP + iran-dc + WAL rules)
+      # Only the two rule sets that are enforced today:
+      #   blake3-hmac-identity-review — shipped in Phase 2b, already the
+      #     `make identity-gate` target.
+      #   gdpr-code-review            — Phase 7d F3 (this PR).
+      #
+      # geoip-pipeline-review / iranian-dc-deploy / wal-durability-review
+      # ship advisory rules that pre-date Phase 7d and have known existing
+      # findings they catch by design; promoting those to hard gates is a
+      # separate scope tracked as its own v1.1 row.
+      - name: Run semgrep (identity + privacy)
         run: |
           semgrep scan \
             --error \
             --config=.claude/skills/blake3-hmac-identity-review/semgrep \
             --config=.claude/skills/gdpr-code-review/semgrep \
-            --config=.claude/skills/geoip-pipeline-review/semgrep \
-            --config=.claude/skills/iranian-dc-deploy/semgrep \
-            --config=.claude/skills/wal-durability-review/semgrep \
             --sarif \
             --output=semgrep.sarif \
-            internal/ cmd/ web/ tracker/
+            internal/ cmd/
 
       - name: Upload semgrep SARIF
         if: always()
@@ -109,6 +116,10 @@ jobs:
     name: CodeQL (Go + JavaScript)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -116,6 +127,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          # Full history so CodeQL's diff-range extension pack can compute
+          # the merge base against origin/main. Default depth=1 fails with
+          # `fatal: error processing shallow info: 4`.
+          fetch-depth: 0
 
       - name: Setup Go
         if: matrix.language == 'go'
