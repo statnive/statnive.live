@@ -52,23 +52,22 @@ scan_dir() {
 		return 0
 	fi
 
-	# Hidden codepoint scan. One perl per file so the $ARGV is accurate.
-	local f lineno
-	for f in "${files[@]}"; do
-		# -C: enable Unicode mode for source/output. -ne: per-line loop.
-		if perl -CSDA -ne '
-			BEGIN { $hit = 0 }
-			if (/([\x{200B}-\x{200D}\x{FEFF}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{E0000}-\x{E007F}])/) {
-				printf "%s:%d: hidden codepoint U+%04X\n", $ARGV, $., ord($1);
-				$hit = 1;
-			}
-			END { exit($hit) }
-		' "$f"; then
-			:
-		else
-			had_hit=1
-		fi
-	done
+	# One perl invocation for every target file. $. is per-file because
+	# perl resets the line counter when ARGV rolls to the next file;
+	# close ARGV explicitly at eof to make that reset deterministic.
+	if perl -CSDA -ne '
+		BEGIN { $hit = 0 }
+		if (/([\x{200B}-\x{200D}\x{FEFF}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{E0000}-\x{E007F}])/) {
+			printf "%s:%d: hidden codepoint U+%04X\n", $ARGV, $., ord($1);
+			$hit = 1;
+		}
+		close ARGV if eof;
+		END { exit($hit) }
+	' "${files[@]}"; then
+		:
+	else
+		had_hit=1
+	fi
 
 	return $had_hit
 }

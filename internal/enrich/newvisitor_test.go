@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/statnive/statnive.live/internal/enrich"
+	"github.com/statnive/statnive.live/internal/rootfs/rootfstest"
 )
 
 func TestNewVisitorFilter_FirstSeenIsNew(t *testing.T) {
@@ -90,35 +91,40 @@ func TestNewVisitorFilter_LoadFromMissingIsNoop(t *testing.T) {
 	}
 }
 
-// TestNewVisitorFilter_SymlinkEscapeRejected is the TOCTOU regression
-// for the os.Root migration. A symlink in the bloom-filter directory
-// pointing outside the directory must fail LoadFrom — os.OpenRoot
-// refuses symlink escape, unlike a bare os.Open.
+// TestNewVisitorFilter_SymlinkEscapeRejected pins the TOCTOU guarantee
+// for the os.OpenRoot migration: a symlink in the bloom-filter directory
+// pointing outside the directory MUST fail LoadFrom. Bare os.Open would
+// silently follow it.
+//
+// The external target is a real bloom file serialized via SaveTo so
+// LoadFrom's failure mode is the open (symlink refusal), not a downstream
+// format-parse error that would mask the TOCTOU check.
 func TestNewVisitorFilter_SymlinkEscapeRejected(t *testing.T) {
 	t.Parallel()
 
-	// Real bloom file lives outside the root we'll pass to LoadFrom.
-	realDir := t.TempDir()
-	realBloom := filepath.Join(realDir, "evil.dat")
-
-	// Write a plausible bloom file (seeded + saved via SaveTo so the
-	// internal format matches — otherwise LoadFrom would fail with a
-	// parse error rather than an open error, masking the TOCTOU check).
 	seed := enrich.NewNewVisitorFilter(1024, 0.001)
-	if err := seed.SaveTo(realBloom); err != nil {
+	tmp := filepath.Join(t.TempDir(), "seed.dat")
+
+	if err := seed.SaveTo(tmp); err != nil {
 		t.Fatalf("seed save: %v", err)
 	}
 
-	// Root the LoadFrom call in a separate dir with a symlink to real.
-	rootDir := t.TempDir()
-	link := filepath.Join(rootDir, "bloom.dat")
-
-	if err := os.Symlink(realBloom, link); err != nil {
-		t.Skipf("symlink unsupported on this platform: %v", err)
+	// Use the seeded file's bytes as the external target.
+	data, err := readFile(t, tmp)
+	if err != nil {
+		t.Fatalf("read seed: %v", err)
 	}
+
+	link := rootfstest.WriteSymlinkEscape(t, data)
 
 	f := enrich.NewNewVisitorFilter(1024, 0.001)
 	if err := f.LoadFrom(link); err == nil {
 		t.Fatal("expected symlink-escape rejection, got nil error")
 	}
+}
+
+func readFile(t *testing.T, path string) ([]byte, error) {
+	t.Helper()
+
+	return os.ReadFile(path) //nolint:gosec // test helper; path is test-controlled
 }

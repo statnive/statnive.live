@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/statnive/statnive.live/internal/config"
+	"github.com/statnive/statnive.live/internal/rootfs/rootfstest"
 )
 
 const testEnvVar = "STATNIVE_TEST_MASTER_SECRET"
@@ -158,28 +159,14 @@ func TestLoadMasterSecret_DefensiveCopy(t *testing.T) {
 	}
 }
 
-// TestLoadMasterSecret_SymlinkEscapeRejected is the TOCTOU regression
-// for the os.Root migration. A symlink inside the key directory that
-// points outside the root must fail to open — a bare os.Open would
-// silently follow it and leak a secret from an unexpected location.
+// TestLoadMasterSecret_SymlinkEscapeRejected pins the TOCTOU guarantee
+// for the os.OpenRoot migration: a symlink in the key directory pointing
+// outside the directory MUST fail to open. Bare os.Open would silently
+// follow and leak a secret from an unexpected location.
 func TestLoadMasterSecret_SymlinkEscapeRejected(t *testing.T) {
 	t.Parallel()
 
-	// Create the real target outside the root.
-	realDir := t.TempDir()
-	realKey := filepath.Join(realDir, "evil.key")
-
-	if err := os.WriteFile(realKey, []byte(strings.Repeat("z", 32)), 0o600); err != nil {
-		t.Fatalf("write real: %v", err)
-	}
-
-	// Create a separate root with a symlink pointing at the real target.
-	rootDir := t.TempDir()
-	link := filepath.Join(rootDir, "master.key")
-
-	if err := os.Symlink(realKey, link); err != nil {
-		t.Skipf("symlink unsupported on this platform: %v", err)
-	}
+	link := rootfstest.WriteSymlinkEscape(t, []byte(strings.Repeat("z", 32)))
 
 	if _, err := config.LoadMasterSecret(testEnvVar, link); err == nil {
 		t.Fatal("expected symlink-escape rejection, got nil error")
