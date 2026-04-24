@@ -1,0 +1,26 @@
+#statnive-app .statnive-live-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  vertical-align: middle;
+  margin-left: var(--s-1);
+  animation: statnive-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  box-shadow: 0 0 0 0 rgb(0 166 147 / 50%);
+}
+
+@keyframes statnive-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgb(0 166 147 / 50%);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgb(0 166 147 / 0%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #statnive-app .statnive-live-pulse {
+    animation: none;
+  }
+}

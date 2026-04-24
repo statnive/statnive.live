@@ -5,6 +5,7 @@ import type { RealtimeResponse } from '../api/types';
 import { realtimeTickSignal } from '../state/realtime';
 import { siteSignal } from '../state/site';
 import { fmtInt } from '../lib/fmt';
+import { LivePulse } from '../components/LivePulse';
 import './panels.css';
 
 export default function Realtime() {
@@ -44,6 +45,10 @@ export default function Realtime() {
       <h2 class="statnive-h2">Realtime</h2>
       <div class="statnive-realtime">
         <div class="statnive-realtime-card">
+          <div class="statnive-realtime-live">
+            <LivePulse aria-label="Live" />
+            LIVE
+          </div>
           <div class="statnive-label">Active visitors (current hour)</div>
           <div class="statnive-realtime-big" data-testid="realtime-active">
             {d ? fmtInt(d.active_visitors) : '—'}
