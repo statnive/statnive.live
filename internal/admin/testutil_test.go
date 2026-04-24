@@ -14,6 +14,7 @@ import (
 
 	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/goals"
+	"github.com/statnive/statnive.live/internal/sites"
 )
 
 // fakeAuthStore is a minimal in-memory auth.Store for handler tests.
@@ -304,9 +305,93 @@ func (f *fakeGoalsStore) Disable(ctx context.Context, siteID uint32, id uuid.UUI
 	return f.Update(ctx, g)
 }
 
+// fakeSitesStore is a minimal admin.SitesStore for Phase 6-polish
+// handler tests — mirrors the ErrHostnameTaken / ErrSlugTaken paths
+// the real *sites.Registry enforces.
+type fakeSitesStore struct {
+	mu     sync.Mutex
+	byID   map[uint32]*sites.SiteAdmin
+	nextID uint32
+}
+
+func newFakeSitesStore() *fakeSitesStore {
+	return &fakeSitesStore{byID: make(map[uint32]*sites.SiteAdmin)}
+}
+
+func (f *fakeSitesStore) CreateSite(_ context.Context, hostname, slug, tz string) (uint32, error) {
+	hostname = strings.ToLower(strings.TrimSpace(hostname))
+	if err := sites.ValidateHostname(hostname); err != nil {
+		return 0, err
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	for _, s := range f.byID {
+		if s.Hostname == hostname {
+			return 0, sites.ErrHostnameTaken
+		}
+	}
+
+	if slug == "" {
+		slug = sites.GenerateSlug(hostname)
+	}
+
+	for _, s := range f.byID {
+		if s.Slug == slug {
+			return 0, sites.ErrSlugTaken
+		}
+	}
+
+	f.nextID++
+
+	if tz == "" {
+		tz = "Asia/Tehran"
+	}
+
+	f.byID[f.nextID] = &sites.SiteAdmin{
+		Site: sites.Site{
+			ID: f.nextID, Hostname: hostname, Enabled: true, TZ: tz,
+		},
+		Slug:      slug,
+		Plan:      "free",
+		CreatedAt: time.Now().Unix(),
+	}
+
+	return f.nextID, nil
+}
+
+func (f *fakeSitesStore) UpdateSiteEnabled(_ context.Context, siteID uint32, enabled bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	s, ok := f.byID[siteID]
+	if !ok {
+		return sites.ErrUnknownHostname
+	}
+
+	s.Enabled = enabled
+
+	return nil
+}
+
+func (f *fakeSitesStore) ListAdmin(_ context.Context) ([]sites.SiteAdmin, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := make([]sites.SiteAdmin, 0, len(f.byID))
+
+	for _, s := range f.byID {
+		out = append(out, *s)
+	}
+
+	return out, nil
+}
+
 var (
 	_ auth.Store  = (*fakeAuthStore)(nil)
 	_ goals.Store = (*fakeGoalsStore)(nil)
+	_ SitesStore  = (*fakeSitesStore)(nil)
 )
 
 // adminRequest builds a request with an admin *User pre-attached to

@@ -66,7 +66,7 @@ func (h *Goals) List(w http.ResponseWriter, r *http.Request) {
 
 	list, err := h.deps.Goals.List(r.Context(), actor.SiteID)
 	if err != nil {
-		h.emitError(r, "list_goals", err)
+		h.deps.emitDashboardError(r, "list_goals", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -132,7 +132,7 @@ func (h *Goals) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		h.emitError(r, "create_goal", err)
+		h.deps.emitDashboardError(r, "create_goal", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -196,7 +196,7 @@ func (h *Goals) Update(w http.ResponseWriter, r *http.Request) {
 			h.emitGoalRejected(r, actor, g, err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 		default:
-			h.emitError(r, "update_goal", err)
+			h.deps.emitDashboardError(r, "update_goal", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 		}
 
@@ -233,7 +233,7 @@ func (h *Goals) Disable(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		h.emitError(r, "disable_goal", err)
+		h.deps.emitDashboardError(r, "disable_goal", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -294,14 +294,3 @@ func (h *Goals) emitGoalRejected(
 	)
 }
 
-func (h *Goals) emitError(r *http.Request, reason string, err error) {
-	if h.deps.Audit == nil {
-		return
-	}
-
-	h.deps.Audit.Event(r.Context(), audit.EventDashboardError,
-		slog.String("path", r.URL.Path),
-		slog.String("reason", reason),
-		slog.String("err", err.Error()),
-	)
-}

@@ -143,18 +143,16 @@ curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1 \
     || fatal "/healthz never responded within 6s"
 log "binary up + migrations applied"
 
-# Seed runs AFTER /healthz so the binary's startup migrations have
-# already created statnive.sites / statnive.events_raw. Idempotent via
-# mutations_sync=2 DELETE — mirrors storagetest.SeedSite.
+# Clear prior state from previous runs. Idempotent via mutations_sync=2
+# DELETE — mirrors storagetest.SeedSite. The actual site row is created
+# by probe_site_creation below via the Phase 6-polish admin endpoint,
+# exercising the real first-run flow end-to-end.
 docker exec "$CH_CONTAINER" clickhouse-client --port 9000 -q \
     "ALTER TABLE statnive.sites DELETE WHERE site_id = ${SITE_ID} OR hostname = '${HOSTNAME_}' SETTINGS mutations_sync = 2" \
     >/dev/null 2>&1 || true
 docker exec "$CH_CONTAINER" clickhouse-client --port 9000 -q \
     "ALTER TABLE statnive.events_raw DELETE WHERE site_id = ${SITE_ID} SETTINGS mutations_sync = 2" \
     >/dev/null 2>&1 || true
-docker exec "$CH_CONTAINER" clickhouse-client --port 9000 -q \
-    "INSERT INTO statnive.sites (site_id, hostname, slug, enabled) VALUES (${SITE_ID}, '${HOSTNAME_}', 'smoke', 1)" \
-    >/dev/null 2>&1 || fatal "seed site row failed"
 
 # ---------- Probes ----------
 
@@ -524,6 +522,52 @@ probe_admin_flow() {
     _assert "admin: api-token gets 403 on /api/admin/users" "$cond" "status=${status}"
 }
 
+# probe_site_creation: Phase 6-polish first-run UX — log in as bootstrap
+# admin and POST /api/admin/sites to register the smoke hostname. The
+# assigned site_id is exported as SITE_ID for the ingest + stats probes
+# downstream. Runs BEFORE ingest because /api/event needs the hostname
+# registered to route events.
+probe_site_creation() {
+    local cookies="${WORK}/create-site-cookies.txt"
+    rm -f "$cookies"
+
+    local base="http://127.0.0.1:${PORT}"
+    local body status tmp
+
+    body=$(printf '{"email":"%s","password":"%s"}' "$LOGIN_EMAIL" "$LOGIN_PASSWORD")
+    status=$(curl -sS -o /dev/null -w '%{http_code}' \
+        -c "$cookies" -H 'Content-Type: application/json' -d "$body" \
+        "$base/api/login")
+    [ "$status" = "200" ] || fatal "probe_site_creation login: status=${status}"
+
+    body=$(printf '{"hostname":"%s","slug":"smoke"}' "$HOSTNAME_")
+    tmp=$(mktemp)
+    status=$(curl -sS -o "$tmp" -w '%{http_code}' \
+        -b "$cookies" -H 'Content-Type: application/json' -d "$body" \
+        "$base/api/admin/sites")
+    local resp
+    resp=$(cat "$tmp")
+    rm -f "$tmp"
+
+    local cond=1
+    [ "$status" = "201" ] && cond=0
+    _assert "admin: create site 201" "$cond" "status=${status} body=${resp}"
+    [ "$cond" = "0" ] || fatal "probe_site_creation: cannot register hostname — downstream probes will fail"
+
+    local new_site_id
+    new_site_id=$(echo "$resp" | sed -n 's/.*"site_id":\([0-9][0-9]*\).*/\1/p' | head -1)
+    if [ -z "$new_site_id" ] || [ "$new_site_id" = "0" ]; then
+        fatal "probe_site_creation: could not parse site_id from response: ${resp}"
+    fi
+
+    SITE_ID="$new_site_id"
+    log "probe_site_creation: site '${HOSTNAME_}' registered with site_id=${SITE_ID}"
+
+    # Logout so later probes start with a clean auth state.
+    curl -sS -o /dev/null -X POST -b "$cookies" "$base/api/logout" || true
+    rm -f "$cookies"
+}
+
 # ---------- Run the probe matrix ----------
 
 log "probing /healthz + /tracker.js + /app/ + /app/assets/"
@@ -531,6 +575,9 @@ probe_healthz
 probe_tracker
 probe_spa_shell
 probe_spa_asset
+
+log "probing /api/admin/sites (Phase 6-polish first-run site creation)"
+probe_site_creation
 
 log "probing /api/event (ingest round-trip to ClickHouse)"
 probe_ingest

@@ -23,9 +23,13 @@ import (
 //	POST   /api/admin/goals
 //	PATCH  /api/admin/goals/{id}
 //	POST   /api/admin/goals/{id}/disable
+//	GET    /api/admin/sites
+//	POST   /api/admin/sites
+//	PATCH  /api/admin/sites/{id}
 func Mount(r chi.Router, deps Deps) {
 	users := NewUsers(deps)
 	goalsH := NewGoals(deps)
+	sitesH := NewSites(deps)
 
 	r.Method(http.MethodGet, "/api/admin/users", http.HandlerFunc(users.List))
 	r.Method(http.MethodPost, "/api/admin/users", http.HandlerFunc(users.Create))
@@ -38,4 +42,8 @@ func Mount(r chi.Router, deps Deps) {
 	r.Method(http.MethodPost, "/api/admin/goals", http.HandlerFunc(goalsH.Create))
 	r.Method(http.MethodPatch, "/api/admin/goals/{id}", http.HandlerFunc(goalsH.Update))
 	r.Method(http.MethodPost, "/api/admin/goals/{id}/disable", http.HandlerFunc(goalsH.Disable))
+
+	r.Method(http.MethodGet, "/api/admin/sites", http.HandlerFunc(sitesH.List))
+	r.Method(http.MethodPost, "/api/admin/sites", http.HandlerFunc(sitesH.Create))
+	r.Method(http.MethodPatch, "/api/admin/sites/{id}", http.HandlerFunc(sitesH.Update))
 }

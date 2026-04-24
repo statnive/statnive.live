@@ -28,6 +28,16 @@ export interface AdminGoal {
   updated_at: number;
 }
 
+export interface AdminSite {
+  site_id: number;
+  hostname: string;
+  slug: string;
+  plan: string;
+  enabled: boolean;
+  tz: string;
+  created_at: number;
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -140,4 +150,26 @@ export async function updateGoal(
 
 export async function disableGoal(id: string): Promise<void> {
   await request<void>('POST', `/api/admin/goals/${id}/disable`);
+}
+
+// ---------------- Sites ----------------
+
+export async function listSites(): Promise<AdminSite[]> {
+  const res = await request<{ sites: AdminSite[] }>('GET', '/api/admin/sites');
+  return res.sites ?? [];
+}
+
+export async function createSite(body: {
+  hostname: string;
+  slug?: string;
+  tz?: string;
+}): Promise<AdminSite> {
+  return request<AdminSite>('POST', '/api/admin/sites', body);
+}
+
+export async function updateSiteEnabled(
+  siteID: number,
+  enabled: boolean,
+): Promise<AdminSite> {
+  return request<AdminSite>('PATCH', `/api/admin/sites/${siteID}`, { enabled });
 }

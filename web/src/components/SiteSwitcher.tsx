@@ -8,6 +8,7 @@ import {
   loadPersistedSiteId,
   type Site,
 } from '../state/site';
+import { userSignal } from '../state/auth';
 import './SiteSwitcher.css';
 
 interface SitesResponse {
@@ -60,6 +61,13 @@ export function SiteSwitcher() {
   const active = activeSiteSignal.value;
 
   if (list.length === 0) {
+    if (userSignal.value?.role === 'admin') {
+      return (
+        <a class="statnive-site-switcher" href="#admin">
+          no sites yet — add one
+        </a>
+      );
+    }
     return <span class="statnive-site-switcher">no sites</span>;
   }
 

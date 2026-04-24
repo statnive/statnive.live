@@ -118,3 +118,16 @@
   color: var(--error);
   font-size: 0.875rem;
 }
+
+.statnive-admin-snippet {
+  margin: 0;
+  padding: var(--s-1) var(--s-2);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-width: 28rem;
+}

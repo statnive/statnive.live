@@ -71,7 +71,7 @@ func (h *Users) List(w http.ResponseWriter, r *http.Request) {
 
 	users, err := h.deps.Auth.ListUsers(r.Context(), actor.SiteID)
 	if err != nil {
-		h.emitError(r, "list_users", err)
+		h.deps.emitDashboardError(r, "list_users", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -149,7 +149,7 @@ func (h *Users) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		h.emitError(r, "create_user", createErr)
+		h.deps.emitDashboardError(r, "create_user", createErr)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -207,7 +207,7 @@ func (h *Users) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		h.emitError(r, "change_role", err)
+		h.deps.emitDashboardError(r, "change_role", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -289,7 +289,7 @@ func (h *Users) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if updErr := h.deps.Auth.UpdateUserPassword(r.Context(), userID, hash); updErr != nil {
-		h.emitError(r, "update_password", updErr)
+		h.deps.emitDashboardError(r, "update_password", updErr)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -357,7 +357,7 @@ func (h *Users) setEnabled(
 	// auth.Store.SetDisabled(false), swap the Enable branch below.
 	if !enable {
 		if disErr := h.deps.Auth.DisableUser(r.Context(), userID); disErr != nil {
-			h.emitError(r, "disable_user", disErr)
+			h.deps.emitDashboardError(r, "disable_user", disErr)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 
 			return
@@ -383,18 +383,6 @@ func (h *Users) emitUserEvent(
 		slog.Uint64("site_id", uint64(target.SiteID)),
 		slog.String("email_hash", hex.EncodeToString(emailHash[:])),
 		slog.String("role", string(target.Role)),
-	)
-}
-
-func (h *Users) emitError(r *http.Request, reason string, err error) {
-	if h.deps.Audit == nil {
-		return
-	}
-
-	h.deps.Audit.Event(r.Context(), audit.EventDashboardError,
-		slog.String("path", r.URL.Path),
-		slog.String("reason", reason),
-		slog.String("err", err.Error()),
 	)
 }
 

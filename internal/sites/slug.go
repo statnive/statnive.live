@@ -114,7 +114,7 @@ func (r *Registry) IsSlugAvailable(ctx context.Context, slug string) (bool, erro
 	var count uint64
 
 	row := r.conn.QueryRow(ctx,
-		`SELECT count() FROM statnive.sites FINAL WHERE slug = ? LIMIT 1`,
+		`SELECT count() FROM statnive.sites WHERE slug = ? LIMIT 1`,
 		slug,
 	)
 
@@ -149,7 +149,7 @@ func (r *Registry) ReserveSlug(ctx context.Context, slug string, siteID uint32) 
 	var existingSiteID uint32
 
 	row := r.conn.QueryRow(ctx,
-		`SELECT site_id FROM statnive.sites FINAL WHERE slug = ? LIMIT 1`,
+		`SELECT site_id FROM statnive.sites WHERE slug = ? LIMIT 1`,
 		slug,
 	)
 
