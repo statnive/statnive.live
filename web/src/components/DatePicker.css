@@ -1,53 +1,111 @@
 #statnive-app .statnive-datepicker {
   display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
   margin-bottom: var(--s-3);
 }
 
 #statnive-app .statnive-datepicker-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s-1);
+  display: inline-flex;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--paper-2);
+  gap: 0;
+}
+
+#statnive-app .statnive-datepicker-presets .statnive-chip {
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  padding: 4px var(--s-3);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+#statnive-app .statnive-datepicker-presets .statnive-chip:hover,
+#statnive-app .statnive-datepicker-presets .statnive-chip:focus-visible {
+  color: var(--ink);
+  outline: none;
+}
+
+#statnive-app .statnive-datepicker-presets .statnive-chip.is-active {
+  background: var(--ink);
+  color: var(--paper-2);
 }
 
 #statnive-app .statnive-datepicker-custom {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s-2);
 }
 
-#statnive-app .statnive-datepicker-custom input[type="date"] {
-  font-family: var(--sans);
-  font-size: 13px;
-  padding: var(--s-1) var(--s-2);
+#statnive-app .statnive-datepicker-custom input[type='date'] {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 4px var(--s-2);
   border: 1px solid var(--rule-soft);
-  border-radius: 3px;
-  background: var(--paper);
+  border-radius: 4px;
+  background: var(--paper-2);
   color: var(--ink);
 }
 
-#statnive-app .statnive-chip {
-  background: transparent;
-  border: 1px solid var(--rule-soft);
-  color: var(--ink);
-  font-family: var(--sans);
-  font-size: 13px;
-  padding: var(--s-1) var(--s-2);
+#statnive-app .statnive-datepicker-custom input[type='date']:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+#statnive-app .statnive-datepicker-custom .statnive-chip {
+  padding: 4px var(--s-3);
+  background: var(--green);
+  border-color: var(--green);
+  color: var(--paper-2);
   border-radius: 999px;
+  border-style: solid;
+  border-width: 1px;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
 }
 
+#statnive-app .statnive-datepicker-custom .statnive-chip:hover,
+#statnive-app .statnive-datepicker-custom .statnive-chip:focus-visible {
+  background: var(--green-dk);
+  border-color: var(--green-dk);
+  outline: none;
+}
+
+/* Generic chip used outside the segmented picker (FilterPanel + custom range). */
+#statnive-app .statnive-chip {
+  background: transparent;
+  border: 1px solid var(--rule-soft);
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px var(--s-2);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
 #statnive-app .statnive-chip:hover,
-#statnive-app .statnive-chip:focus {
-  border-color: var(--green);
-  color: var(--green-dk);
+#statnive-app .statnive-chip:focus-visible {
+  border-color: var(--ink);
+  color: var(--ink);
   outline: none;
 }
 
 #statnive-app .statnive-chip.is-active {
-  background: var(--green-lt);
-  border-color: var(--green);
-  color: var(--green-dk);
+  background: var(--ink);
+  color: var(--paper-2);
+  border-color: var(--ink);
 }

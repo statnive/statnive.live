@@ -8,18 +8,35 @@
 }
 
 #statnive-app .statnive-site-label {
-  font-size: 12px;
-  font-weight: 600;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
 }
 
 #statnive-app .statnive-site-switcher select {
   font-family: var(--sans);
   font-size: 13px;
-  padding: var(--s-1) var(--s-2);
+  font-weight: 500;
+  padding: 4px var(--s-2);
   border: 1px solid var(--rule-soft);
-  border-radius: 3px;
-  background: var(--paper);
+  border-radius: 999px;
+  background: var(--paper-2);
   color: var(--ink);
+  cursor: pointer;
+}
+
+#statnive-app .statnive-site-switcher select:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+
+#statnive-app .statnive-site-switcher[data-testid='site-single'] {
+  padding: 4px var(--s-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: var(--paper-2);
+  font-weight: 500;
 }

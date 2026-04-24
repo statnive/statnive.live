@@ -1,133 +1,216 @@
-.statnive-admin {
+#statnive-app .statnive-admin {
   display: flex;
   flex-direction: column;
-  gap: var(--s-3);
+  gap: var(--s-4);
 }
 
-.statnive-admin-tabs {
+#statnive-app .statnive-admin-tabs {
   display: flex;
-  gap: var(--s-1);
+  gap: 0;
   border-bottom: 1px solid var(--rule-soft);
+  /* Amber bottom line under Admin sub-tabs so it reads distinct from
+     the main operator nav above. */
+  border-bottom-color: var(--rule-soft);
+  position: relative;
 }
 
-.statnive-admin-tabs button {
+#statnive-app .statnive-admin-tabs::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--amber);
+  opacity: 0.24;
+}
+
+#statnive-app .statnive-admin-tabs button {
   padding: var(--s-2) var(--s-3);
   border: none;
   background: transparent;
-  color: var(--ink);
-  font: inherit;
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 120ms ease, border-color 120ms ease;
 }
 
-.statnive-admin-tabs button.is-active {
-  color: var(--green);
-  border-bottom-color: var(--green);
+#statnive-app .statnive-admin-tabs button:hover,
+#statnive-app .statnive-admin-tabs button:focus-visible {
+  color: var(--ink);
+  outline: none;
 }
 
-.statnive-admin-new {
+#statnive-app .statnive-admin-tabs button.is-active {
+  color: var(--amber);
+  border-bottom-color: var(--amber);
+}
+
+#statnive-app .statnive-admin-new {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--s-3);
-  padding: var(--s-3);
-  background: var(--rule-soft);
-  border-radius: 4px;
+  padding: var(--s-4);
+  background: var(--paper-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
 }
 
-.statnive-admin-new h3 {
+#statnive-app .statnive-admin-new h3 {
   grid-column: 1 / -1;
   margin: 0;
-  font-size: 1rem;
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--ink);
 }
 
-.statnive-admin-new label {
+#statnive-app .statnive-admin-new label {
   display: flex;
   flex-direction: column;
   gap: var(--s-1);
-  font-size: 0.875rem;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
 }
 
-.statnive-admin-new input,
-.statnive-admin-new select {
-  padding: var(--s-1) var(--s-2);
+#statnive-app .statnive-admin-new input,
+#statnive-app .statnive-admin-new select {
+  font-family: var(--sans);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: normal;
+  padding: var(--s-2) var(--s-2);
   border: 1px solid var(--rule-soft);
   border-radius: 4px;
-  font: inherit;
+  color: var(--ink);
+  background: var(--paper-2);
 }
 
-.statnive-admin-new button {
+#statnive-app .statnive-admin-new input:focus-visible,
+#statnive-app .statnive-admin-new select:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+#statnive-app .statnive-admin-new button {
   align-self: end;
-  padding: var(--s-2) var(--s-3);
+  padding: var(--s-2) var(--s-4);
   border: none;
   border-radius: 4px;
-  background: var(--green);
-  color: var(--paper);
-  font: inherit;
-  font-weight: 600;
+  background: var(--ink);
+  color: var(--paper-2);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
-.statnive-admin-new button:hover {
-  background: var(--green-dk);
+#statnive-app .statnive-admin-new button:hover:not([disabled]),
+#statnive-app .statnive-admin-new button:focus-visible:not([disabled]) {
+  background: var(--ink-2);
+  outline: none;
 }
 
-.statnive-admin-new button[disabled] {
-  opacity: 0.7;
+#statnive-app .statnive-admin-new button[disabled] {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.statnive-admin-table {
+#statnive-app .statnive-admin-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-family: var(--sans);
+  font-size: 13px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.statnive-admin-table th,
-.statnive-admin-table td {
+#statnive-app .statnive-admin-table th,
+#statnive-app .statnive-admin-table td {
   text-align: left;
-  padding: var(--s-1) var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: middle;
+}
+
+#statnive-app .statnive-admin-table th {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  background: var(--paper);
   border-bottom: 1px solid var(--rule-soft);
 }
 
-.statnive-admin-table th {
-  color: var(--ink);
-  font-weight: 600;
+#statnive-app .statnive-admin-table tbody tr:last-child td {
+  border-bottom: none;
 }
 
-.statnive-admin-table button {
-  padding: var(--s-1) var(--s-2);
-  border: 1px solid currentColor;
+#statnive-app .statnive-admin-table tbody tr:hover {
+  background: var(--rule-hair);
+}
+
+#statnive-app .statnive-admin-table button {
+  padding: 4px var(--s-2);
+  border: 1px solid var(--rule-soft);
   border-radius: 4px;
   background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
 }
 
-.statnive-admin-table button:hover {
+#statnive-app .statnive-admin-table button:hover,
+#statnive-app .statnive-admin-table button:focus-visible {
   color: var(--error);
   border-color: var(--error);
+  outline: none;
 }
 
-.statnive-admin-error {
+#statnive-app .statnive-admin-error {
   margin: 0;
   padding: var(--s-2) var(--s-3);
-  background: var(--green-lt);
+  background: rgb(176 36 58 / 8%);
   border-left: 3px solid var(--error);
+  border-radius: 4px;
   color: var(--error);
-  font-size: 0.875rem;
+  font-family: var(--sans);
+  font-size: 13px;
 }
 
-.statnive-admin-snippet {
+#statnive-app .statnive-admin-snippet {
   margin: 0;
   padding: var(--s-1) var(--s-2);
   background: var(--paper);
-  border: 1px solid var(--rule-soft);
+  border: 1px solid var(--rule-hair);
   border-radius: 4px;
   font-family: var(--mono);
-  font-size: 0.75rem;
+  font-size: 11px;
+  color: var(--ink);
   white-space: pre-wrap;
   word-break: break-all;
   max-width: 28rem;
+}
+
+#statnive-app code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
 }

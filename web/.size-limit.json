@@ -1,8 +1,8 @@
 [
   {
-    "name": "initial JS (gz) — Preact + signals + Overview + Nav + filters + switcher + Login (Phase 2b)",
+    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login (Phase 5e)",
     "path": "../internal/dashboard/spa/dist/assets/index-*.js",
-    "limit": "14 KB",
+    "limit": "16 KB",
     "gzip": true
   },
   {
@@ -18,9 +18,15 @@
     "gzip": true
   },
   {
-    "name": "statnive-spa.css (gz)",
-    "path": "../internal/dashboard/spa/dist/assets/*.css",
+    "name": "statnive-spa.css (gz) — tokens + reset + AppShell + components + @font-face rules (Phase 5e, fonts are separate WOFF2 assets)",
+    "path": "../internal/dashboard/spa/dist/assets/index-*.css",
     "limit": "5 KB",
+    "gzip": true
+  },
+  {
+    "name": "per-panel CSS chunks (gz) — Admin + panels + Chart",
+    "path": "../internal/dashboard/spa/dist/assets/{Admin,panels,Chart}-*.css",
+    "limit": "3 KB",
     "gzip": true
   }
 ]

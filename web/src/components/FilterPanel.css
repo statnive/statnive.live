@@ -1,11 +1,12 @@
 #statnive-app .statnive-filterpanel {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--s-2);
-  padding: var(--s-2) 0;
-  border-top: 1px dashed var(--rule-soft);
-  border-bottom: 1px dashed var(--rule-soft);
-  margin-bottom: var(--s-4);
+  padding: var(--s-2) var(--s-4);
+  min-height: 40px;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule-soft);
 }
 
 #statnive-app .statnive-filter-row {
@@ -16,22 +17,51 @@
 }
 
 #statnive-app .statnive-filter-label {
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ink);
-  margin-right: var(--s-1);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-2);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
+  margin-right: var(--s-1);
 }
 
-#statnive-app .statnive-filter-row input[type="text"] {
-  font-family: var(--sans);
-  font-size: 13px;
-  padding: var(--s-1) var(--s-2);
+/* Channel chips inherit the generic .statnive-chip visual from
+   DatePicker.css — no per-panel overrides needed. */
+
+#statnive-app .statnive-filterpanel input[type='text'] {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 4px var(--s-2);
   border: 1px solid var(--rule-soft);
-  border-radius: 3px;
-  background: var(--paper);
+  border-radius: 4px;
+  background: var(--paper-2);
   color: var(--ink);
-  width: 120px;
+  width: 160px;
+}
+
+#statnive-app .statnive-filterpanel input[type='text']:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+/* "Clear all" button — quiet link-style in the last filter row. */
+#statnive-app .statnive-filterpanel .statnive-filter-row:last-child > .statnive-chip {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 4px var(--s-1);
+}
+
+#statnive-app .statnive-filterpanel .statnive-filter-row:last-child > .statnive-chip:hover,
+#statnive-app
+  .statnive-filterpanel
+  .statnive-filter-row:last-child
+  > .statnive-chip:focus-visible {
+  color: var(--ink);
+  background: transparent;
+  border-color: transparent;
 }
