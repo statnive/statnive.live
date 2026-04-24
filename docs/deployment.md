@@ -39,7 +39,7 @@ Iranian self-hosted deployments are exempt (no EU visitors / data stays on custo
 
 ### Infrastructure Cost per Customer (growth path)
 
-- **Pre-paying-customers (dogfood):** Hetzner CX32 (~€13/mo) hosts statnive.com + a handful of free-tier trials. Fixed cost, no per-customer math yet.
+- **Pre-paying-customers (dogfood):** Hetzner CX43 (~€14/mo, 8 vCPU / 16 GB / 160 GB NVMe — was CX32 pre-Apr-2026 rename per research doc 36) hosts statnive.com + a handful of free-tier trials. Fixed cost, no per-customer math yet. Provision with both IPv4 and IPv6 enabled — tracker origin is public-facing.
 - **First ~10 paying customers:** AX41 (~€39/mo) — comfortably handles 10–30 sites at 1M PV/mo each. **~€1.30–3.90/mo per customer**; ~90% gross margin at $19/mo pricing.
 - **~30–50 customers:** AX42 (€46/mo) safely handles 30–50 sites at 1M PV/mo each. 100 sites × 1M PV/mo = ~13.5K EPS — above the 7K EPS proven load ceiling, so don't over-pack AX42.
 - **100+ customers:** AX102 (€104/mo) or horizontal shard. Revisit architecture when we get there.
@@ -48,14 +48,14 @@ Iranian self-hosted deployments are exempt (no EU visitors / data stays on custo
 
 | Stage | Server | Monthly | Annual |
 |-------|--------|---------|--------|
-| **Phase A dogfood (v1)** | Hetzner CX32 cloud (4c/8GB/80GB) | **~€13** | **~€156** |
+| **Phase A dogfood (v1)** | Hetzner CX43 cloud (8c/16GB/160GB NVMe) — was CX32 pre-Apr-2026 rename | **~€14** | **~€168** |
 | Phase C first paying tier (~10 customers) | Hetzner AX41 (6c/64GB/2×512GB) | **~€39** | **~€468** |
 | Phase C growth (~50–100 customers) | Hetzner AX42 (8c/64GB/1TB) | **€46** | **€552** |
 | Phase C scale (100+ customers) | Hetzner AX102 (16c/128GB/4TB) | **€104** | **€1,248** |
 | SamplePlatform (Phase B) | 8c/32GB/1TB NVMe Iranian DC (Asiatech / Shatel / Afranet) | **~€180** | **~€2,160** |
 
 **Notes:**
-- **Start small:** CX32 (~€13/mo) handles statnive.com dogfood traffic (<100K PV/mo) for ~400× less cost than AX42. Upgrade to AX42 when SaaS load demands it. Saves ~€430/yr in year 1.
+- **Start small:** CX43 (~€14/mo — renamed from CX32 in the 2026 Hetzner lineup, see [research doc 36](../../jaan-to/docs/research/36-devops-hetzner-saas-vps-selection-2026.md)) handles statnive.com dogfood traffic (<100K PV/mo) for ~400× less cost than AX42. Upgrade to AX42 when SaaS load demands it. Saves ~€384/yr in year 1 vs. starting directly on AX42.
 - Iranian DCs are quote-based (not public pricing). Upfront CAPEX on custom bare-metal builds; monthly figure is colocation + bandwidth only.
 - **Customer Iranian DC sizing is phase-dependent**, not a single number. P1/P2 (StreamCo MIN, web only) runs on an Asiatech G2 standard VPS (~28M Rial/mo). P3 (+iOS) needs bandwidth upgrade or small dedicated. P4/P5 (StreamCo MAX, full fidelity) is a 2–3 node cluster. See the 5-phase table in PLAN.md § Phase 10 and [`../../jaan-to/outputs/capacity-planning-standalone-analytics.md`](../../jaan-to/outputs/capacity-planning-standalone-analytics.md) for monthly bandwidth / disk / EPS per sub-phase.
 - **Bandwidth envelope by sub-phase** (StreamCo profile, at 300 B/event optimized): P1 ~22 GB/mo (MIN), P2 ~105 GB/mo, P3 ~420 GB/mo, P4 ~900 GB/mo, P5 ~1.2 TB/mo (MAX). All Asiatech standard VPS tiers cap at 150 GB/mo — upgrade conversation lands at P3, not at initial cutover.
