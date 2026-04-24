@@ -34,8 +34,11 @@ test-integration: web-build
 	$(GO) test -mod=vendor -race -tags=integration -v -timeout 240s ./test/...
 
 ## lint: Run golangci-lint + tenancy-grep gate + identity-gate + privacy-gate
+# golangci-lint wants filesystem paths, not the import paths `go list`
+# returns; `./...` gets it to walk the tree itself and honor
+# .golangci.yml's exclude list (which already covers web/node_modules).
 lint: tenancy-grep identity-gate privacy-gate
-	$(GOLANGCI_LINT) run $(PKG)
+	$(GOLANGCI_LINT) run ./...
 
 ## identity-gate: auth-return nil-guard regression (CVE-2024-10924, PLAN.md §53).
 ## Advisory in v1: Semgrep is optional on developer laptops; the nil-guard
