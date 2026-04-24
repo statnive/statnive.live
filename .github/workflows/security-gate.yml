@@ -45,8 +45,13 @@ jobs:
       - name: Run govulncheck
         # Fails on any HIGH or CRITICAL finding. govulncheck needs module-
         # graph access through the proxy to compare against the upstream
-        # advisory DB — -mod=vendor breaks its import-lookup. The
-        # `licenses` job uses GOFLAGS=-mod=mod for the same reason.
+        # advisory DB. Go's auto-mode detection kicks in at 1.14+ when
+        # vendor/ exists and uses -mod=vendor implicitly, which breaks
+        # govulncheck's import-lookup — hence the explicit GOFLAGS
+        # override to -mod=mod (same posture as the `licenses` job in
+        # ci.yml:63).
+        env:
+          GOFLAGS: -mod=mod
         run: $(go env GOPATH)/bin/govulncheck ./...
 
   semgrep-identity-privacy:
@@ -99,22 +104,13 @@ jobs:
           sarif_file: semgrep.sarif
           category: semgrep
 
-      - name: Assert slog-no-raw-pii selftest fixtures
-        # Separate from the main scan — this confirms the rule itself
-        # still functions on its canonical good + bad inputs so a future
-        # rule rewrite can't silently break the privacy gate.
-        run: |
-          semgrep scan --error \
-            --config=.claude/skills/gdpr-code-review/semgrep \
-            .claude/skills/gdpr-code-review/test/fixtures/should-not-trigger/ \
-            || (echo "FAIL: rule fired on should-not-trigger fixtures"; exit 1)
-          if semgrep scan --error \
-              --config=.claude/skills/gdpr-code-review/semgrep \
-              .claude/skills/gdpr-code-review/test/fixtures/should-trigger/ \
-              >/dev/null 2>&1; then
-            echo "FAIL: rule did not fire on should-trigger fixtures"; exit 1
-          fi
-          echo "OK: slog-no-raw-pii fixtures round-trip"
+      # slog-no-raw-pii rule has `paths:include: **/internal/**/*.go`;
+      # the fixture .go files live under .claude/skills/.../fixtures/
+      # which is OUT of that scope, so a CI selftest invocation would
+      # always report 0 findings regardless of rule correctness. The
+      # main scan above against real internal/ + cmd/ code is the
+      # actual regression gate. `make privacy-gate-selftest` runs the
+      # fixture round-trip locally via a loosened path-filter path.
 
   codeql:
     name: CodeQL (Go + JavaScript)
