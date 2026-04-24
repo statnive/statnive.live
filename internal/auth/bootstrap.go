@@ -83,7 +83,10 @@ func Bootstrap(
 		auditLog.Event(ctx, audit.EventAuthBootstrap,
 			slog.String("email_hash", hashForAudit(cfg.Email)),
 			slog.Uint64("site_id", uint64(cfg.SiteID)),
-			slog.String("user_id", u.UserID.String()),
+			// admin_id is the admin user's internal UUID — not a tracker
+			// visitor user_id. Keyed distinctly so the privacy gate can
+			// distinguish the two.
+			slog.String("admin_id", u.UserID.String()),
 		)
 	}
 

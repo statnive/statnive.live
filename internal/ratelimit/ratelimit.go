@@ -55,11 +55,17 @@ func keyByClientIP(r *http.Request) (string, error) {
 
 // limitHandler returns the http.Handler httprate invokes on 429. We emit
 // an audit event + write the canonical 429 response.
+//
+// Raw client IP is intentionally NOT logged to the audit sink — Privacy
+// Rule 1 (no raw IP persisted) applies equally to audit. Path + method
+// plus the aggregate rate-limit counters surfaced via /metrics are
+// sufficient for ops to correlate an incident. The rate-limiter itself
+// still keys on the IP for the limiting decision — only the audit-log
+// serialization loses it.
 func limitHandler(auditLog *audit.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if auditLog != nil {
 			auditLog.Event(context.Background(), audit.EventRateLimited,
-				slog.String("ip", ingest.ClientIP(r)),
 				slog.String("path", r.URL.Path),
 				slog.String("method", r.Method),
 			)

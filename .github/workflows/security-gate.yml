@@ -26,10 +26,6 @@ jobs:
     name: govulncheck (Go supply-chain)
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    env:
-      # govulncheck wraps `go list` / `go build` internally and respects
-      # GOFLAGS; the current v1.1.4 CLI has no -mod flag of its own.
-      GOFLAGS: -mod=vendor
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -42,12 +38,17 @@ jobs:
 
       - name: Install govulncheck
         # Pinned to v1.1.4 for reproducibility; forward-compatible with
-        # the Go toolchain in go.mod.
+        # the Go toolchain in go.mod. Cannot run under -mod=vendor
+        # because module resolution needs the proxy.
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
       - name: Run govulncheck
-        # Fails on any HIGH or CRITICAL finding. Vendored tree read via
-        # GOFLAGS above — matches the `licenses` job posture in ci.yml.
+        # Fails on any HIGH or CRITICAL finding. GOFLAGS=-mod=vendor so
+        # govulncheck reads the vendored tree — matches the `licenses`
+        # job posture in ci.yml. Scoped to this step so `go install`
+        # above can still query the proxy.
+        env:
+          GOFLAGS: -mod=vendor
         run: $(go env GOPATH)/bin/govulncheck ./...
 
   semgrep-identity-privacy:

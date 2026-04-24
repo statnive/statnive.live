@@ -5,17 +5,27 @@
 # against nil AFTER the err==nil branch, not just on the err path. A
 # fault-injected (nil, nil) return MUST NOT proceed to dereference.
 #
+# Implementation note: Semgrep's `pattern-not-inside` matches only when
+# the target is literally AST-enclosed by the excluded pattern, which
+# doesn't fit the idiomatic Go shape `x, err := …; if err != nil {…};
+# if x == nil {…}` (the guard is a sibling, not a parent). Instead we
+# use the sequence form `pattern` → `pattern-not` with statement
+# ellipsis (`...`) so "no nil-guard follows" is a real exclusion.
+#
 # Scope: internal/**/*.go. The auth package itself is intentionally
 # excluded so the package's own internal nil-safety idioms (e.g. the
 # `if u == nil { return nil, ErrNotFound }` belt-and-braces inside
 # store.go) don't trigger on themselves.
 #
+# Accepted guard forms (any ONE of these following the assignment
+# satisfies the rule):
+#   - `if $X == nil { ... }`              — separate-check form
+#   - `if $ERR != nil || $X == nil { ... }` — combined form
+#   - `if $X == nil || $ERR != nil { ... }` — combined form, swapped order
+#
 # Tests: .claude/skills/blake3-hmac-identity-review/test/fixtures/
 # should-trigger/    — each .go file is deliberately unguarded
 # should-not-trigger/— each .go file is correctly guarded
-#
-# Wiring: Makefile `identity-semgrep` target; `make lint` depends on
-# `identity-gate`. CI runs it on every PR.
 
 rules:
   - id: auth-return-nil-guard
@@ -29,33 +39,42 @@ rules:
     languages: [go]
     paths:
       include:
-        - "internal/**/*.go"
+        - "**/internal/**/*.go"
       exclude:
-        - "internal/auth/**"
+        - "**/internal/auth/**"
         - "**/*_test.go"
-        - "vendor/**"
+        - "**/vendor/**"
     patterns:
       - pattern-either:
-          # Tuple-return from the known auth surface. The metavariable
-          # $X catches the pointer name so the subsequent nil guard can
-          # be pattern-matched against it.
-          - patterns:
-              - pattern: |
-                  $X, $ERR := auth.UserFrom($CTX)
-              - pattern-not-inside: |
-                  if $X == nil { ... }
-          - patterns:
-              - pattern: |
-                  $X, $ERR := $STORE.LookupSession(...)
-              - pattern-not-inside: |
-                  if $X == nil { ... }
-          - patterns:
-              - pattern: |
-                  $X, $ERR := $STORE.GetUserByID(...)
-              - pattern-not-inside: |
-                  if $X == nil { ... }
-          - patterns:
-              - pattern: |
-                  $X, $Y, $ERR := $STORE.GetUserByEmail(...)
-              - pattern-not-inside: |
-                  if $X == nil { ... }
+          - pattern: $X, $ERR := auth.UserFrom($CTX)
+          - pattern: $X, $ERR := $STORE.LookupSession(...)
+          - pattern: $X, $ERR := $STORE.GetUserByID(...)
+          - pattern: $X, $Y, $ERR := $STORE.GetUserByEmail(...)
+      - pattern-not: |
+          $X, $ERR := $STORE.$FUNC(...)
+          ...
+          if $X == nil { ... }
+      - pattern-not: |
+          $X, $ERR := $STORE.$FUNC(...)
+          ...
+          if $ERR != nil || $X == nil { ... }
+      - pattern-not: |
+          $X, $ERR := $STORE.$FUNC(...)
+          ...
+          if $X == nil || $ERR != nil { ... }
+      - pattern-not: |
+          $X, $Y, $ERR := $STORE.$FUNC(...)
+          ...
+          if $X == nil { ... }
+      - pattern-not: |
+          $X, $Y, $ERR := $STORE.$FUNC(...)
+          ...
+          if $ERR != nil || $X == nil { ... }
+      - pattern-not: |
+          $X, $ERR := auth.UserFrom($CTX)
+          ...
+          if $X == nil { ... }
+      - pattern-not: |
+          $X, $ERR := auth.UserFrom($CTX)
+          ...
+          if $ERR != nil || $X == nil { ... }
