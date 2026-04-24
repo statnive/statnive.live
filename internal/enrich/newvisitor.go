@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/bits-and-blooms/bloom/v3"
@@ -60,8 +61,28 @@ func (n *NewVisitorFilter) CheckAndMark(currentHash, prevHash [16]byte) bool {
 
 // LoadFrom reads a previously persisted filter from disk. Returns nil + a
 // fresh-filter zero state when the file doesn't exist (first-run case).
+//
+// Uses os.OpenRoot for TOCTOU-safe path resolution — a symlink in the
+// bloom-filter directory pointing outside the directory fails to open.
+// Go 1.24+.
 func (n *NewVisitorFilter) LoadFrom(path string) error {
-	f, err := os.Open(path)
+	dir, name := filepath.Split(path)
+	if dir == "" {
+		dir = "."
+	}
+
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+
+		return fmt.Errorf("bloom open dir: %w", err)
+	}
+
+	defer func() { _ = root.Close() }()
+
+	f, err := root.Open(name)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -84,10 +105,23 @@ func (n *NewVisitorFilter) LoadFrom(path string) error {
 
 // SaveTo writes the filter to disk atomically (temp + rename) so a crash
 // mid-write doesn't leave a half-serialized file the next boot can't load.
+// Uses os.OpenRoot for TOCTOU-safe creation — Go 1.24+.
 func (n *NewVisitorFilter) SaveTo(path string) error {
 	tmp := path + ".tmp"
 
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	dir, tmpName := filepath.Split(tmp)
+	if dir == "" {
+		dir = "."
+	}
+
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("bloom open dir: %w", err)
+	}
+
+	defer func() { _ = root.Close() }()
+
+	f, err := root.OpenFile(tmpName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
 	if err != nil {
 		return fmt.Errorf("bloom create: %w", err)
 	}

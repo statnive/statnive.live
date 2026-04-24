@@ -1,6 +1,7 @@
 package enrich_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -86,5 +87,38 @@ func TestNewVisitorFilter_LoadFromMissingIsNoop(t *testing.T) {
 	f := enrich.NewNewVisitorFilter(1024, 0.001)
 	if err := f.LoadFrom(filepath.Join(t.TempDir(), "nope.dat")); err != nil {
 		t.Errorf("missing file should be a no-op, got: %v", err)
+	}
+}
+
+// TestNewVisitorFilter_SymlinkEscapeRejected is the TOCTOU regression
+// for the os.Root migration. A symlink in the bloom-filter directory
+// pointing outside the directory must fail LoadFrom — os.OpenRoot
+// refuses symlink escape, unlike a bare os.Open.
+func TestNewVisitorFilter_SymlinkEscapeRejected(t *testing.T) {
+	t.Parallel()
+
+	// Real bloom file lives outside the root we'll pass to LoadFrom.
+	realDir := t.TempDir()
+	realBloom := filepath.Join(realDir, "evil.dat")
+
+	// Write a plausible bloom file (seeded + saved via SaveTo so the
+	// internal format matches — otherwise LoadFrom would fail with a
+	// parse error rather than an open error, masking the TOCTOU check).
+	seed := enrich.NewNewVisitorFilter(1024, 0.001)
+	if err := seed.SaveTo(realBloom); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+
+	// Root the LoadFrom call in a separate dir with a symlink to real.
+	rootDir := t.TempDir()
+	link := filepath.Join(rootDir, "bloom.dat")
+
+	if err := os.Symlink(realBloom, link); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+
+	f := enrich.NewNewVisitorFilter(1024, 0.001)
+	if err := f.LoadFrom(link); err == nil {
+		t.Fatal("expected symlink-escape rejection, got nil error")
 	}
 }

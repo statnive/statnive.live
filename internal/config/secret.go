@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 // MinSecretLen is 32 bytes (256 bits) — HMAC-SHA256's natural block size
@@ -74,7 +75,27 @@ func readFileSecret(path string) ([]byte, error) {
 		return nil, ErrNoMasterSecret
 	}
 
-	f, err := os.Open(path)
+	// os.OpenRoot + root.Open resolves `name` relative to a directory FD
+	// via openat2 (Linux) / OBJECT_ATTRIBUTES (Windows), so a symlink
+	// pointing outside the root directory fails to open — TOCTOU-safe vs
+	// a bare os.Open(path). Go 1.24+.
+	dir, name := filepath.Split(path)
+	if dir == "" {
+		dir = "."
+	}
+
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNoMasterSecret
+		}
+
+		return nil, fmt.Errorf("open master key dir: %w", err)
+	}
+
+	defer func() { _ = root.Close() }()
+
+	f, err := root.Open(name)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, ErrNoMasterSecret
