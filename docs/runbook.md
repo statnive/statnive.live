@@ -897,23 +897,44 @@ SIGHUP-driven reopen if you prefer `create` semantics — just call
 
 ## Phase 9 — Dogfood on statnive.com / .de / fr.statnive.com (operator SOPs)
 
-### Provision a fresh Hetzner CX43 for dogfood / free-tier SaaS
+### Provision a fresh Netcup VPS 2000 G12 NUE for dogfood / free-tier SaaS
 
-Target D1 host for Milestone 1 + early SaaS customers. CX43 specs:
-**8 vCPU Intel shared / 16 GB / 160 GB NVMe / 20 TB traffic / ~€14/mo**
-(doubles the vCPU + disk of the pre-2024 CX32 at the same price —
-see research doc 36). Upgrade to AX42 (~€46/mo) at ~10 paying
-customers per `docs/deployment.md § Server Costs`.
+Target D1 host for Milestone 1 + early SaaS customers. Actual
+procurement (2026-04-24, commit `4ff19dd`): **Netcup VPS 2000 G12 iv
+NUE hourly-based** — 8 vCore AMD EPYC x86_64 / 16 GB DDR5 ECC / 512 GB
+NVMe / 2.5 Gbit unlimited / IPv4 + IPv6 / Nuremberg, Germany. Billing
+€25.48/mo + €5 one-time setup, no lock-in (cancel anytime). Per
+research-doc-36 §4.1 this is the Hetzner-fallback path promoted to
+primary because Hetzner requires photo-ID / passport / proof-of-
+address doc-verification at signup; Netcup's Mastercard-only signup
+has no such block.
+
+Prior commit `07141c3` documents Hetzner CX43 as the intended D1;
+that runbook SOP is preserved as the future-growth tier for when the
+doc-verification blocker clears. Hardware-wise Netcup VPS 2000 is
+comparable (8 vCore, 16 GB RAM) + ships 3× more NVMe (512 vs 160 GB)
++ unlimited bandwidth (vs 20 TB/mo Hetzner cap) — strictly better for
+dogfood traffic; 80 % more expensive than Hetzner's 12-mo-prepaid
+CX43 but cancel-anytime flexibility is worth it during Phase A
+uncertainty.
 
 ```bash
-# 1. Hetzner Cloud Console → create CX43, Ubuntu 24.04 LTS,
-#    Falkenstein or Nuremberg DC. **Enable BOTH IPv4 + IPv6** —
-#    IPv4 is a €0.50/mo surcharge but tracker endpoints are public-
-#    facing; IPv6-only blackholes ~50 %+ of global client traffic.
-# 2. Copy an SSH key onto the box at create time.
+# 1. Netcup Customer Control Panel → VPS → order VPS 2000 G12 iv NUE
+#    hourly. Ubuntu 24.04 LTS image. IPv4 + IPv6 both assigned by
+#    default — no surcharge. Snapshot-at-provision for rollback.
+# 2. Wait for the setup email (~5 min); root password + IPv4/IPv6
+#    addresses arrive there. SSH in, set up a non-root user, install
+#    your SSH key, disable root password auth:
+ssh root@<netcup-ipv4>
+adduser --disabled-password --shell /bin/bash ops
+mkdir -p /home/ops/.ssh && chmod 700 /home/ops/.ssh
+# Paste your ~/.ssh/id_ed25519.pub into /home/ops/.ssh/authorized_keys
+chmod 600 /home/ops/.ssh/authorized_keys && chown -R ops:ops /home/ops/.ssh
+usermod -aG sudo ops
+sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+systemctl reload ssh
 
 # 3. Install ClickHouse 24 from the official Altinity script:
-ssh root@<cx43-ip>
 curl -s https://clickhouse.com/ | sh        # unpacks clickhouse binary
 sudo ./clickhouse install                    # creates clickhouse-server + -client
 sudo systemctl enable --now clickhouse-server
