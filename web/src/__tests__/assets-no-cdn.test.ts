@@ -12,6 +12,12 @@ import { dirname, join, resolve } from 'node:path';
 //     or `web/src/**/*.tsx` (any <link href="http...">).
 //   - @fontsource imports are allowed — they resolve through
 //     node_modules at build time and Vite bundles locally.
+//
+// Allowed carve-outs (attribution links, not asset fetches):
+//   - https://lite.ip2location.com — mandatory by CC-BY-SA-4.0 §3(a)(1)
+//     for the LITE GeoIP BIN; the dashboard footer renders it inside
+//     an <a> whose text is "IP2Location LITE". Runtime navigation
+//     only, never loaded as a resource.
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(__dirname, '..');
@@ -42,8 +48,12 @@ describe('air-gap: no CDN / remote url()', () => {
       expect(body).not.toMatch(/url\(\s*['"]?\/\//);
 
       // Reject raw <link href="http..."> in TSX.
-      expect(body).not.toMatch(/href\s*=\s*['"]https?:/);
-      expect(body).not.toMatch(/src\s*=\s*['"]https?:/);
+      // Strip the attribution-link carve-out before matching so the
+      // LITE attribution anchor in Footer.tsx passes without
+      // weakening the rule for everything else.
+      const stripped = body.replace(/https:\/\/lite\.ip2location\.com/g, 'ATTRIBUTION_LINK');
+      expect(stripped).not.toMatch(/href\s*=\s*['"]https?:/);
+      expect(stripped).not.toMatch(/src\s*=\s*['"]https?:/);
     });
   }
 

@@ -892,3 +892,157 @@ SIGHUP-driven reopen if you prefer `create` semantics — just call
   stays operator-side in the age-encrypted vault until v1.1 / Phase 11b.
 - **Backup cron automation** — SOP shipped above; operator-owned cron
   line (commented exemplar in the install script hints).
+
+---
+
+## Phase 9 — Dogfood on statnive.com / .de / fr.statnive.com (operator SOPs)
+
+### Provision a fresh Netcup VPS 2000 G12 NUE for dogfood / free-tier SaaS
+
+Target D1 host for Milestone 1 + early SaaS customers. Actual
+procurement (2026-04-24, commit `4ff19dd`): **Netcup VPS 2000 G12 iv
+NUE hourly-based** — 8 vCore AMD EPYC x86_64 / 16 GB DDR5 ECC / 512 GB
+NVMe / 2.5 Gbit unlimited / IPv4 + IPv6 / Nuremberg, Germany. Billing
+€25.48/mo + €5 one-time setup, no lock-in (cancel anytime). Per
+research-doc-36 §4.1 this is the Hetzner-fallback path promoted to
+primary because Hetzner requires photo-ID / passport / proof-of-
+address doc-verification at signup; Netcup's Mastercard-only signup
+has no such block.
+
+Prior commit `07141c3` documents Hetzner CX43 as the intended D1;
+that runbook SOP is preserved as the future-growth tier for when the
+doc-verification blocker clears. Hardware-wise Netcup VPS 2000 is
+comparable (8 vCore, 16 GB RAM) + ships 3× more NVMe (512 vs 160 GB)
++ unlimited bandwidth (vs 20 TB/mo Hetzner cap) — strictly better for
+dogfood traffic; 80 % more expensive than Hetzner's 12-mo-prepaid
+CX43 but cancel-anytime flexibility is worth it during Phase A
+uncertainty.
+
+```bash
+# 1. Netcup Customer Control Panel → VPS → order VPS 2000 G12 iv NUE
+#    hourly. Ubuntu 24.04 LTS image. IPv4 + IPv6 both assigned by
+#    default — no surcharge. Snapshot-at-provision for rollback.
+# 2. Wait for the setup email (~5 min); root password + IPv4/IPv6
+#    addresses arrive there. SSH in, set up a non-root user, install
+#    your SSH key, disable root password auth:
+ssh root@<netcup-ipv4>
+adduser --disabled-password --shell /bin/bash ops
+mkdir -p /home/ops/.ssh && chmod 700 /home/ops/.ssh
+# Paste your ~/.ssh/id_ed25519.pub into /home/ops/.ssh/authorized_keys
+chmod 600 /home/ops/.ssh/authorized_keys && chown -R ops:ops /home/ops/.ssh
+usermod -aG sudo ops
+sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+systemctl reload ssh
+
+# 3. Install ClickHouse 24 from the official Altinity script:
+curl -s https://clickhouse.com/ | sh        # unpacks clickhouse binary
+sudo ./clickhouse install                    # creates clickhouse-server + -client
+sudo systemctl enable --now clickhouse-server
+clickhouse-client --query 'SELECT version()' # expect >= 24.12
+
+# 4. Bind CH to 127.0.0.1 only (Security Rule 2) — default config is
+#    bound to 127.0.0.1 on the Altinity package; verify:
+grep listen_host /etc/clickhouse-server/config.xml
+
+# 5. Continue with § Air-gap bundle install from step 1.
+```
+
+### Issue + rotate TLS for `statnive.live` + `app.statnive.live` + `demo.statnive.live`
+
+One Let's Encrypt cert with three SANs covers the dogfood surface.
+Certbot runs in `--standalone` mode so we need to pause statnive-live
+during issuance; the PEMs then drop into the loader's watched paths
+and the next SIGHUP picks them up.
+
+```bash
+# Install certbot:
+sudo apt update && sudo apt install -y certbot
+
+# Stop statnive-live so certbot --standalone can bind :80:
+sudo systemctl stop statnive-live
+
+# Issue one cert for all three SANs:
+sudo certbot certonly --standalone \
+  -d statnive.live -d app.statnive.live -d demo.statnive.live \
+  --agree-tos -m ops@statnive.live --non-interactive
+
+# Copy PEMs to the loader paths (statnive user must be able to read):
+sudo install -m 0600 -o statnive -g statnive \
+  /etc/letsencrypt/live/statnive.live/fullchain.pem \
+  /etc/statnive-live/tls/fullchain.pem
+sudo install -m 0600 -o statnive -g statnive \
+  /etc/letsencrypt/live/statnive.live/privkey.pem  \
+  /etc/statnive-live/tls/privkey.pem
+
+# Restart:
+sudo systemctl start statnive-live
+
+# Automatic renewal (LE certs are 90-day; certbot renews at ~30 d):
+sudo tee /etc/cron.d/statnive-certbot <<'EOF'
+# Monthly on the 1st, 02:00 UTC — renew-and-reload. The post-hook
+# re-copies the fresh PEMs and SIGHUPs statnive-live; cert.Loader
+# hot-swaps without a restart.
+0 2 1 * * root \
+  certbot renew --quiet --deploy-hook "cp /etc/letsencrypt/live/statnive.live/fullchain.pem /etc/statnive-live/tls/ && \
+                                        cp /etc/letsencrypt/live/statnive.live/privkey.pem  /etc/statnive-live/tls/ && \
+                                        chown statnive:statnive /etc/statnive-live/tls/*.pem && \
+                                        systemctl kill -s HUP statnive-live"
+EOF
+```
+
+Cert-expiry watcher (`internal/cert/expiry.go`) emits
+`tls.expiry_warning` at <30 d and `tls.expiry_critical` at <7 d to
+both `audit.jsonl` and `alerts.jsonl` — confirm renewal via
+`grep tls.expiry /var/log/statnive-live/audit.jsonl` after each
+certbot pass.
+
+### Seed 3 sites for Milestone 1 (statnive.com / .de / fr.statnive.com)
+
+Post-install, before cutover. Use the Admin UI (Phase 6-polish Sites
+tab) — no CLI seed subcommand ships in v1.
+
+1. Log in at `https://app.statnive.live/app/login` with the bootstrap
+   admin credentials.
+2. Admin → Sites → **Add site**:
+   - hostname `statnive.com`, slug `statnive`, tz `Europe/Berlin` → site_id=1
+   - hostname `statnive.de`, slug `statnive-de`, tz `Europe/Berlin` → site_id=2
+   - hostname `fr.statnive.com`, slug `statnive-fr`, tz `Europe/Paris` → site_id=3
+3. (Optional) Add a `demo` viewer user: Admin → Users → Add email
+   `demo@statnive.live`, role `viewer`, site_id=1. Publish those
+   credentials via `STATNIVE_AUTH_DEMO_BANNER` on the login page
+   (systemd env drop-in; SIGHUP the binary).
+
+### Milestone 1 acceptance check (24 h after DNS cutover)
+
+Run against the live host, not localhost:
+
+```bash
+# 1. Three origins serve HTTPS + embed the tracker (not PostHog):
+for h in statnive.com statnive.de fr.statnive.com; do
+  curl -sI "https://$h" | head -1
+  curl -s  "https://$h" | grep -q 'statnive.live/tracker.js' && echo "$h: tracker OK"
+  curl -s  "https://$h" | grep -qi posthog && echo "$h: POSTHOG LEAK"
+done
+
+# 2. /api/about serves the CC-BY-SA verbatim text:
+curl -s https://app.statnive.live/api/about | jq -r '.attributions[] | select(.name == "IP2Location LITE DB23") | .text'
+# expect: "This site or product includes IP2Location LITE data available from https://lite.ip2location.com."
+
+# 3. All three sites have non-zero pageviews in the dashboard
+#    (via the smoke harness, which already probes /api/stats/*):
+STATNIVE_E2E_BASEURL=https://app.statnive.live \
+  npm --prefix web run e2e -- --reporter=list
+
+# 4. Viewer is 403-blocked from /api/admin/*:
+COOKIE=<viewer-sid>
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "Cookie: sid=$COOKIE" \
+  https://app.statnive.live/api/admin/users
+# expect: 403
+
+# 5. No unresolved alerts on the box:
+sudo jq -c 'select(.resolved == false)' /var/log/statnive-live/alerts.jsonl
+# expect: empty (no WAL high fill, no CH down, cert > 30 d out)
+```
+
+Green on all five → Milestone 1 achieved.

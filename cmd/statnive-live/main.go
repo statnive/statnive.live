@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/statnive/statnive.live/internal/about"
 	"github.com/statnive/statnive.live/internal/admin"
 	"github.com/statnive/statnive.live/internal/alerts"
 	"github.com/statnive/statnive.live/internal/audit"
@@ -389,6 +391,12 @@ func run() error {
 		Start:     time.Now(),
 	}))
 
+	// /api/about — unauthenticated build + third-party attribution
+	// surface. Required by CLAUDE.md License Rules for IP2Location LITE
+	// CC-BY-SA-4.0 §3(a)(1); paired with LICENSE-third-party.md and the
+	// dashboard footer.
+	router.Method(http.MethodGet, "/api/about", about.Handler(readBuildInfo(), about.DefaultAttributions()))
+
 	// First-party tracker — bytes embedded via go:embed in internal/tracker.
 	// Sits outside the dashboard auth + rate-limit groups; serves a static
 	// blob that's safe to hand back unauthenticated under any traffic.
@@ -723,6 +731,32 @@ func buildAPITokens(cfg appConfig) []auth.APIToken {
 			Label:        "bearer-legacy",
 			Role:         auth.RoleAPI,
 		})
+	}
+
+	return out
+}
+
+// readBuildInfo pulls version + git SHA + Go version out of
+// runtime/debug's build record. Works whether the binary was produced
+// via `go build` (vcs.revision populated from the git tree) or
+// `go install` from a tagged module (main.Version populated from the
+// module's tag). In dev (GOFLAGS= / no vcs info), all three return
+// empty strings — /api/about still serves.
+func readBuildInfo() about.BuildInfo {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return about.BuildInfo{}
+	}
+
+	out := about.BuildInfo{
+		Version:   info.Main.Version,
+		GoVersion: info.GoVersion,
+	}
+
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+			out.GitSHA = s.Value[:7]
+		}
 	}
 
 	return out
