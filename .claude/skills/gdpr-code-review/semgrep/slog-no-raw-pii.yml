@@ -1,0 +1,87 @@
+# slog-no-raw-pii — F3 merge-time PII leak gate.
+#
+# Rule: any slog call site that writes a key matching /(?i)^(user_?id|ip|
+# remote_?addr|email|site_?id|master_?secret|raw_.*)$/ MUST wrap the
+# value in one of the redaction helpers. A plain variable is rejected.
+#
+# Research backing: doc 27 §Gap 3 ("gdpr-code-review") prescribes this
+# rule verbatim — "flag `slog.String(\"ip\", r.RemoteAddr)` or similar;
+# flag `slog.String(\"user_id\", uid)` where uid is a plain variable not
+# wrapped in `hash()`".
+#
+# Scope: internal/** + cmd/**. Exclude the redaction wrappers themselves
+# + tests (audit tests intentionally log raw values to assert they're
+# NOT forwarded downstream).
+#
+# Allowed wrappers (extend here when a new helper ships):
+#   identity.HexUserIDHash(...)    — BLAKE3-128 hex wrap
+#   identity.HashIP(...)           — IP → 64-bit digest
+#   redact.*(...)                  — generic redactor family
+#   "..." / <int> / <const>        — compile-time constants
+#
+# Tests:
+#   .claude/skills/gdpr-code-review/test/fixtures/should-trigger/
+#   .claude/skills/gdpr-code-review/test/fixtures/should-not-trigger/
+#
+# Wiring: Makefile `privacy-gate` target; CI runs it per PR via the new
+# security-gate.yml workflow.
+
+rules:
+  - id: slog-no-raw-pii
+    message: >-
+      slog call writes a raw PII key ("user_id" / "ip" / "email" / "site_id" /
+      "master_secret" / "raw_*") without wrapping the value in a redaction
+      helper (identity.HexUserIDHash / identity.HashIP / redact.*). Privacy
+      Rule 4 forbids raw PII in slog sinks — file sink, stdout, or syslog.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include:
+        - "internal/**/*.go"
+        - "cmd/**/*.go"
+      exclude:
+        - "internal/identity/**"
+        - "internal/redact/**"
+        - "**/*_test.go"
+        - "vendor/**"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              slog.$FUNC($...ARGS, "user_id", $V, ...)
+          - pattern: |
+              slog.$FUNC($...ARGS, "userid", $V, ...)
+          - pattern: |
+              slog.$FUNC($...ARGS, "ip", $V, ...)
+          - pattern: |
+              slog.$FUNC($...ARGS, "remote_addr", $V, ...)
+          - pattern: |
+              slog.$FUNC($...ARGS, "remoteaddr", $V, ...)
+          - pattern: |
+              slog.$FUNC($...ARGS, "email", $V, ...)
+          - pattern: |
+              slog.$FUNC($...ARGS, "master_secret", $V, ...)
+          - pattern: |
+              slog.$FUNC($...ARGS, "raw_user_id", $V, ...)
+          - pattern: |
+              slog.$FUNC($...ARGS, "raw_ip", $V, ...)
+          - pattern: |
+              slog.$FUNC($...ARGS, "raw_email", $V, ...)
+          - pattern: |
+              $LOGGER.$FUNC($...ARGS, "user_id", $V, ...)
+          - pattern: |
+              $LOGGER.$FUNC($...ARGS, "ip", $V, ...)
+          - pattern: |
+              $LOGGER.$FUNC($...ARGS, "email", $V, ...)
+          - pattern: |
+              $LOGGER.$FUNC($...ARGS, "master_secret", $V, ...)
+      - metavariable-pattern:
+          metavariable: $V
+          patterns:
+            - pattern-not: |
+                identity.HexUserIDHash(...)
+            - pattern-not: |
+                identity.HashIP(...)
+            - pattern-not: |
+                redact.$REDACT(...)
+            - pattern-not: |
+                "..."
