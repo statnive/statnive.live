@@ -31,8 +31,17 @@ type Transition struct {
 // `band` is the caller's encoding of severity: 0 = clear, 1+ = worse.
 // For the three bands PLAN.md prescribes on WAL / disk
 // (0.80 / 0.90 / 0.95), pass 1 / 2 / 3 respectively.
+//
+// Steady-state (band unchanged) is the common path by a factor of
+// ~100× at 10K EPS — skip the atomic.Swap and return a zero-ed
+// Transition so the caller's early-return stays efficient.
 func (t *BandTracker) Observe(band uint32) Transition {
-	prev := t.current.Swap(band)
+	prev := t.current.Load()
+	if band == prev {
+		return Transition{Band: band, Prev: prev}
+	}
+
+	t.current.Store(band)
 
 	return Transition{
 		Entered: band > prev,
@@ -46,4 +55,22 @@ func (t *BandTracker) Observe(band uint32) Transition {
 // state. Useful for /healthz introspection.
 func (t *BandTracker) Current() uint32 {
 	return t.current.Load()
+}
+
+// ClassifyRatio maps a 0.0–1.0 gauge to a 0/1/2/3 band using the given
+// ascending thresholds — e.g. WAL uses [0.80, 0.90, 0.95], disk uses
+// [0.85, 0.90, 0.95]. Returns the matching severity; band 0 is "info"
+// (reserved for the resolved side of an enter/exit pair). Panics
+// (dev-time only) if thresholds isn't length 3.
+func ClassifyRatio(ratio float64, thresholds [3]float64) (band uint32, sev Severity) {
+	switch {
+	case ratio >= thresholds[2]:
+		return 3, SeverityCritical
+	case ratio >= thresholds[1]:
+		return 2, SeverityCritical
+	case ratio >= thresholds[0]:
+		return 1, SeverityWarn
+	default:
+		return 0, SeverityInfo
+	}
 }

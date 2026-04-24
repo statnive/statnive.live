@@ -105,17 +105,17 @@ func (w *ExpiryWatcher) check() {
 	switch level {
 	case expiryCritical:
 		w.emit(audit.EventTLSExpiryCritical, notAfter, remaining)
-		w.alert("tls_expiry_critical", alerts.SeverityCritical, false, notAfter, remaining)
+		w.alert(alerts.NameTLSExpiryCritical, alerts.SeverityCritical, false, notAfter, remaining)
 	case expiryWarn:
 		w.emit(audit.EventTLSExpiryWarn, notAfter, remaining)
-		w.alert("tls_expiry_warn", alerts.SeverityWarn, false, notAfter, remaining)
+		w.alert(alerts.NameTLSExpiryWarn, alerts.SeverityWarn, false, notAfter, remaining)
 	case expiryFresh:
 		// Cert was renewed past 30d — recover silently in the audit
 		// log (tls.cert_loaded serves as the confirmation). Emit an
 		// explicit `resolved=true` alert so the Notice UI can
 		// auto-dismiss the warn/critical banner it was showing.
 		if w.lastLevel == expiryWarn || w.lastLevel == expiryCritical {
-			w.alert("tls_expiry_warn", alerts.SeverityInfo, true, notAfter, remaining)
+			w.alert(alerts.NameTLSExpiryWarn, alerts.SeverityInfo, true, notAfter, remaining)
 		}
 	}
 

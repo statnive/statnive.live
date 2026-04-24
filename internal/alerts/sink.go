@@ -43,6 +43,20 @@ const (
 	SeverityCritical Severity = "critical"
 )
 
+// Alert name taxonomy. Phase 8 ships 5 alert types; v1.1 will add
+// `email_send_failed` + `backup_restore_stale` + others. Keeping them
+// in one place means the 6-polish-5 Notice UI reader + any future
+// `GET /api/ops/alerts` endpoint have exactly one source of truth
+// for the name set to match against.
+const (
+	NameWALHighFillRatio  = "wal_high_fill_ratio"
+	NameClickHouseDown    = "clickhouse_down"
+	NameClickHouseUp      = "clickhouse_up"
+	NameDiskHighFillRatio = "disk_high_fill_ratio"
+	NameTLSExpiryWarn     = "tls_expiry_warn"
+	NameTLSExpiryCritical = "tls_expiry_critical"
+)
+
 // Sink writes alerts to a JSONL file. Safe for concurrent use.
 type Sink struct {
 	path    string

@@ -132,15 +132,7 @@ const (
 	EventGeoIPReloadFailed EventName = "geoip.reload_failed"
 )
 
-// Phase 8 alerts (operator-facing, duplicated to /var/log/statnive-live/alerts.jsonl).
-// Each alert has a matching `_resolved` event the emitter fires when the
-// condition clears — the Phase 6-polish-5 Notice UI auto-dismisses on
-// the paired resolve event.
-const (
-	EventAlertWALHighFillRatio     EventName = "alert.wal_high_fill_ratio"
-	EventAlertWALHighFillResolved  EventName = "alert.wal_high_fill_resolved"
-	EventAlertClickHouseDown       EventName = "alert.clickhouse_down"
-	EventAlertClickHouseUp         EventName = "alert.clickhouse_up"
-	EventAlertDiskHighFillRatio    EventName = "alert.disk_high_fill_ratio"
-	EventAlertDiskHighFillResolved EventName = "alert.disk_high_fill_resolved"
-)
+// Alert event names live in internal/alerts (not here) — alerts are a
+// separate JSONL sink with a different schema than audit. The audit
+// package owns completed-action events; alerts own ops-should-know-now
+// conditions. See internal/alerts/sink.go.

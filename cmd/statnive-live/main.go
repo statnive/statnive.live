@@ -943,10 +943,14 @@ func loadConfig() (appConfig, error) {
 	return cfg, nil
 }
 
+// walFillThresholds matches wal-durability-review item #6 + PLAN.md:159
+// (503 at 0.80). 0.90 / 0.95 add two critical bands so ops sees
+// escalation before cap-fire drops oldest segments.
+var walFillThresholds = [3]float64{0.80, 0.90, 0.95}
+
 // walFillAlertEmitter wires an alerts.Sink to the BackpressureMiddleware's
-// per-TTL sample callback. The tracker debounces to three bands
-// (0.80 / 0.90 / 0.95) so the sink sees one enter-band event per real
-// crossing + one resolved-event per recovery — not one per sample.
+// per-TTL sample callback. The BandTracker debounces so the sink sees
+// one event per real crossing — not one per sample.
 func walFillAlertEmitter(sink *alerts.Sink) func(ratio float64) {
 	if sink == nil {
 		return nil
@@ -955,35 +959,16 @@ func walFillAlertEmitter(sink *alerts.Sink) func(ratio float64) {
 	var tracker alerts.BandTracker
 
 	return func(ratio float64) {
-		var band uint32
-
-		switch {
-		case ratio >= 0.95:
-			band = 3
-		case ratio >= 0.90:
-			band = 2
-		case ratio >= 0.80:
-			band = 1
-		}
+		band, sev := alerts.ClassifyRatio(ratio, walFillThresholds)
 
 		t := tracker.Observe(band)
 		if !t.Entered && !t.Exited {
 			return
 		}
 
-		sev := alerts.SeverityWarn
-		if band >= 2 {
-			sev = alerts.SeverityCritical
-		}
-
 		resolved := t.Exited && band == 0
-		name := "wal_high_fill_ratio"
 
-		if resolved {
-			sev = alerts.SeverityInfo
-		}
-
-		sink.Emit(context.Background(), name, sev, resolved,
+		sink.Emit(context.Background(), alerts.NameWALHighFillRatio, sev, resolved,
 			slog.Float64("value", ratio),
 			slog.Int("band", int(band)),
 		)

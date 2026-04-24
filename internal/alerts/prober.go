@@ -55,11 +55,11 @@ func ProbeClickHouseLoop(ctx context.Context, sink *Sink, ping pingFunc, interva
 			}
 
 			if tr.Entered {
-				sink.Emit(context.Background(), "clickhouse_down", SeverityCritical, false,
+				sink.Emit(context.Background(), NameClickHouseDown, SeverityCritical, false,
 					slog.String("err", err.Error()),
 				)
 			} else if tr.Exited {
-				sink.Emit(context.Background(), "clickhouse_up", SeverityInfo, true)
+				sink.Emit(context.Background(), NameClickHouseUp, SeverityInfo, true)
 			}
 		}
 	}
@@ -87,11 +87,16 @@ func DiskFillSampler(path string) (float64, error) {
 	return float64(used) / float64(total), nil
 }
 
+// DiskFillThresholds are the 3 bands for /var/lib/statnive-live fill.
+// Doc 28 §operations puts 0.85 warn / 0.90 page in the runbook; we add
+// 0.95 as a critical ceiling so ops sees one extra band before the
+// partition fails. Exported so the equivalent `GET /api/ops/alerts`
+// endpoint (Phase 6-polish-5) can render the same bands.
+var DiskFillThresholds = [3]float64{0.85, 0.90, 0.95}
+
 // ProbeDiskFillLoop samples DiskFillSampler every interval and emits
-// disk_high_fill_ratio alerts on band transitions. Bands: >0.85 warn,
-// >0.90 warn (higher), >0.95 critical. Runs until ctx is cancelled.
-//
-//nolint:gocyclo // tight loop with band + sev + resolved logic; splitting hurts locality
+// disk_high_fill_ratio alerts on band transitions. Runs until ctx is
+// cancelled.
 func ProbeDiskFillLoop(ctx context.Context, sink *Sink, path string, interval time.Duration) error {
 	if sink == nil || path == "" {
 		<-ctx.Done()
@@ -120,33 +125,16 @@ func ProbeDiskFillLoop(ctx context.Context, sink *Sink, path string, interval ti
 				continue
 			}
 
-			var band uint32
-
-			switch {
-			case ratio >= 0.95:
-				band = 3
-			case ratio >= 0.90:
-				band = 2
-			case ratio >= 0.85:
-				band = 1
-			}
+			band, sev := ClassifyRatio(ratio, DiskFillThresholds)
 
 			tr := tracker.Observe(band)
 			if !tr.Entered && !tr.Exited {
 				continue
 			}
 
-			sev := SeverityWarn
-			if band >= 3 {
-				sev = SeverityCritical
-			}
-
 			resolved := tr.Exited && band == 0
-			if resolved {
-				sev = SeverityInfo
-			}
 
-			sink.Emit(context.Background(), "disk_high_fill_ratio", sev, resolved,
+			sink.Emit(context.Background(), NameDiskHighFillRatio, sev, resolved,
 				slog.Float64("value", ratio),
 				slog.Int("band", int(band)),
 				slog.String("path", path),
