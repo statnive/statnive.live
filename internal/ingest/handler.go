@@ -205,7 +205,7 @@ func fastReject(h http.Header, ua string) string {
 }
 
 func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if s[i] > 127 {
 			return false
 		}
@@ -323,8 +323,9 @@ func readOrSetCookieID(w http.ResponseWriter, r *http.Request) string {
 	return id
 }
 
-// Convenience: callers without a configured sites.Registry can wrap this
-// to short-circuit to a fixed site_id during local dev.
+// StaticSiteResolver is a convenience resolver for callers without a
+// configured sites.Registry — short-circuits to a fixed site_id during
+// local dev.
 type StaticSiteResolver struct {
 	SiteID uint32
 }

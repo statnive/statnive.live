@@ -1,7 +1,6 @@
 package enrich_test
 
 import (
-	"io"
 	"log/slog"
 	"path/filepath"
 	"testing"
@@ -10,7 +9,7 @@ import (
 )
 
 func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 func TestGeoIP_NoPathReturnsNoop(t *testing.T) {
@@ -31,6 +30,7 @@ func TestGeoIP_MissingFileFallsBackToNoop(t *testing.T) {
 	t.Parallel()
 
 	missing := filepath.Join(t.TempDir(), "missing.BIN")
+
 	g, err := enrich.NewGeoIPEnricher(missing, discardLogger())
 	if err != nil {
 		t.Fatalf("missing file should not error: %v", err)

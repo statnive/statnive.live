@@ -293,4 +293,3 @@ func (h *Goals) emitGoalRejected(
 		slog.String("reason", err.Error()),
 	)
 }
-

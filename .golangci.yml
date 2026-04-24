@@ -108,6 +108,7 @@ linters:
       - third_party$
       - testutils$
       - examples$
+      - web/node_modules
 
   settings:
     dupl:
@@ -146,3 +147,4 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+      - web/node_modules

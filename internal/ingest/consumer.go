@@ -190,6 +190,7 @@ func (c *Consumer) Run(ctx context.Context) {
 		case env, ok := <-c.in:
 			if !ok {
 				flush("channel-closed")
+
 				_ = c.wal.Sync()
 
 				return

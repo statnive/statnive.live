@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/statnive/statnive.live/internal/rootfs"
 )
 
 // MinSecretLen is 32 bytes (256 bits) — HMAC-SHA256's natural block size
@@ -74,7 +76,7 @@ func readFileSecret(path string) ([]byte, error) {
 		return nil, ErrNoMasterSecret
 	}
 
-	f, err := os.Open(path)
+	f, err := rootfs.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, ErrNoMasterSecret
@@ -82,6 +84,7 @@ func readFileSecret(path string) ([]byte, error) {
 
 		return nil, fmt.Errorf("open master key: %w", err)
 	}
+
 	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()

@@ -8,7 +8,7 @@ BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := $(shell go list -mod=vendor ./... 2>/dev/null | grep -v '/web/node_modules/')
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local
 
 all: lint test build
 
@@ -33,9 +33,12 @@ test:
 test-integration: web-build
 	$(GO) test -mod=vendor -race -tags=integration -v -timeout 240s ./test/...
 
-## lint: Run golangci-lint + tenancy-grep gate + identity-gate
-lint: tenancy-grep identity-gate
-	$(GOLANGCI_LINT) run $(PKG)
+## lint: Run golangci-lint + tenancy-grep gate + identity-gate + privacy-gate
+# golangci-lint wants filesystem paths, not the import paths `go list`
+# returns; `./...` gets it to walk the tree itself and honor
+# .golangci.yml's exclude list (which already covers web/node_modules).
+lint: tenancy-grep identity-gate privacy-gate
+	$(GOLANGCI_LINT) run ./...
 
 ## identity-gate: auth-return nil-guard regression (CVE-2024-10924, PLAN.md §53).
 ## Advisory in v1: Semgrep is optional on developer laptops; the nil-guard
@@ -49,6 +52,55 @@ identity-gate:
 	else \
 		echo "identity-gate: semgrep not installed, skipping (install: pip install semgrep)"; \
 	fi
+
+## privacy-gate: slog-no-raw-pii regression (Phase 7d F3, Privacy Rule 4).
+## Blocks any new slog call that writes a raw PII value. Advisory on dev
+## laptops; CI runs it via .github/workflows/security-gate.yml.
+privacy-gate:
+	@if command -v semgrep >/dev/null 2>&1; then \
+		semgrep --quiet --error --config=.claude/skills/gdpr-code-review/semgrep \
+			internal/ cmd/ || (echo "FAIL: slog-no-raw-pii regression"; exit 1); \
+	else \
+		echo "privacy-gate: semgrep not installed, skipping (install: pip install semgrep)"; \
+	fi
+
+## privacy-gate-selftest: assert the rule fires on should-trigger fixtures
+## and does NOT fire on should-not-trigger fixtures. Run this after any
+## change to the slog-no-raw-pii rule to guard against false-positive /
+## false-negative regressions.
+privacy-gate-selftest:
+	@if ! command -v semgrep >/dev/null 2>&1; then \
+		echo "privacy-gate-selftest: semgrep not installed"; exit 2; \
+	fi
+	@semgrep --quiet --error --config=.claude/skills/gdpr-code-review/semgrep \
+		.claude/skills/gdpr-code-review/test/fixtures/should-trigger/ \
+		&& (echo "FAIL: rule did not fire on should-trigger fixtures"; exit 1) \
+		|| echo "OK: slog-no-raw-pii fires on raw-PII fixtures"
+	@semgrep --quiet --error --config=.claude/skills/gdpr-code-review/semgrep \
+		.claude/skills/gdpr-code-review/test/fixtures/should-not-trigger/ \
+		|| (echo "FAIL: rule fired on should-not-trigger fixtures"; exit 1)
+	@echo "OK: slog-no-raw-pii clean on hashed-PII fixtures"
+
+## skill-sanitizer: supply-chain guard on skill content (Phase 7d F6).
+## Scans .claude/skills/** + docs/** for Unicode Tag Block / zero-width /
+## bidi codepoints. CI runs it via .github/workflows/security-gate.yml.
+skill-sanitizer:
+	@./scripts/skill-sanitizer.sh
+
+## skill-sanitizer-selftest: assert the scanner fires on should-trigger
+## fixtures and does NOT fire on should-not-trigger fixtures. Run after
+## any change to the scanner regex.
+skill-sanitizer-selftest:
+	@echo "==> should-trigger fixtures (expect exit 1)"
+	@if ./scripts/skill-sanitizer.sh --selftest test/fixtures/skill-sanitizer/should-trigger/ >/dev/null 2>&1; then \
+		echo "FAIL: scanner did not fire on should-trigger fixtures"; exit 1; \
+	else \
+		echo "OK: scanner fires on should-trigger"; \
+	fi
+	@echo "==> should-not-trigger fixtures (expect exit 0)"
+	@./scripts/skill-sanitizer.sh --selftest test/fixtures/skill-sanitizer/should-not-trigger/ >/dev/null \
+		|| (echo "FAIL: scanner fired on should-not-trigger"; exit 1)
+	@echo "OK: scanner clean on should-not-trigger"
 
 ## tenancy-grep: CI gate — Architecture Rules 1 + 8 (no events_raw queries; whereTimeAndTenant first)
 tenancy-grep:

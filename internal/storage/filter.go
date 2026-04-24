@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"lukechampine.com/blake3"
@@ -127,7 +129,7 @@ func (f *Filter) Hash() string {
 
 	sum := h.Sum(nil)
 
-	return fmt.Sprintf("%x", sum)
+	return hex.EncodeToString(sum)
 }
 
 func writeStr(h *blake3.Hasher, key, val string) {
@@ -138,11 +140,11 @@ func writeStr(h *blake3.Hasher, key, val string) {
 }
 
 func writeUint32(h *blake3.Hasher, key string, val uint32) {
-	writeStr(h, key, fmt.Sprintf("%d", val))
+	writeStr(h, key, strconv.FormatUint(uint64(val), 10))
 }
 
 func writeInt(h *blake3.Hasher, key string, val int) {
-	writeStr(h, key, fmt.Sprintf("%d", val))
+	writeStr(h, key, strconv.Itoa(val))
 }
 
 func writeTime(h *blake3.Hasher, key string, val time.Time) {

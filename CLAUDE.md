@@ -127,6 +127,11 @@ Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across
 - **5-minute real-time** — rollup-hourly is the line; breaks cost model.
 - **Bounce rate** — vanity metric (docs 09 / 14); expose time-on-page + funnel drop-off.
 - **Multi-touch attribution** — last-touch channel grouping is final.
+- **No remote agentic installer wizard** (doc 34 §A "Reject as default"). The `v1.1-install-cli` (deterministic framework detector + diff preview + round-trip verify, zero LLM, zero outbound) is the only accepted alternative. PostHog-style cloud-agent code edits corrupt `.env` files and mangle Astro frontmatter in public issues — not worth the ergonomic win on an air-gap product.
+- **No cloud-mediated AI memory / `/init` persistent context** (doc 34 §B). Any future AI layer is local-model or pluggable-provider with air-gap default. F10 LLM-triage bookmark in PLAN.md stays conditional, not scheduled.
+- **No broad MCP mutation surface** (doc 34 §"Decision matrix"). The roadmapped MCP server (v2) stays **read-only** over stdio or HTTP. Write operations go through the authenticated admin surface only.
+- **No default-on autocapture** (doc 34 §E). The v1.1 Safe Autocapture Pack (`pack-safe.js`) is opt-in per tenant via `<script data-pack="safe">` / `statnive.enablePack('safe')`. Base tracker stays manual-first.
+- **No session replay / DOM snapshot / canvas-WebGL-font fingerprinting** (doc 32 §A / doc 34 §E). Replaced by "frustration signals" inside the Safe Autocapture Pack — rage clicks, Web Vitals, `$pageleave`.
 
 ## Key Paths
 

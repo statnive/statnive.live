@@ -22,6 +22,8 @@ import (
 // which returns a NONDETERMINISTIC row when multiple match — that
 // silently routed multitenant's events to the wrong site_id and was
 // the root cause of the PR #29 CI flake (see commit cca29f3 debug log).
+//
+//nolint:revive // test helper — *testing.T first is idiomatic for t.Helper()
 func SeedSite(t *testing.T, ctx context.Context, conn driver.Conn, siteID uint32, hostname string) {
 	t.Helper()
 
@@ -43,6 +45,8 @@ func SeedSite(t *testing.T, ctx context.Context, conn driver.Conn, siteID uint32
 // CleanSiteEvents removes every events_raw + rollup row for siteID.
 // Idempotent. mutations_sync=2 makes the DELETE block until the
 // merge applies so subsequent SELECTs see the clean state.
+//
+//nolint:revive // test helper — *testing.T first is idiomatic for t.Helper()
 func CleanSiteEvents(t *testing.T, ctx context.Context, conn driver.Conn, siteID uint32) {
 	t.Helper()
 
@@ -85,6 +89,8 @@ type SeedEvent struct {
 // tests can construct deterministic rollup state without depending on
 // the WAL + consumer + 6-stage pipeline. Time, channel, etc. are all
 // caller-controlled.
+//
+//nolint:revive // test helper — *testing.T first is idiomatic for t.Helper()
 func WriteEvents(t *testing.T, ctx context.Context, conn driver.Conn, events []SeedEvent) {
 	t.Helper()
 
@@ -113,38 +119,38 @@ func WriteEvents(t *testing.T, ctx context.Context, conn driver.Conn, events []S
 		if err := batch.Append(
 			e.SiteID,
 			e.Time,
-			"",                  // user_id_hash
-			"",                  // cookie_id
-			e.VisitorHash[:],    // visitor_hash
-			"",                  // hostname (not used by rollups)
+			"",               // user_id_hash
+			"",               // cookie_id
+			e.VisitorHash[:], // visitor_hash
+			"",               // hostname (not used by rollups)
 			e.Pathname,
-			"",                  // title
+			"", // title
 			e.Referrer,
 			e.ReferrerName,
 			e.Channel,
-			"",                  // utm_source
-			"",                  // utm_medium
+			"", // utm_source
+			"", // utm_medium
 			e.UTMCampaign,
-			"",                  // utm_content
-			"",                  // utm_term
-			"",                  // province
-			"",                  // city
-			"--",                // country_code
-			"",                  // isp
-			"",                  // carrier
-			"",                  // os
-			"",                  // browser
-			"",                  // device_type
-			uint16(0),           // viewport_width
-			"pageview",          // event_type
-			"pageview",          // event_name
+			"",         // utm_content
+			"",         // utm_term
+			"",         // province
+			"",         // city
+			"--",       // country_code
+			"",         // isp
+			"",         // carrier
+			"",         // os
+			"",         // browser
+			"",         // device_type
+			uint16(0),  // viewport_width
+			"pageview", // event_type
+			"pageview", // event_name
 			e.RevenueRials,
 			goal,
-			uint8(1),            // is_new
-			[]string{},          // prop_keys
-			[]string{},          // prop_vals
-			"",                  // user_segment
-			uint8(0),            // is_bot
+			uint8(1),   // is_new
+			[]string{}, // prop_keys
+			[]string{}, // prop_vals
+			"",         // user_segment
+			uint8(0),   // is_bot
 		); err != nil {
 			t.Fatalf("append seed event: %v", err)
 		}

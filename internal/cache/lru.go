@@ -84,6 +84,7 @@ func (c *Cache) Wrap(k string, ttl time.Duration, loader func() (any, error)) (a
 	}
 
 	mu := keyLock(k)
+
 	mu.Lock()
 	defer mu.Unlock()
 

@@ -41,16 +41,16 @@ jobs:
       - name: Tenancy gate (Architecture Rules 1 + 8)
         run: make tenancy-grep
 
-      # `--new-from-rev=origin/main` so CI fails only on lint regressions
-      # introduced by the PR. Pre-existing baseline (~40 errcheck / gosec /
-      # gofmt / intrange / goconst findings on storage, audit, cache, main.go)
-      # is tracked as Phase 7d cleanup. Each finding requires a per-call
-      # judgment — bulk-fixing in this hardening slice would explode scope.
+      - name: Skill-content sanitizer (Phase 7d F6)
+        run: make skill-sanitizer
+
+      # Phase 7d cleared the 185-finding baseline; lint now runs against
+      # the full repo, not just the PR delta.
       - name: Lint
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9  # v8
         with:
           version: v2.5.0
-          args: --timeout=5m --new-from-rev=origin/main
+          args: --timeout=5m
 
   licenses:
     name: license check (no AGPL / strong-copyleft)

@@ -141,7 +141,8 @@ func (r *MigrationRunner) appliedVersions(ctx context.Context) (map[uint32]struc
 
 		return nil, fmt.Errorf("read applied migrations: %w", err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var v uint32

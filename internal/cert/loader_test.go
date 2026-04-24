@@ -40,8 +40,8 @@ func TestLoader_New_FailsClosedOnMissingFile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	_, err := cert.New(filepath.Join(dir, "missing.crt"), filepath.Join(dir, "missing.key"), nil)
 
+	_, err := cert.New(filepath.Join(dir, "missing.crt"), filepath.Join(dir, "missing.key"), nil)
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}

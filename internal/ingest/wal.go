@@ -99,6 +99,7 @@ func NewWALWriter(cfg WALConfig, logger *slog.Logger) (*WALWriter, error) {
 	}
 
 	w.stopWG.Add(1)
+
 	go w.fsyncLoop()
 
 	return w, nil
@@ -311,9 +312,11 @@ func (w *WALWriter) fsyncLoop() {
 			return
 		case <-tick.C:
 			w.mu.Lock()
+
 			if err := w.log.Sync(); err != nil {
 				w.logger.Warn("wal fsync", "err", err)
 			}
+
 			w.mu.Unlock()
 		case <-capTick.C:
 			w.enforceSizeCap()

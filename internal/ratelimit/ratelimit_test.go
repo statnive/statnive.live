@@ -22,7 +22,7 @@ func TestMiddleware_AllowsUnderLimit(t *testing.T) {
 
 	handler := mw(okHandler())
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		req := httptest.NewRequest(http.MethodPost, "/api/event", nil)
 		req.Header.Set("X-Forwarded-For", "203.0.113.1")
 
@@ -47,7 +47,7 @@ func TestMiddleware_Blocks429AfterLimit(t *testing.T) {
 
 	statuses := make(map[int]int)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		req := httptest.NewRequest(http.MethodPost, "/api/event", nil)
 		req.Header.Set("X-Forwarded-For", "203.0.113.5")
 
@@ -77,7 +77,7 @@ func TestMiddleware_KeyByXForwardedFor(t *testing.T) {
 	handler := mw(okHandler())
 
 	// Burn the budget for client A.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		req := httptest.NewRequest(http.MethodPost, "/api/event", nil)
 		req.Header.Set("X-Forwarded-For", "1.1.1.1")
 
@@ -106,6 +106,7 @@ func TestMiddleware_EmitsAuditEventOn429(t *testing.T) {
 	if err != nil {
 		t.Fatalf("audit: %v", err)
 	}
+
 	t.Cleanup(func() { _ = auditLog.Close() })
 
 	mw, err := ratelimit.Middleware(1, time.Minute, auditLog)
@@ -115,7 +116,7 @@ func TestMiddleware_EmitsAuditEventOn429(t *testing.T) {
 
 	handler := mw(okHandler())
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		req := httptest.NewRequest(http.MethodPost, "/api/event", nil)
 		req.Header.Set("X-Forwarded-For", "192.0.2.42")
 
@@ -130,6 +131,7 @@ func TestMiddleware_EmitsAuditEventOn429(t *testing.T) {
 	events := audittest.ReadEventNames(t, auditPath)
 
 	got := 0
+
 	for _, e := range events {
 		if e == string(audit.EventRateLimited) {
 			got++

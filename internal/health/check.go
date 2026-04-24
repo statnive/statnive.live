@@ -58,6 +58,7 @@ func Handler(r Reporter) http.Handler {
 				status = http.StatusServiceUnavailable
 			} else {
 				body["clickhouse"] = "up"
+
 				body["rows_inserted"] = r.Store.RowsInserted()
 				if last := r.Store.LastInsert(); !last.IsZero() {
 					body["last_insert"] = last.UTC().Format(time.RFC3339)

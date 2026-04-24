@@ -23,9 +23,10 @@ func TestLogger_AppendsJSONL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
+
 	t.Cleanup(func() { _ = l.Close() })
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		l.Event(context.Background(), audit.EventTLSCertLoaded,
 			slog.Int("seq", i),
 		)
@@ -64,6 +65,7 @@ func TestLogger_ReopenAfterRotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
+
 	t.Cleanup(func() { _ = l.Close() })
 
 	l.Event(context.Background(), audit.EventTLSCertLoaded, slog.String("phase", "before-rotate"))
@@ -105,21 +107,22 @@ func TestLogger_ConcurrentWritesNeverInterleave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
+
 	t.Cleanup(func() { _ = l.Close() })
 
 	const (
-		workers       = 50
+		workers         = 50
 		eventsPerWorker = 100
 	)
 
 	var wg sync.WaitGroup
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		wg.Add(1)
 
 		go func(workerID int) {
 			defer wg.Done()
 
-			for i := 0; i < eventsPerWorker; i++ {
+			for i := range eventsPerWorker {
 				l.Event(context.Background(), audit.EventFastReject,
 					slog.Int("worker", workerID),
 					slog.Int("seq", i),
@@ -160,10 +163,11 @@ func TestLogger_EmptyPathRejected(t *testing.T) {
 func readLines(t *testing.T, path string) []string {
 	t.Helper()
 
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // test helper — path is test-controlled
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
+
 	defer func() { _ = f.Close() }()
 
 	var lines []string

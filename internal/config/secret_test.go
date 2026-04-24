@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/statnive/statnive.live/internal/config"
+	"github.com/statnive/statnive.live/internal/rootfs/rootfstest"
 )
 
 const testEnvVar = "STATNIVE_TEST_MASTER_SECRET"
@@ -66,6 +67,8 @@ func TestLoadMasterSecret_EnvEmptyFallsThrough(t *testing.T) {
 }
 
 func TestLoadMasterSecret_FileMode0600(t *testing.T) {
+	t.Parallel()
+
 	path := writeSecretFile(t, strings.Repeat("k", 32), 0o600)
 
 	got, err := config.LoadMasterSecret(testEnvVar, path)
@@ -79,6 +82,8 @@ func TestLoadMasterSecret_FileMode0600(t *testing.T) {
 }
 
 func TestLoadMasterSecret_FileTooPermissive(t *testing.T) {
+	t.Parallel()
+
 	path := writeSecretFile(t, strings.Repeat("k", 32), 0o644)
 
 	_, err := config.LoadMasterSecret(testEnvVar, path)
@@ -92,6 +97,8 @@ func TestLoadMasterSecret_FileTooPermissive(t *testing.T) {
 }
 
 func TestLoadMasterSecret_FileTooShort(t *testing.T) {
+	t.Parallel()
+
 	path := writeSecretFile(t, "short", 0o600)
 
 	_, err := config.LoadMasterSecret(testEnvVar, path)
@@ -105,6 +112,8 @@ func TestLoadMasterSecret_FileTooShort(t *testing.T) {
 }
 
 func TestLoadMasterSecret_FileTrailingNewlineStripped(t *testing.T) {
+	t.Parallel()
+
 	// `echo "..." > master.key` adds a trailing newline; the loader must
 	// strip it so a 32-byte file with one newline (33 bytes on disk) loads.
 	path := writeSecretFile(t, strings.Repeat("k", 32)+"\n", 0o600)
@@ -120,6 +129,8 @@ func TestLoadMasterSecret_FileTrailingNewlineStripped(t *testing.T) {
 }
 
 func TestLoadMasterSecret_FileMissing(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 
 	_, err := config.LoadMasterSecret(testEnvVar, filepath.Join(dir, "nope.key"))
@@ -145,6 +156,20 @@ func TestLoadMasterSecret_DefensiveCopy(t *testing.T) {
 
 	if b[0] == 0xff {
 		t.Errorf("mutation of returned slice leaked into second call: b[0] = %x", b[0])
+	}
+}
+
+// TestLoadMasterSecret_SymlinkEscapeRejected pins the TOCTOU guarantee
+// for the os.OpenRoot migration: a symlink in the key directory pointing
+// outside the directory MUST fail to open. Bare os.Open would silently
+// follow and leak a secret from an unexpected location.
+func TestLoadMasterSecret_SymlinkEscapeRejected(t *testing.T) {
+	t.Parallel()
+
+	link := rootfstest.WriteSymlinkEscape(t, []byte(strings.Repeat("z", 32)))
+
+	if _, err := config.LoadMasterSecret(testEnvVar, link); err == nil {
+		t.Fatal("expected symlink-escape rejection, got nil error")
 	}
 }
 

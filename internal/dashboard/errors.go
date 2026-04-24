@@ -74,4 +74,3 @@ func classifyError(err error) (int, audit.EventName) {
 		return http.StatusInternalServerError, audit.EventDashboardError
 	}
 }
-

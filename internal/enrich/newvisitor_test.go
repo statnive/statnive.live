@@ -1,10 +1,12 @@
 package enrich_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/statnive/statnive.live/internal/enrich"
+	"github.com/statnive/statnive.live/internal/rootfs/rootfstest"
 )
 
 func TestNewVisitorFilter_FirstSeenIsNew(t *testing.T) {
@@ -16,6 +18,7 @@ func TestNewVisitorFilter_FirstSeenIsNew(t *testing.T) {
 	if !f.CheckAndMark(hash, hash) {
 		t.Error("first sighting should be new")
 	}
+
 	if f.CheckAndMark(hash, hash) {
 		t.Error("second sighting should be returning")
 	}
@@ -56,6 +59,7 @@ func TestNewVisitorFilter_PersistRoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "bloom.dat")
 
 	a := enrich.NewNewVisitorFilter(1024, 0.001)
+
 	for i := byte(0); i < 50; i++ {
 		h := [16]byte{i}
 		a.CheckAndMark(h, h)
@@ -85,4 +89,42 @@ func TestNewVisitorFilter_LoadFromMissingIsNoop(t *testing.T) {
 	if err := f.LoadFrom(filepath.Join(t.TempDir(), "nope.dat")); err != nil {
 		t.Errorf("missing file should be a no-op, got: %v", err)
 	}
+}
+
+// TestNewVisitorFilter_SymlinkEscapeRejected pins the TOCTOU guarantee
+// for the os.OpenRoot migration: a symlink in the bloom-filter directory
+// pointing outside the directory MUST fail LoadFrom. Bare os.Open would
+// silently follow it.
+//
+// The external target is a real bloom file serialized via SaveTo so
+// LoadFrom's failure mode is the open (symlink refusal), not a downstream
+// format-parse error that would mask the TOCTOU check.
+func TestNewVisitorFilter_SymlinkEscapeRejected(t *testing.T) {
+	t.Parallel()
+
+	seed := enrich.NewNewVisitorFilter(1024, 0.001)
+	tmp := filepath.Join(t.TempDir(), "seed.dat")
+
+	if err := seed.SaveTo(tmp); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+
+	// Use the seeded file's bytes as the external target.
+	data, err := readFile(t, tmp)
+	if err != nil {
+		t.Fatalf("read seed: %v", err)
+	}
+
+	link := rootfstest.WriteSymlinkEscape(t, data)
+
+	f := enrich.NewNewVisitorFilter(1024, 0.001)
+	if err := f.LoadFrom(link); err == nil {
+		t.Fatal("expected symlink-escape rejection, got nil error")
+	}
+}
+
+func readFile(t *testing.T, path string) ([]byte, error) {
+	t.Helper()
+
+	return os.ReadFile(path) //nolint:gosec // test helper; path is test-controlled
 }

@@ -290,6 +290,7 @@ func (g *GroupSyncer) flush(batch []walReq) {
 	}
 
 	syncStart := time.Now()
+
 	if syncErr := g.wal.Sync(); syncErr != nil {
 		// Pre-4.13 Linux fsync marks failed pages clean on EIO. Retrying
 		// after a Sync error silently loses data — the only safe response

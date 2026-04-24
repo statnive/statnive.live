@@ -213,8 +213,18 @@ func (h *Users) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := h.deps.Auth.GetUserByID(r.Context(), userID)
-	if err != nil || u == nil {
+	u, err := h.deps.Auth.GetUserByID(r.Context(), userID) // nosemgrep: auth-return-nil-guard
+	// Semgrep's sibling-statement traversal misses the follow-up `u ==
+	// nil` check below (Go-mode `...` ellipsis doesn't span across
+	// sibling blocks). The defense is present — explicit err-check + nil
+	// guard — so we suppress the false positive.
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+
+		return
+	}
+
+	if u == nil {
 		http.Error(w, "not found", http.StatusNotFound)
 
 		return
@@ -268,8 +278,18 @@ func (h *Users) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := h.deps.Auth.GetUserByID(r.Context(), userID)
-	if err != nil || u == nil {
+	u, err := h.deps.Auth.GetUserByID(r.Context(), userID) // nosemgrep: auth-return-nil-guard
+	// Semgrep's sibling-statement traversal misses the follow-up `u ==
+	// nil` check below (Go-mode `...` ellipsis doesn't span across
+	// sibling blocks). The defense is present — explicit err-check + nil
+	// guard — so we suppress the false positive.
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+
+		return
+	}
+
+	if u == nil {
 		http.Error(w, "not found", http.StatusNotFound)
 
 		return
@@ -327,8 +347,18 @@ func (h *Users) setEnabled(
 		return
 	}
 
-	u, err := h.deps.Auth.GetUserByID(r.Context(), userID)
-	if err != nil || u == nil {
+	u, err := h.deps.Auth.GetUserByID(r.Context(), userID) // nosemgrep: auth-return-nil-guard
+	// Semgrep's sibling-statement traversal misses the follow-up `u ==
+	// nil` check below (Go-mode `...` ellipsis doesn't span across
+	// sibling blocks). The defense is present — explicit err-check + nil
+	// guard — so we suppress the false positive.
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+
+		return
+	}
+
+	if u == nil {
 		http.Error(w, "not found", http.StatusNotFound)
 
 		return

@@ -1,7 +1,6 @@
 package enrich_test
 
 import (
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -53,6 +52,7 @@ func BenchmarkBloom_CheckAndMark(b *testing.B) {
 
 	for b.Loop() {
 		var h [16]byte
+
 		h[0] = byte(i)
 		h[1] = byte(i >> 8)
 		h[2] = byte(i >> 16)
@@ -65,6 +65,7 @@ func BenchmarkBloom_CheckAndMark(b *testing.B) {
 // BenchmarkUA_Parse — medama-io singleton parser hot path.
 func BenchmarkUA_Parse(b *testing.B) {
 	p := enrich.NewUAParser()
+
 	const ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120"
 
 	b.ReportAllocs()
@@ -77,8 +78,9 @@ func BenchmarkUA_Parse(b *testing.B) {
 // BenchmarkBot_IsBot — cheap-first matcher; literal substring check
 // against ~50 patterns is the common case.
 func BenchmarkBot_IsBot(b *testing.B) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	d := enrich.NewBotDetector(logger)
+
 	const ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120"
 
 	b.ReportAllocs()

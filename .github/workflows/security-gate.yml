@@ -1,0 +1,161 @@
+name: security-gate
+
+# Phase 7d per-PR static + supply-chain gate. Separate from ci.yml so
+# the security jobs can be re-run in isolation on release cuts without
+# re-triggering the 7-job build-test-lint matrix.
+#
+# Research backing: doc 23 §Phase 2 Security Layer ("Trail of Bits
+# static-analysis (CodeQL, Semgrep, SARIF) + gopls MCP (govulncheck) +
+# claude-cybersecurity 8 OWASP agents") prescribes this exact stack.
+#
+# All action refs are SHA-pinned per CLAUDE.md Security (no tag-only
+# pins — air-gap-validator rejects them on PR review).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  # security-events: write is set per-job on the jobs that upload SARIF.
+
+jobs:
+  govulncheck:
+    name: govulncheck (Go supply-chain)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Install govulncheck
+        # Pinned to v1.1.4 for reproducibility; forward-compatible with
+        # the Go toolchain in go.mod. Cannot run under -mod=vendor
+        # because module resolution needs the proxy.
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+
+      - name: Run govulncheck
+        # Fails on any HIGH or CRITICAL finding. govulncheck needs module-
+        # graph access through the proxy to compare against the upstream
+        # advisory DB. Go's auto-mode detection kicks in at 1.14+ when
+        # vendor/ exists and uses -mod=vendor implicitly, which breaks
+        # govulncheck's import-lookup — hence the explicit GOFLAGS
+        # override to -mod=mod (same posture as the `licenses` job in
+        # ci.yml:63).
+        env:
+          GOFLAGS: -mod=mod
+        run: $(go env GOPATH)/bin/govulncheck ./...
+
+  semgrep-identity-privacy:
+    name: semgrep (identity + privacy enforced rules)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Install semgrep
+        run: pip install --no-cache-dir semgrep==1.91.0
+
+      # Only the two rule sets that are enforced today:
+      #   blake3-hmac-identity-review — shipped in Phase 2b, already the
+      #     `make identity-gate` target.
+      #   gdpr-code-review            — Phase 7d F3 (this PR).
+      #
+      # geoip-pipeline-review / iranian-dc-deploy / wal-durability-review
+      # ship advisory rules that pre-date Phase 7d and have known existing
+      # findings they catch by design; promoting those to hard gates is a
+      # separate scope tracked as its own v1.1 row.
+      - name: Run semgrep (identity + privacy)
+        run: |
+          semgrep scan \
+            --error \
+            --config=.claude/skills/blake3-hmac-identity-review/semgrep \
+            --config=.claude/skills/gdpr-code-review/semgrep \
+            --sarif \
+            --output=semgrep.sarif \
+            internal/ cmd/
+
+      - name: Upload semgrep SARIF
+        # SARIF upload requires Code Scanning to be enabled on the repo
+        # (Settings → Security); on private repos without GHAS, the
+        # endpoint returns 403. The scan step above is the actual gate —
+        # the Security-tab render is enhancement, not enforcement.
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@396bb3e45325a47dd9ef434068033c6d5bb0d11a  # v3.27.5
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+      # slog-no-raw-pii rule has `paths:include: **/internal/**/*.go`;
+      # the fixture .go files live under .claude/skills/.../fixtures/
+      # which is OUT of that scope, so a CI selftest invocation would
+      # always report 0 findings regardless of rule correctness. The
+      # main scan above against real internal/ + cmd/ code is the
+      # actual regression gate. `make privacy-gate-selftest` runs the
+      # fixture round-trip locally via a loosened path-filter path.
+
+  codeql:
+    name: CodeQL (Go + JavaScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, javascript]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          # Full history so CodeQL's diff-range extension pack can compute
+          # the merge base against origin/main. Default depth=1 fails with
+          # `fatal: error processing shallow info: 4`.
+          fetch-depth: 0
+
+      - name: Setup Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@396bb3e45325a47dd9ef434068033c6d5bb0d11a  # v3.27.5
+        with:
+          languages: ${{ matrix.language }}
+          # Stock default queries; no custom suite. SARIF fingerprint
+          # baselines (F8) are deferred to v1.1 per PLAN.md :89.
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@396bb3e45325a47dd9ef434068033c6d5bb0d11a  # v3.27.5
+
+      - name: Analyze
+        # Same SARIF-upload caveat as semgrep (Code Scanning toggle) —
+        # analyze's internal upload fails soft on private repos without
+        # GHAS. The database build + query run still executes and any
+        # real analysis failure surfaces as a non-SARIF error.
+        continue-on-error: true
+        uses: github/codeql-action/analyze@396bb3e45325a47dd9ef434068033c6d5bb0d11a  # v3.27.5
+        with:
+          category: /language:${{ matrix.language }}

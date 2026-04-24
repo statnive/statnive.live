@@ -170,7 +170,8 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 	if err != nil {
 		return nil, fmt.Errorf("sources query: %w", err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	out := []SourceRow{}
 
@@ -187,7 +188,12 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 	return out, rows.Err()
 }
 
-// Pages reads daily_pages, GROUP BY pathname.
+// Pages reads daily_pages, GROUP BY pathname. Pages + Campaigns share
+// SELECT shape but target different rollup tables with different column
+// typing; extracting a helper would erase the rollup/column coupling the
+// skill enforces per Architecture Rule 8.
+//
+//nolint:dupl // see above — intentional duplication with Campaigns
 func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
@@ -211,7 +217,8 @@ func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, erro
 	if err != nil {
 		return nil, fmt.Errorf("pages query: %w", err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	out := []PageRow{}
 
@@ -273,7 +280,8 @@ func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) 
 	if err != nil {
 		return nil, fmt.Errorf("seo query: %w", err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	out := []SEORow{}
 
@@ -291,6 +299,8 @@ func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) 
 
 // Campaigns reads daily_sources filtered to non-empty utm_campaign,
 // GROUP BY utm_campaign.
+//
+//nolint:dupl // See Pages for the rollup/column-coupling justification.
 func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
@@ -314,7 +324,8 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 	if err != nil {
 		return nil, fmt.Errorf("campaigns query: %w", err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	out := []CampaignRow{}
 
@@ -410,7 +421,7 @@ func (s *clickhouseStore) Realtime(ctx context.Context, siteID uint32) (*Realtim
 		// to special-case it.
 		out.HourUTC = hourStart
 
-		return &out, nil
+		return &out, nil //nolint:nilerr // no-rows on a quiet site is the expected shape
 	}
 
 	return &out, nil

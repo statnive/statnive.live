@@ -16,7 +16,7 @@ func TestBurstGuard_AllowsUnderCap(t *testing.T) {
 	now := time.Date(2026, 4, 19, 12, 0, 0, 0, time.UTC)
 	v := [16]byte{1}
 
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		if !g.Allow(v, now) {
 			t.Fatalf("event %d unexpectedly rejected", i)
 		}
@@ -33,7 +33,7 @@ func TestBurstGuard_RejectsAboveCap(t *testing.T) {
 	allowed := 0
 	rejected := 0
 
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		if g.Allow(v, now) {
 			allowed++
 		} else {
@@ -54,9 +54,10 @@ func TestBurstGuard_WindowResets(t *testing.T) {
 	v := [16]byte{3}
 
 	// Burn the budget.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		g.Allow(v, t0)
 	}
+
 	if g.Allow(v, t0) {
 		t.Fatal("11th event should be rejected within the window")
 	}
@@ -75,7 +76,7 @@ func TestBurstGuard_PerVisitor(t *testing.T) {
 	now := time.Date(2026, 4, 19, 12, 0, 0, 0, time.UTC)
 
 	// 1000 distinct visitors each fire 1 event — all allowed (cap is per-visitor).
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		v := [16]byte{}
 		v[0] = byte(i)
 		v[1] = byte(i >> 8)
@@ -93,7 +94,7 @@ func TestBurstGuard_ZeroCapDisablesGuard(t *testing.T) {
 	now := time.Date(2026, 4, 19, 12, 0, 0, 0, time.UTC)
 	v := [16]byte{4}
 
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		if !g.Allow(v, now) {
 			t.Fatalf("event %d rejected with cap=0", i)
 		}
@@ -107,7 +108,7 @@ func TestBurstGuard_ConcurrentSafe(t *testing.T) {
 	now := time.Date(2026, 4, 19, 12, 0, 0, 0, time.UTC)
 
 	const (
-		workers       = 50
+		workers         = 50
 		eventsPerWorker = 1000
 	)
 
@@ -116,7 +117,7 @@ func TestBurstGuard_ConcurrentSafe(t *testing.T) {
 		wg      sync.WaitGroup
 	)
 
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		wg.Add(1)
 
 		go func(id int) {
@@ -125,7 +126,7 @@ func TestBurstGuard_ConcurrentSafe(t *testing.T) {
 			v := [16]byte{}
 			v[0] = byte(id)
 
-			for i := 0; i < eventsPerWorker; i++ {
+			for range eventsPerWorker {
 				if g.Allow(v, now) {
 					allowed.Add(1)
 				}
@@ -148,7 +149,7 @@ func TestBurstGuard_ActiveVisitorsCount(t *testing.T) {
 	g := ingest.NewBurstGuard(500)
 	now := time.Date(2026, 4, 19, 12, 0, 0, 0, time.UTC)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		v := [16]byte{}
 		v[0] = byte(i)
 		v[1] = byte(i >> 8)
