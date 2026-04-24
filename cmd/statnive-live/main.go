@@ -356,6 +356,7 @@ func run() error {
 			Auth:     authStore,
 			Goals:    goalStore,
 			Snapshot: goalSnapshot,
+			Sites:    registry,
 			Audit:    auditLog,
 			Logger:   logger,
 		})

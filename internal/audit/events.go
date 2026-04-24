@@ -114,6 +114,11 @@ const (
 	EventAdminGoalDisabled EventName = "admin.goal.disabled"
 	EventAdminGoalFired    EventName = "admin.goal.fired"    // ingest-side, per event match
 	EventAdminGoalRejected EventName = "admin.goal.rejected" // write-time validation fail
+
+	EventAdminSiteCreated  EventName = "admin.site.created"
+	EventAdminSiteUpdated  EventName = "admin.site.updated"
+	EventAdminSiteRejected EventName = "admin.site.rejected" // write-time validation fail
+
 	EventGoalsReloadOK     EventName = "goals.reload_succeeded"
 	EventGoalsReloadFailed EventName = "goals.reload_failed"
 )

@@ -7,8 +7,12 @@ import {
   listGoals,
   createGoal,
   disableGoal,
+  listSites,
+  createSite,
+  updateSiteEnabled,
   type AdminUser,
   type AdminGoal,
+  type AdminSite,
 } from '../api/admin';
 import './Admin.css';
 
@@ -19,14 +23,23 @@ import './Admin.css';
 // pagination (admin-sized deployments have tens of rows per surface).
 // Phase 11 SaaS adds cursor pagination + richer edit flows.
 
-type Tab = 'users' | 'goals';
+type Tab = 'sites' | 'users' | 'goals';
 
 export default function Admin() {
-  const tab = useSignal<Tab>('users');
+  const tab = useSignal<Tab>('sites');
 
   return (
     <section class="statnive-admin">
       <div class="statnive-admin-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab.value === 'sites'}
+          class={tab.value === 'sites' ? 'is-active' : ''}
+          onClick={() => (tab.value = 'sites')}
+        >
+          Sites
+        </button>
         <button
           type="button"
           role="tab"
@@ -47,7 +60,7 @@ export default function Admin() {
         </button>
       </div>
 
-      {tab.value === 'users' ? <UsersTab /> : <GoalsTab />}
+      {tab.value === 'sites' ? <SitesTab /> : tab.value === 'users' ? <UsersTab /> : <GoalsTab />}
     </section>
   );
 }
@@ -323,6 +336,158 @@ function NewGoalForm({
       </label>
       <button type="submit" disabled={busy}>
         {busy ? 'Creating…' : 'Create goal'}
+      </button>
+    </form>
+  );
+}
+
+// ---------------- Sites tab ----------------
+
+function SitesTab() {
+  const [rows, setRows] = useState<AdminSite[] | null>(null);
+  const [err, setErr] = useState<string>('');
+
+  async function refresh() {
+    try {
+      setRows(await listSites());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function onToggleEnabled(site: AdminSite) {
+    try {
+      await updateSiteEnabled(site.site_id, !site.enabled);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <div class="statnive-admin-sites">
+      <NewSiteForm onCreated={refresh} onError={setErr} />
+
+      {err ? <p class="statnive-admin-error" role="alert">{err}</p> : null}
+
+      {rows === null ? (
+        <p>Loading…</p>
+      ) : rows.length === 0 ? (
+        <p>No sites yet. Add one above to generate a tracker snippet.</p>
+      ) : (
+        <table class="statnive-admin-table" data-testid="admin-sites-table">
+          <thead>
+            <tr>
+              <th>Hostname</th>
+              <th>Slug</th>
+              <th>Plan</th>
+              <th>Status</th>
+              <th>Tracker snippet</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s) => (
+              <tr key={s.site_id}>
+                <td>{s.hostname}</td>
+                <td><code>{s.slug}</code></td>
+                <td>{s.plan}</td>
+                <td>{s.enabled ? 'active' : 'disabled'}</td>
+                <td><TrackerSnippet /></td>
+                <td>
+                  <button type="button" onClick={() => void onToggleEnabled(s)}>
+                    {s.enabled ? 'Disable' : 'Enable'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function TrackerSnippet() {
+  // Per-site parametrization isn't needed — the backend resolves the
+  // event's site_id from the hostname in the payload (set by the
+  // tracker JS from window.location.hostname at emit time). So a single
+  // origin-relative snippet works for every site on this installation.
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  const snippet = `<script src="${origin}/tracker.js" async defer></script>`;
+  return <pre class="statnive-admin-snippet"><code>{snippet}</code></pre>;
+}
+
+function NewSiteForm({
+  onCreated,
+  onError,
+}: {
+  onCreated: () => void | Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const [hostname, setHostname] = useState('');
+  const [slug, setSlug] = useState('');
+  const [tz, setTz] = useState('Asia/Tehran');
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(ev: Event) {
+    ev.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    try {
+      await createSite({
+        hostname,
+        slug: slug || undefined,
+        tz: tz || undefined,
+      });
+      setHostname('');
+      setSlug('');
+      setTz('Asia/Tehran');
+      await onCreated();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form class="statnive-admin-new" onSubmit={onSubmit}>
+      <h3>Add site</h3>
+      <label>
+        Hostname
+        <input
+          type="text"
+          required
+          placeholder="example.com"
+          value={hostname}
+          onInput={(e) => setHostname((e.target as HTMLInputElement).value)}
+        />
+      </label>
+      <label>
+        Slug (optional)
+        <input
+          type="text"
+          maxLength={32}
+          placeholder="auto-generated"
+          value={slug}
+          onInput={(e) => setSlug((e.target as HTMLInputElement).value)}
+        />
+      </label>
+      <label>
+        Timezone
+        <input
+          type="text"
+          value={tz}
+          onInput={(e) => setTz((e.target as HTMLInputElement).value)}
+        />
+      </label>
+      <button type="submit" disabled={busy}>
+        {busy ? 'Adding…' : 'Add site'}
       </button>
     </form>
   );
