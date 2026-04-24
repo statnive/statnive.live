@@ -75,6 +75,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("audit log: %w", err)
 	}
+
 	defer func() { _ = auditLog.Close() }()
 
 	masterSecret, err := config.LoadMasterSecret(masterSecretEnv, cfg.MasterSecretPath)
@@ -99,6 +100,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("clickhouse: %w", err)
 	}
+
 	defer func() { _ = store.Close() }()
 
 	migrator := storage.NewMigrationRunner(store.Conn(), storage.MigrationConfig{
@@ -118,6 +120,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("wal: %w", err)
 	}
+
 	defer func() { _ = wal.Close() }()
 
 	// Crash-recovery WAL replay. Events from a previous boot that
@@ -154,6 +157,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("geoip: %w", err)
 	}
+
 	defer func() { _ = geoIP.Close() }()
 
 	channelMapper, err := enrich.NewChannelMapper(cfg.Enrich.SourcesPath)
@@ -496,7 +500,7 @@ func newTLSLoader(cfg appConfig, auditLog *audit.Logger, logger *slog.Logger) (*
 
 		return nil, nil
 	case cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "":
-		return nil, fmt.Errorf("tls: cert_file and key_file must both be set or both be empty")
+		return nil, errors.New("tls: cert_file and key_file must both be set or both be empty")
 	}
 
 	return cert.New(cfg.TLS.CertFile, cfg.TLS.KeyFile, auditLog)
@@ -515,6 +519,7 @@ func runSIGHUP(
 	tlsLoader *cert.Loader, mapper *enrich.ChannelMapper, goalSnap *goals.Snapshot,
 ) {
 	ch := make(chan os.Signal, 1)
+
 	signal.Notify(ch, syscall.SIGHUP)
 	defer signal.Stop(ch)
 

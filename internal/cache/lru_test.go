@@ -48,7 +48,7 @@ func TestCache_Wrap_OneLoaderCallPerKey(t *testing.T) {
 	const concurrent = 50
 
 	var wg sync.WaitGroup
-	for i := 0; i < concurrent; i++ {
+	for range concurrent {
 		wg.Add(1)
 
 		go func() {

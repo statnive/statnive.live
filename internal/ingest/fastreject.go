@@ -34,6 +34,7 @@ func FastRejectMiddleware(auditLog *audit.Logger) func(http.Handler) http.Handle
 						slog.String("ua", truncate(ua, 120)),
 					)
 				}
+
 				w.WriteHeader(http.StatusNoContent)
 
 				return

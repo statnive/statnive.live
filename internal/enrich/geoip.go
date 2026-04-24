@@ -101,6 +101,7 @@ func (g *ip2locationGeoIP) Lookup(ip string) GeoResult {
 	cc := strings.ToUpper(strings.TrimSpace(rec.Country_short))
 	if cc == "" || cc == "-" {
 		g.missCtry.Add(1)
+
 		cc = "--"
 	}
 

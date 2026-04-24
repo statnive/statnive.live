@@ -113,38 +113,38 @@ func WriteEvents(t *testing.T, ctx context.Context, conn driver.Conn, events []S
 		if err := batch.Append(
 			e.SiteID,
 			e.Time,
-			"",                  // user_id_hash
-			"",                  // cookie_id
-			e.VisitorHash[:],    // visitor_hash
-			"",                  // hostname (not used by rollups)
+			"",               // user_id_hash
+			"",               // cookie_id
+			e.VisitorHash[:], // visitor_hash
+			"",               // hostname (not used by rollups)
 			e.Pathname,
-			"",                  // title
+			"", // title
 			e.Referrer,
 			e.ReferrerName,
 			e.Channel,
-			"",                  // utm_source
-			"",                  // utm_medium
+			"", // utm_source
+			"", // utm_medium
 			e.UTMCampaign,
-			"",                  // utm_content
-			"",                  // utm_term
-			"",                  // province
-			"",                  // city
-			"--",                // country_code
-			"",                  // isp
-			"",                  // carrier
-			"",                  // os
-			"",                  // browser
-			"",                  // device_type
-			uint16(0),           // viewport_width
-			"pageview",          // event_type
-			"pageview",          // event_name
+			"",         // utm_content
+			"",         // utm_term
+			"",         // province
+			"",         // city
+			"--",       // country_code
+			"",         // isp
+			"",         // carrier
+			"",         // os
+			"",         // browser
+			"",         // device_type
+			uint16(0),  // viewport_width
+			"pageview", // event_type
+			"pageview", // event_name
 			e.RevenueRials,
 			goal,
-			uint8(1),            // is_new
-			[]string{},          // prop_keys
-			[]string{},          // prop_vals
-			"",                  // user_segment
-			uint8(0),            // is_bot
+			uint8(1),   // is_new
+			[]string{}, // prop_keys
+			[]string{}, // prop_vals
+			"",         // user_segment
+			uint8(0),   // is_bot
 		); err != nil {
 			t.Fatalf("append seed event: %v", err)
 		}

@@ -82,6 +82,7 @@ func readFileSecret(path string) ([]byte, error) {
 
 		return nil, fmt.Errorf("open master key: %w", err)
 	}
+
 	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()

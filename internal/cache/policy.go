@@ -32,10 +32,11 @@ const (
 // clock; production callers pass time.Now().UTC().
 //
 // Buckets, from most-recent to least:
-//   to >= now-truncated-to-hour     → TTLRealtime
-//   to >= now-truncated-to-day      → TTLToday
-//   to >= (now - 1d)-truncated-day  → TTLYesterday
-//   else                            → TTLHistorical
+//
+//	to >= now-truncated-to-hour     → TTLRealtime
+//	to >= now-truncated-to-day      → TTLToday
+//	to >= (now - 1d)-truncated-day  → TTLYesterday
+//	else                            → TTLHistorical
 //
 // `to` is the half-open upper bound, so a "today" query passes
 // `to = tomorrow-midnight-UTC` and lands in the TTLToday bucket.

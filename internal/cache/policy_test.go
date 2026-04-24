@@ -30,7 +30,7 @@ func TestResolveTTL_Buckets(t *testing.T) {
 		{
 			name: "to is end of today",
 			to:   now.Truncate(24 * time.Hour).Add(24 * time.Hour), // tomorrow midnight
-			want: cache.TTLRealtime, // > current hour
+			want: cache.TTLRealtime,                                // > current hour
 		},
 		{
 			name: "to is mid-today, before current hour",

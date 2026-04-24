@@ -16,6 +16,7 @@ func TestNewVisitorFilter_FirstSeenIsNew(t *testing.T) {
 	if !f.CheckAndMark(hash, hash) {
 		t.Error("first sighting should be new")
 	}
+
 	if f.CheckAndMark(hash, hash) {
 		t.Error("second sighting should be returning")
 	}
@@ -56,6 +57,7 @@ func TestNewVisitorFilter_PersistRoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "bloom.dat")
 
 	a := enrich.NewNewVisitorFilter(1024, 0.001)
+
 	for i := byte(0); i < 50; i++ {
 		h := [16]byte{i}
 		a.CheckAndMark(h, h)

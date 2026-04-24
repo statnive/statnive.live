@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -10,7 +11,7 @@ import (
 func TestFilterFromRequest_RequiresSite(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest("GET", "/api/stats/overview", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview", nil)
 
 	_, err := filterFromRequest(r)
 	if !errors.Is(err, errBadInput) {
@@ -21,7 +22,7 @@ func TestFilterFromRequest_RequiresSite(t *testing.T) {
 func TestFilterFromRequest_DefaultsLast7Days(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest("GET", "/api/stats/overview?site=1", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview?site=1", nil)
 
 	f, err := filterFromRequest(r)
 	if err != nil {
@@ -42,7 +43,7 @@ func TestFilterFromRequest_ParsesAllDimensions(t *testing.T) {
 		"&country=IR&browser=Chrome&os=macOS&device=desktop" +
 		"&sort=visitors&search=blog&limit=25&offset=10"
 
-	r := httptest.NewRequest("GET", url, nil)
+	r := httptest.NewRequest(http.MethodGet, url, nil)
 
 	f, err := filterFromRequest(r)
 	if err != nil {
@@ -65,7 +66,7 @@ func TestFilterFromRequest_ParsesAllDimensions(t *testing.T) {
 func TestFilterFromRequest_BadDate(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest("GET", "/api/stats/overview?site=1&from=not-a-date", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview?site=1&from=not-a-date", nil)
 
 	_, err := filterFromRequest(r)
 	if err == nil {
@@ -80,7 +81,7 @@ func TestFilterFromRequest_BadDate(t *testing.T) {
 func TestFilterFromRequest_FromOnly_ToDefaultsToTomorrow(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest("GET", "/api/stats/overview?site=1&from=2026-04-01", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview?site=1&from=2026-04-01", nil)
 
 	f, err := filterFromRequest(r)
 	if err != nil {
@@ -97,7 +98,7 @@ func TestFilterFromRequest_RangeTooLarge(t *testing.T) {
 	t.Parallel()
 
 	// 2-year range exceeds Filter.MaxRange of 1 year.
-	r := httptest.NewRequest("GET", "/api/stats/overview?site=1&from=2024-04-01&to=2026-04-01", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview?site=1&from=2024-04-01&to=2026-04-01", nil)
 
 	_, err := filterFromRequest(r)
 	if err == nil {

@@ -25,6 +25,7 @@ func TestExpiry_FiresWarnAndCriticalOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("audit: %v", err)
 	}
+
 	t.Cleanup(func() { _ = auditLog.Close() })
 
 	loader, err := cert.New(certPath, keyPath, auditLog)
@@ -39,22 +40,27 @@ func TestExpiry_FiresWarnAndCriticalOnce(t *testing.T) {
 
 	// At T-365d (exactly when the cert was issued) — fresh, no event.
 	fakeNow = notAfter.Add(-365 * 24 * time.Hour)
+
 	w.CheckNow()
 
 	// Cross into warn band: 29 days before expiry.
 	fakeNow = notAfter.Add(-29 * 24 * time.Hour)
+
 	w.CheckNow()
 
 	// Repeat at 28 days — must NOT re-emit (level unchanged).
 	fakeNow = notAfter.Add(-28 * 24 * time.Hour)
+
 	w.CheckNow()
 
 	// Cross into critical band: 6 days before expiry.
 	fakeNow = notAfter.Add(-6 * 24 * time.Hour)
+
 	w.CheckNow()
 
 	// Repeat at 1 day — must NOT re-emit.
 	fakeNow = notAfter.Add(-24 * time.Hour)
+
 	w.CheckNow()
 
 	// Force the audit log to flush before reading.
@@ -100,6 +106,7 @@ func TestExpiry_RecoversWhenCertRenewed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("audit: %v", err)
 	}
+
 	t.Cleanup(func() { _ = auditLog.Close() })
 
 	loader, err := cert.New(certPath, keyPath, auditLog)
@@ -114,6 +121,7 @@ func TestExpiry_RecoversWhenCertRenewed(t *testing.T) {
 
 	// Operator renews to 365d — reload swaps the cert in.
 	writeCertAt(t, certPath, keyPath, "renewed", time.Now().Add(365*24*time.Hour))
+
 	if err := loader.Reload(); err != nil {
 		t.Fatalf("reload: %v", err)
 	}
@@ -141,4 +149,3 @@ func TestExpiry_RecoversWhenCertRenewed(t *testing.T) {
 		t.Errorf("expected 0 warn events post-renewal, got %d", got[string(audit.EventTLSExpiryWarn)])
 	}
 }
-

@@ -143,6 +143,7 @@ func TestSaltManager_OverlapWindow(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m.SetClock(func() time.Time { return tc.when })
+
 			if got := m.IsInOverlapWindow(); got != tc.inWindow {
 				t.Errorf("IsInOverlapWindow() = %v, want %v", got, tc.inWindow)
 			}

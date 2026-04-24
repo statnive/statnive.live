@@ -61,6 +61,7 @@ func (g *BurstGuard) Allow(visitorHash [16]byte, now time.Time) bool {
 	}
 
 	shard := g.shards[visitorHash[0]]
+
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 

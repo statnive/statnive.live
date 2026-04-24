@@ -205,7 +205,7 @@ func fastReject(h http.Header, ua string) string {
 }
 
 func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if s[i] > 127 {
 			return false
 		}

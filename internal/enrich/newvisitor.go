@@ -69,6 +69,7 @@ func (n *NewVisitorFilter) LoadFrom(path string) error {
 
 		return fmt.Errorf("bloom open: %w", err)
 	}
+
 	defer func() { _ = f.Close() }()
 
 	n.mu.Lock()

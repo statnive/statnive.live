@@ -121,11 +121,13 @@ func (m *SaltManager) saltFor(siteID uint32, date string) string {
 	key := saltKey{siteID: siteID, date: date}
 
 	m.mu.RLock()
+
 	if s, ok := m.cache[key]; ok {
 		m.mu.RUnlock()
 
 		return s
 	}
+
 	m.mu.RUnlock()
 
 	salt := m.derive(siteID, date)

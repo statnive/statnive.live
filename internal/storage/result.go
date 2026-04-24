@@ -75,9 +75,9 @@ type DailyPoint struct {
 // 5-minute-resolution counters in v1. Operators see "active in the last
 // hour" with a 10s LRU cache so 100 dashboard tabs don't fan out to CH.
 type RealtimeResult struct {
-	HourUTC          time.Time `json:"hour_utc"`
-	ActiveVisitors   uint64    `json:"active_visitors"`
-	PageviewsLastHr  uint64    `json:"pageviews_last_hr"`
+	HourUTC         time.Time `json:"hour_utc"`
+	ActiveVisitors  uint64    `json:"active_visitors"`
+	PageviewsLastHr uint64    `json:"pageviews_last_hr"`
 }
 
 // GeoRow + DeviceRow are interface placeholders — Geo and Devices Store
@@ -100,8 +100,7 @@ type DeviceRow struct {
 // counts + drop-off percentages. Reserved here so the Store interface
 // is stable across the v2 swap.
 type FunnelResult struct {
-	Steps    []string  `json:"steps"`
-	Counts   []uint64  `json:"counts"`
-	DropOff  []float64 `json:"drop_off_pct"`
+	Steps   []string  `json:"steps"`
+	Counts  []uint64  `json:"counts"`
+	DropOff []float64 `json:"drop_off_pct"`
 }
-

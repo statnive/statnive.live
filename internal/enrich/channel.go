@@ -40,14 +40,14 @@ type ChannelMapper struct {
 }
 
 type compiledDB struct {
-	exact      map[string]SourceEntry
-	suffixIdx  []suffixEntry
-	searchSet  map[string]struct{} // hostnames classified as Organic Search
-	socialSet  map[string]struct{} // hostnames classified as Social
-	videoSet   map[string]struct{} // hostnames classified as Video
-	shopSet    map[string]struct{} // hostnames classified as Shopping
-	emailSet   map[string]struct{} // hostnames classified as Email
-	aiSet      map[string]struct{} // hostnames classified as AI
+	exact       map[string]SourceEntry
+	suffixIdx   []suffixEntry
+	searchSet   map[string]struct{} // hostnames classified as Organic Search
+	socialSet   map[string]struct{} // hostnames classified as Social
+	videoSet    map[string]struct{} // hostnames classified as Video
+	shopSet     map[string]struct{} // hostnames classified as Shopping
+	emailSet    map[string]struct{} // hostnames classified as Email
+	aiSet       map[string]struct{} // hostnames classified as AI
 	referralSet map[string]struct{} // hostnames classified as Referral
 }
 
