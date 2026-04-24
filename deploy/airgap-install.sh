@@ -46,9 +46,9 @@ BUNDLE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # --- uninstall path ----------------------------------------------------------
 if [ "$UNINSTALL" = "1" ]; then
 	echo "airgap-install: uninstalling (keeps /var/lib/statnive-live + /etc/statnive-live)"
-	systemctl disable --now statnive-live 2>/dev/null || true
+	systemctl disable --now statnive-live >/dev/null 2>&1 || true
 	rm -f /etc/systemd/system/statnive-live.service
-	systemctl daemon-reload
+	systemctl daemon-reload >/dev/null 2>&1 || true
 	rm -f /usr/local/bin/statnive-live
 	echo "airgap-install: uninstalled. Data + config retained; \`rm -rf /var/lib/statnive-live /etc/statnive-live\` to purge."
 	exit 0
@@ -120,9 +120,17 @@ fi
 echo "airgap-install: installing systemd unit"
 install -m 0644 "$BUNDLE_ROOT/deploy/systemd/statnive-live.service" \
 	/etc/systemd/system/statnive-live.service
-systemctl daemon-reload
-systemctl enable statnive-live >/dev/null
-echo "airgap-install: enabled (not started yet)"
+
+if systemctl daemon-reload 2>/dev/null; then
+	systemctl enable statnive-live >/dev/null
+	echo "airgap-install: enabled (not started yet)"
+else
+	# Happens inside containers + chroots where PID 1 isn't systemd.
+	# The unit file is installed; operator enables it when this install
+	# is done in a system with systemd booted.
+	echo "airgap-install: systemd not running (container/chroot?); unit file installed at /etc/systemd/system/statnive-live.service"
+	echo "airgap-install: on the live host, run: sudo systemctl daemon-reload && sudo systemctl enable statnive-live"
+fi
 
 # --- iptables (opt-in) -------------------------------------------------------
 if [ "$APPLY_IPTABLES" = "1" ]; then
