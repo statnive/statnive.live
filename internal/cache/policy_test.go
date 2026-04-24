@@ -61,6 +61,8 @@ func TestResolveTTL_Buckets(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			if got := cache.ResolveTTL(now, tc.to); got != tc.want {
 				t.Errorf("ResolveTTL(now, %s) = %s, want %s", tc.to, got, tc.want)
 			}

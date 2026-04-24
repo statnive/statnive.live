@@ -47,6 +47,7 @@ func (c *CachedStore) Purge() { c.cache.Purge() }
 // Len returns the cache's current entry count. Diagnostic only.
 func (c *CachedStore) Len() int { return c.cache.Len() }
 
+// Overview caches the headline KPI block under ResolveTTL rules.
 func (c *CachedStore) Overview(ctx context.Context, f *Filter) (*OverviewResult, error) {
 	v, err := c.cache.Wrap(
 		"overview:"+f.Hash(),
@@ -57,9 +58,15 @@ func (c *CachedStore) Overview(ctx context.Context, f *Filter) (*OverviewResult,
 		return nil, err
 	}
 
-	return v.(*OverviewResult), nil
+	out, ok := v.(*OverviewResult)
+	if !ok {
+		return nil, fmt.Errorf("cached_store: overview cache value has unexpected type %T", v)
+	}
+
+	return out, nil
 }
 
+// Sources caches the channel-attribution rollup under ResolveTTL rules.
 func (c *CachedStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, error) {
 	v, err := c.cache.Wrap(
 		"sources:"+f.Hash(),
@@ -70,9 +77,15 @@ func (c *CachedStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, erro
 		return nil, err
 	}
 
-	return v.([]SourceRow), nil
+	out, ok := v.([]SourceRow)
+	if !ok {
+		return nil, fmt.Errorf("cached_store: sources cache value has unexpected type %T", v)
+	}
+
+	return out, nil
 }
 
+// Pages caches the top-pages rollup under ResolveTTL rules.
 func (c *CachedStore) Pages(ctx context.Context, f *Filter) ([]PageRow, error) {
 	v, err := c.cache.Wrap(
 		"pages:"+f.Hash(),
@@ -83,9 +96,15 @@ func (c *CachedStore) Pages(ctx context.Context, f *Filter) ([]PageRow, error) {
 		return nil, err
 	}
 
-	return v.([]PageRow), nil
+	out, ok := v.([]PageRow)
+	if !ok {
+		return nil, fmt.Errorf("cached_store: pages cache value has unexpected type %T", v)
+	}
+
+	return out, nil
 }
 
+// SEO caches the SEO-landing rollup under ResolveTTL rules.
 func (c *CachedStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) {
 	v, err := c.cache.Wrap(
 		"seo:"+f.Hash(),
@@ -96,9 +115,15 @@ func (c *CachedStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) {
 		return nil, err
 	}
 
-	return v.([]SEORow), nil
+	out, ok := v.([]SEORow)
+	if !ok {
+		return nil, fmt.Errorf("cached_store: seo cache value has unexpected type %T", v)
+	}
+
+	return out, nil
 }
 
+// Campaigns caches the UTM-campaign rollup under ResolveTTL rules.
 func (c *CachedStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, error) {
 	v, err := c.cache.Wrap(
 		"campaigns:"+f.Hash(),
@@ -109,7 +134,12 @@ func (c *CachedStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, 
 		return nil, err
 	}
 
-	return v.([]CampaignRow), nil
+	out, ok := v.([]CampaignRow)
+	if !ok {
+		return nil, fmt.Errorf("cached_store: campaigns cache value has unexpected type %T", v)
+	}
+
+	return out, nil
 }
 
 // Trend caches the daily visitor series (Overview headline chart +
@@ -149,7 +179,12 @@ func (c *CachedStore) Realtime(ctx context.Context, siteID uint32) (*RealtimeRes
 		return nil, err
 	}
 
-	return v.(*RealtimeResult), nil
+	out, ok := v.(*RealtimeResult)
+	if !ok {
+		return nil, fmt.Errorf("cached_store: realtime cache value has unexpected type %T", v)
+	}
+
+	return out, nil
 }
 
 // Geo / Devices / Funnel pass through to the inner Store, which
@@ -159,10 +194,12 @@ func (c *CachedStore) Geo(ctx context.Context, f *Filter) ([]GeoRow, error) {
 	return c.inner.Geo(ctx, f)
 }
 
+// Devices passes through to the inner Store (v1 stub).
 func (c *CachedStore) Devices(ctx context.Context, f *Filter) ([]DeviceRow, error) {
 	return c.inner.Devices(ctx, f)
 }
 
+// Funnel passes through to the inner Store (v1 stub).
 func (c *CachedStore) Funnel(ctx context.Context, f *Filter, steps []string) (*FunnelResult, error) {
 	return c.inner.Funnel(ctx, f, steps)
 }

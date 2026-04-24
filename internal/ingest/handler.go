@@ -323,8 +323,9 @@ func readOrSetCookieID(w http.ResponseWriter, r *http.Request) string {
 	return id
 }
 
-// Convenience: callers without a configured sites.Registry can wrap this
-// to short-circuit to a fixed site_id during local dev.
+// StaticSiteResolver is a convenience resolver for callers without a
+// configured sites.Registry — short-circuits to a fixed site_id during
+// local dev.
 type StaticSiteResolver struct {
 	SiteID uint32
 }

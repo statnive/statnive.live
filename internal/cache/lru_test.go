@@ -26,8 +26,13 @@ func TestCache_GetSet(t *testing.T) {
 		t.Fatal("Get after Set returned ok=false")
 	}
 
-	if v.(int) != 42 {
-		t.Errorf("v = %v, want 42", v)
+	got, ok := v.(int)
+	if !ok {
+		t.Fatalf("v = %T, want int", v)
+	}
+
+	if got != 42 {
+		t.Errorf("v = %v, want 42", got)
 	}
 }
 
@@ -144,13 +149,13 @@ func TestCache_Wrap_HonorsPerCallTTL(t *testing.T) {
 
 	// First call → miss → loader runs (returns 1).
 	v, _ := c.Wrap("k", 5*time.Second, loader)
-	if v.(int) != 1 || calls != 1 {
+	if got, ok := v.(int); !ok || got != 1 || calls != 1 {
 		t.Fatalf("first wrap: v=%v calls=%d", v, calls)
 	}
 
 	// Second call within TTL → hit → no loader.
 	v, _ = c.Wrap("k", 5*time.Second, loader)
-	if v.(int) != 1 || calls != 1 {
+	if got, ok := v.(int); !ok || got != 1 || calls != 1 {
 		t.Errorf("expected cache hit; v=%v calls=%d", v, calls)
 	}
 
@@ -158,7 +163,7 @@ func TestCache_Wrap_HonorsPerCallTTL(t *testing.T) {
 	now = now.Add(6 * time.Second)
 
 	v, _ = c.Wrap("k", 5*time.Second, loader)
-	if v.(int) != 2 || calls != 2 {
+	if got, ok := v.(int); !ok || got != 2 || calls != 2 {
 		t.Errorf("expected cache miss after TTL; v=%v calls=%d", v, calls)
 	}
 }

@@ -49,9 +49,11 @@ import (
 const dashboardCacheCapacity = 4096
 
 const (
-	bloomCapacity   = 10_000_000
-	bloomFPRate     = 0.001
-	masterSecretEnv = "STATNIVE_MASTER_SECRET"
+	bloomCapacity = 10_000_000
+	bloomFPRate   = 0.001
+	// masterSecretEnv is the env var name the operator sets to the master
+	// secret value. Not the secret itself.
+	masterSecretEnv = "STATNIVE_MASTER_SECRET" //nolint:gosec // env-var NAME, not a credential
 )
 
 func main() {
@@ -61,6 +63,7 @@ func main() {
 	}
 }
 
+//nolint:gocyclo,funlen // main wires 25+ subsystems linearly; splitting hides the wire order
 func run() error {
 	cfg, err := loadConfig()
 	if err != nil {
@@ -757,6 +760,7 @@ type appConfig struct {
 	}
 }
 
+//nolint:funlen // YAML loader with 15+ distinct sections; splitting fragments the config surface
 func loadConfig() (appConfig, error) {
 	v := viper.New()
 	v.SetConfigName("statnive-live")

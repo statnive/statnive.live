@@ -10,6 +10,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// channelEmail is the canonical GA4 channel label for email referrers.
+const channelEmail = "Email"
+
 // Decision is what the pipeline writes onto EnrichedEvent for the
 // referrer/channel pair. Channel labels follow GA4's bucket vocabulary
 // so reports port cleanly to/from external dashboards.
@@ -178,7 +181,7 @@ func bucketSetFor(cd *compiledDB, channel string) map[string]struct{} {
 		return cd.videoSet
 	case "Shopping":
 		return cd.shopSet
-	case "Email":
+	case channelEmail:
 		return cd.emailSet
 	case "AI":
 		return cd.aiSet
@@ -417,19 +420,19 @@ func step13Referral(c *classCtx) (string, bool) {
 // Step 14 — Email.
 func step14Email(c *classCtx) (string, bool) {
 	if _, ok := emailTokens[c.referrer]; ok {
-		return "Email", true
+		return channelEmail, true
 	}
 
 	if _, ok := emailTokens[c.utmSource]; ok {
-		return "Email", true
+		return channelEmail, true
 	}
 
 	if _, ok := emailTokens[c.utmMedium]; ok {
-		return "Email", true
+		return channelEmail, true
 	}
 
 	if inSet(c.db.emailSet, c.referrer) {
-		return "Email", true
+		return channelEmail, true
 	}
 
 	return "", false
@@ -481,8 +484,8 @@ func step15Misc(c *classCtx) (string, bool) {
 func extractHostLower(s string) string {
 	if i := strings.Index(s, "://"); i >= 0 {
 		s = s[i+3:]
-	} else if strings.HasPrefix(s, "//") {
-		s = s[2:]
+	} else {
+		s = strings.TrimPrefix(s, "//")
 	}
 
 	if cut := strings.IndexAny(s, "/?#"); cut >= 0 {

@@ -48,8 +48,8 @@ func (u *UAParser) Parse(s string) UAInfo {
 	}
 
 	return UAInfo{
-		Browser: a.GetBrowser(),
-		OS:      a.GetOS(),
+		Browser: string(a.Browser()),
+		OS:      string(a.OS()),
 		Device:  dev,
 		IsBot:   a.IsBot(),
 	}

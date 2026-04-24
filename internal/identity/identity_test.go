@@ -140,6 +140,7 @@ func TestSaltManager_OverlapWindow(t *testing.T) {
 		{"23:59 IRST", time.Date(2026, 4, 18, 23, 59, 0, 0, tz), false},
 	}
 
+	//nolint:paralleltest // subtests share m.SetClock mutable state; must run sequentially
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m.SetClock(func() time.Time { return tc.when })

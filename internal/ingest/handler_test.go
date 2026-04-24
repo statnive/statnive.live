@@ -62,6 +62,8 @@ func (f *fakeWAL) AppendAndWait(_ context.Context, ev ingest.EnrichedEvent) (uin
 // Fast-reject gate must return 204 with zero pipeline work for prefetch
 // requests and obvious bot user agents. The receiver channel must stay
 // empty for every rejected case.
+//
+//nolint:funlen // table-driven test with 10+ cases; splitting hides the rejection matrix
 func TestHandlerFastRejectGate(t *testing.T) {
 	t.Parallel()
 

@@ -22,6 +22,8 @@ import (
 // which returns a NONDETERMINISTIC row when multiple match — that
 // silently routed multitenant's events to the wrong site_id and was
 // the root cause of the PR #29 CI flake (see commit cca29f3 debug log).
+//
+//nolint:revive // test helper — *testing.T first is idiomatic for t.Helper()
 func SeedSite(t *testing.T, ctx context.Context, conn driver.Conn, siteID uint32, hostname string) {
 	t.Helper()
 
@@ -43,6 +45,8 @@ func SeedSite(t *testing.T, ctx context.Context, conn driver.Conn, siteID uint32
 // CleanSiteEvents removes every events_raw + rollup row for siteID.
 // Idempotent. mutations_sync=2 makes the DELETE block until the
 // merge applies so subsequent SELECTs see the clean state.
+//
+//nolint:revive // test helper — *testing.T first is idiomatic for t.Helper()
 func CleanSiteEvents(t *testing.T, ctx context.Context, conn driver.Conn, siteID uint32) {
 	t.Helper()
 
@@ -85,6 +89,8 @@ type SeedEvent struct {
 // tests can construct deterministic rollup state without depending on
 // the WAL + consumer + 6-stage pipeline. Time, channel, etc. are all
 // caller-controlled.
+//
+//nolint:revive // test helper — *testing.T first is idiomatic for t.Helper()
 func WriteEvents(t *testing.T, ctx context.Context, conn driver.Conn, events []SeedEvent) {
 	t.Helper()
 

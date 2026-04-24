@@ -163,7 +163,7 @@ func TestLogger_EmptyPathRejected(t *testing.T) {
 func readLines(t *testing.T, path string) []string {
 	t.Helper()
 
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // test helper — path is test-controlled
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}

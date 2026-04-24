@@ -82,6 +82,8 @@ func TestChannelMapper_DecisionTree(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			d := m.Classify(tc.referrer, tc.utmSource, tc.utmMedium, tc.utmCampaign, tc.clickID)
 			if d.Channel != tc.wantChan {
 				t.Errorf("Classify(%q,%q,%q,%q,%q).Channel = %q, want %q",

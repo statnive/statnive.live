@@ -89,6 +89,7 @@ type GeoRow struct {
 	Visitors uint64 `json:"visitors"`
 }
 
+// DeviceRow is one row of the daily_devices rollup (v1.1 placeholder).
 type DeviceRow struct {
 	Device   string `json:"device"`
 	Browser  string `json:"browser"`

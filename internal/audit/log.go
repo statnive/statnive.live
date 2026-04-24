@@ -116,7 +116,7 @@ func (l *Logger) Close() error {
 // hold l.mu (or be the constructor, where no other goroutine has the
 // pointer yet).
 func (l *Logger) openLocked() error {
-	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
+	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640) //nolint:gosec // 0640 lets the log-shipper group read the audit log; config-file convention per CLAUDE.md Security
 	if err != nil {
 		return fmt.Errorf("audit open %q: %w", l.path, err)
 	}
