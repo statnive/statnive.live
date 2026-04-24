@@ -186,7 +186,7 @@ func (r *Registry) UpdateSiteEnabled(ctx context.Context, siteID uint32, enabled
 	var exists uint64
 
 	if err := r.conn.QueryRow(ctx,
-		`SELECT count() FROM statnive.sites FINAL WHERE site_id = ?`,
+		`SELECT count() FROM statnive.sites WHERE site_id = ?`,
 		siteID,
 	).Scan(&exists); err != nil {
 		return fmt.Errorf("sites existence: %w", err)
@@ -214,9 +214,12 @@ func (r *Registry) UpdateSiteEnabled(ctx context.Context, siteID uint32, enabled
 // ListAdmin returns every site with the richer SiteAdmin projection —
 // adds slug, plan, created_at on top of List() for /api/admin/sites.
 func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
+	// statnive.sites is plain MergeTree — FINAL is rejected. Duplicate
+	// rows can only appear if migration 001 changes engines; the
+	// integration test pins that invariant.
 	rows, err := r.conn.Query(ctx,
 		`SELECT site_id, hostname, slug, plan, enabled, tz, toInt64(toUnixTimestamp(created_at))
-		 FROM statnive.sites FINAL ORDER BY site_id ASC`,
+		 FROM statnive.sites ORDER BY site_id ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("sites list admin: %w", err)

@@ -57,6 +57,12 @@ func TestSites_CreateHappy(t *testing.T) {
 	_, _ = ss.ListAdmin(context.Background())
 }
 
+// TestSites_CreateHostnameTaken + TestSites_CreateSlugTaken diverge
+// only on which body field collides (hostname vs slug) — a table
+// pair isn't worth the ceremony for two cases, and the explicit
+// probes read clearer in failure output.
+//
+//nolint:dupl // intentional symmetry; see comment above.
 func TestSites_CreateHostnameTaken(t *testing.T) {
 	t.Parallel()
 
@@ -79,6 +85,7 @@ func TestSites_CreateHostnameTaken(t *testing.T) {
 	}
 }
 
+//nolint:dupl // symmetric with TestSites_CreateHostnameTaken.
 func TestSites_CreateSlugTaken(t *testing.T) {
 	t.Parallel()
 
