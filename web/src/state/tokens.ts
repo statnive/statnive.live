@@ -12,9 +12,14 @@ interface BrandTokens {
   greenDark: string;
   greenLight: string;
   ink: string;
+  ink2: string;
   paper: string;
+  paper2: string;
   ochre: string;
   ruleSoft: string;
+  ruleHair: string;
+  chartVisitors: string;
+  chartRevenue: string;
 }
 
 const FALLBACK: BrandTokens = {
@@ -22,9 +27,14 @@ const FALLBACK: BrandTokens = {
   greenDark: 'var(--green-dk)',
   greenLight: 'var(--green-lt)',
   ink: 'var(--ink)',
+  ink2: 'var(--ink-2)',
   paper: 'var(--paper)',
-  ochre: 'var(--ochre)',
+  paper2: 'var(--paper-2)',
+  ochre: 'var(--chart-ochre)',
   ruleSoft: 'var(--rule-soft)',
+  ruleHair: 'var(--rule-hair)',
+  chartVisitors: 'var(--chart-visitors)',
+  chartRevenue: 'var(--chart-revenue)',
 };
 
 function readVar(name: string, fallback: string): string {
@@ -42,8 +52,13 @@ export function readBrandTokens(): BrandTokens {
     greenDark: readVar('--green-dk', FALLBACK.greenDark),
     greenLight: readVar('--green-lt', FALLBACK.greenLight),
     ink: readVar('--ink', FALLBACK.ink),
+    ink2: readVar('--ink-2', FALLBACK.ink2),
     paper: readVar('--paper', FALLBACK.paper),
-    ochre: readVar('--ochre', FALLBACK.ochre),
+    paper2: readVar('--paper-2', FALLBACK.paper2),
+    ochre: readVar('--chart-ochre', FALLBACK.ochre),
     ruleSoft: readVar('--rule-soft', FALLBACK.ruleSoft),
+    ruleHair: readVar('--rule-hair', FALLBACK.ruleHair),
+    chartVisitors: readVar('--chart-visitors', FALLBACK.chartVisitors),
+    chartRevenue: readVar('--chart-revenue', FALLBACK.chartRevenue),
   };
 }
