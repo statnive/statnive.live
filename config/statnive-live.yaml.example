@@ -1,0 +1,82 @@
+# statnive-live — production configuration template.
+#
+# Ships in the air-gap bundle as `statnive-live.yaml.example`; the
+# install script copies it to `/etc/statnive-live/config.yaml` on first
+# run (and NEVER overwrites an existing config). Edit in place.
+#
+# Every sensitive value is read from the environment, not from this
+# file — the master secret, the bootstrap admin password, and the API
+# tokens (if any) stay out of the YAML. See docs/quickstart.md § Minute 3.
+
+server:
+  addr:        "0.0.0.0:8080"
+  # TLS: leave cert_file/key_file empty to run plain HTTP (only safe
+  # behind a TLS-terminating reverse proxy). Rotate manually; the
+  # cert-expiry watcher emits alerts at <30 d and <7 d.
+  tls:
+    cert_file: "/etc/statnive-live/tls/fullchain.pem"
+    key_file:  "/etc/statnive-live/tls/privkey.pem"
+
+clickhouse:
+  # ClickHouse MUST be bound to 127.0.0.1 (Security Rule 2). The binary
+  # connects over the local network stack; no TLS needed on the CH hop.
+  dsn: "clickhouse://default@127.0.0.1:9000/statnive"
+  # Client-side batch window — see CLAUDE.md Architecture Rule 4.
+  batch:
+    rows_per_batch:   1000
+    flush_interval_ms: 500
+
+# The master secret NEVER lives in YAML. Set STATNIVE_MASTER_SECRET
+# (64 hex chars or ≥32 raw bytes) via systemd EnvironmentFile, or drop
+# a chmod-0600 file at master_secret.path.
+secret:
+  # Absolute path is safer than the empty default in an air-gap install
+  # — keeps the master.key outside /var/lib/statnive-live so backups
+  # don't include it.
+  path: "/etc/statnive-live/master.key"
+
+geoip:
+  # IP2Location LITE DB23 — download monthly from lite.ip2location.com
+  # and drop here; SIGHUP triggers a hot-reload (see
+  # deploy/airgap-update-geoip.sh). Leave empty to disable GeoIP (the
+  # enricher becomes a no-op; country_code defaults to "--").
+  bin_path: "/etc/statnive-live/geoip/IP2LOCATION-LITE-DB23.BIN"
+
+audit:
+  sink_path: "/var/log/statnive-live/audit.jsonl"
+
+alerts:
+  # File-sink alerts (Phase 8). Consumed by ops directly via tail or
+  # logrotate + grep. The Phase 6-polish-5 Notice UI surfaces these in
+  # the dashboard via a future read endpoint. Remote sinks (Telegram,
+  # syslog) are v1.1.
+  sink_path: "/var/log/statnive-live/alerts.jsonl"
+  # Optional host tag — populates the `host` field in every alert.
+  host_tag:  ""
+
+# First-run bootstrap reads these envs and creates the initial admin
+# user + site. After the first boot succeeds, the envs can be cleared
+# (the bootstrap is idempotent: it skips when any admin exists).
+#
+#   STATNIVE_BOOTSTRAP_ADMIN_EMAIL
+#   STATNIVE_BOOTSTRAP_ADMIN_PASSWORD
+#   STATNIVE_BOOTSTRAP_ADMIN_USERNAME
+
+auth:
+  session:
+    ttl_days: 14
+    # Secure=true requires HTTPS. Leave the default `true`; set
+    # STATNIVE_SESSION_INSECURE=1 for local HTTP dev only.
+
+# Opt-in outbound features — ALL default to OFF. Turning any of these
+# on leaves the Isolation invariant (zero required outbound).
+#
+# outbound:
+#   allowlist: []          # FQDNs permitted for http.Client dial (v1.1)
+# billing:
+#   polar:
+#     enabled: false
+# email:
+#   enabled: false
+# license:
+#   phone_home: false

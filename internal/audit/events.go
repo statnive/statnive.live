@@ -122,3 +122,17 @@ const (
 	EventGoalsReloadOK     EventName = "goals.reload_succeeded"
 	EventGoalsReloadFailed EventName = "goals.reload_failed"
 )
+
+// GeoIP hot-reload events. Emitted by internal/enrich/geoip.go on
+// SIGHUP; the pre-swap validation probe (doc 28 §Gap 1) means a failed
+// reload leaves the previous DB active — emit the reload_failed event
+// but keep serving lookups from the old handle.
+const (
+	EventGeoIPReloaded     EventName = "geoip.reloaded"
+	EventGeoIPReloadFailed EventName = "geoip.reload_failed"
+)
+
+// Alert event names live in internal/alerts (not here) — alerts are a
+// separate JSONL sink with a different schema than audit. The audit
+// package owns completed-action events; alerts own ops-should-know-now
+// conditions. See internal/alerts/sink.go.

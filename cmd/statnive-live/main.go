@@ -26,6 +26,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/statnive/statnive.live/internal/admin"
+	"github.com/statnive/statnive.live/internal/alerts"
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/cert"
@@ -80,6 +81,16 @@ func run() error {
 	}
 
 	defer func() { _ = auditLog.Close() }()
+
+	// alertsSink is nil (no-op) when alerts.sink_path is empty — that
+	// keeps the "pure-stdout" dev posture valid. Phase 8 defaults ship
+	// with sink_path set in the production YAML template.
+	alertsSink, err := alerts.New(cfg.Alerts.SinkPath, cfg.Alerts.HostTag)
+	if err != nil {
+		return fmt.Errorf("alerts sink: %w", err)
+	}
+
+	defer func() { _ = alertsSink.Close() }()
 
 	masterSecret, err := config.LoadMasterSecret(masterSecretEnv, cfg.MasterSecretPath)
 	if err != nil {
@@ -305,7 +316,9 @@ func run() error {
 		// hit 429 first) but BEFORE the handler (so a degraded WAL
 		// doesn't burn enrichment + fsync budget on events destined for
 		// 503). wal-durability-review item #6.
-		r.Use(ingest.BackpressureMiddleware(wal, ingest.BackpressureConfig{}))
+		r.Use(ingest.BackpressureMiddleware(wal, ingest.BackpressureConfig{
+			OnSample: walFillAlertEmitter(alertsSink),
+		}))
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline:     pipeline,
 			WAL:          groupSyncer,
@@ -461,14 +474,23 @@ func run() error {
 
 	if tlsLoader != nil {
 		g.Go(func() error {
-			return cert.NewExpiryWatcher(tlsLoader, auditLog, time.Now).Run(gctx)
+			return cert.NewExpiryWatcher(tlsLoader, auditLog, alertsSink, time.Now).Run(gctx)
 		})
 	}
 
 	g.Go(func() error {
-		runSIGHUP(gctx, logger, auditLog, tlsLoader, channelMapper, goalSnapshot)
+		runSIGHUP(gctx, logger, auditLog, alertsSink, tlsLoader, channelMapper, goalSnapshot, geoIP, cfg.Enrich.GeoIPBinPath)
 
 		return nil
+	})
+
+	// Phase 8 alert probers — both no-op when alertsSink is nil.
+	g.Go(func() error {
+		return alerts.ProbeClickHouseLoop(gctx, alertsSink, store.Ping, 30*time.Second)
+	})
+
+	g.Go(func() error {
+		return alerts.ProbeDiskFillLoop(gctx, alertsSink, "/var/lib/statnive-live", time.Minute)
 	})
 
 	g.Go(func() error {
@@ -511,15 +533,20 @@ func newTLSLoader(cfg appConfig, auditLog *audit.Logger, logger *slog.Logger) (*
 
 // runSIGHUP fans SIGHUP out to every reload-aware subsystem: TLS cert
 // reload, audit-log file reopen, the channel mapper's sources reload,
-// and (Phase 3c) the goals snapshot. One signal handler avoids
-// per-package signal.Notify calls that race on the same signal.
+// the goals snapshot, and (Phase 8) the GeoIP BIN hot-swap. One signal
+// handler avoids per-package signal.Notify calls that race on the same
+// signal.
 //
-// Order is TLS → audit.Reopen → channels → goals. Each reload is
-// independent: a failure in one does NOT short-circuit the others
+// Order is TLS → audit.Reopen → channels → goals → GeoIP. Each reload
+// is independent: a failure in one does NOT short-circuit the others
 // (cert-expiry refresh must never be blocked by a goals SQL hiccup).
+//
+//nolint:gocyclo // fan-out is linear; each branch is a one-reload check that can't usefully share code with the next
 func runSIGHUP(
 	ctx context.Context, logger *slog.Logger, auditLog *audit.Logger,
+	alertsSink *alerts.Sink,
 	tlsLoader *cert.Loader, mapper *enrich.ChannelMapper, goalSnap *goals.Snapshot,
+	geoIP enrich.GeoIPEnricher, geoIPPath string,
 ) {
 	ch := make(chan os.Signal, 1)
 
@@ -543,6 +570,10 @@ func runSIGHUP(
 				logger.Warn("audit log reopen failed", "err", err)
 			}
 
+			if err := alertsSink.Reopen(); err != nil {
+				logger.Warn("alerts sink reopen failed", "err", err)
+			}
+
 			if err := mapper.Reload(); err != nil {
 				logger.Warn("channel mapper reload failed", "err", err)
 			}
@@ -556,6 +587,25 @@ func runSIGHUP(
 				} else {
 					auditLog.Event(ctx, audit.EventGoalsReloadOK,
 						slog.Int("count", goalSnap.Size()),
+					)
+				}
+			}
+
+			// GeoIP reload is a no-op on the noopGeoIP variant (when
+			// no BIN path is configured); the Reload method handles
+			// that case transparently. A failed reload keeps the old
+			// handle active — emit the failure event but don't fall
+			// back to the no-op enricher.
+			if geoIP != nil && geoIPPath != "" {
+				if err := geoIP.Reload(geoIPPath); err != nil {
+					logger.Warn("geoip reload failed", "err", err, "path", geoIPPath)
+					auditLog.Event(ctx, audit.EventGeoIPReloadFailed,
+						slog.String("err", err.Error()),
+						slog.String("path", geoIPPath),
+					)
+				} else {
+					auditLog.Event(ctx, audit.EventGeoIPReloaded,
+						slog.String("path", geoIPPath),
 					)
 				}
 			}
@@ -713,6 +763,16 @@ type appConfig struct {
 	Audit struct {
 		Path string
 	}
+	Alerts struct {
+		// SinkPath is /var/log/statnive-live/alerts.jsonl by convention;
+		// empty disables the file sink entirely (the emitter becomes a
+		// no-op). Phase 8 adds this as the backend feed for
+		// Phase 6-polish-5's Notice UI.
+		SinkPath string
+		// HostTag populates the `host` field in every alert, e.g.
+		// "cx32-staging". Optional; leave empty to omit the field.
+		HostTag string
+	}
 	RateLimit struct {
 		RequestsPerMinute int
 	}
@@ -793,6 +853,8 @@ func loadConfig() (appConfig, error) {
 	v.SetDefault("tls.cert_file", "")
 	v.SetDefault("tls.key_file", "")
 	v.SetDefault("audit.path", "./audit.jsonl")
+	v.SetDefault("alerts.sink_path", "")
+	v.SetDefault("alerts.host_tag", "")
 	v.SetDefault("ratelimit.requests_per_minute", 6000)
 	v.SetDefault("dashboard.bearer_token", "")
 
@@ -850,6 +912,8 @@ func loadConfig() (appConfig, error) {
 	cfg.TLS.KeyFile = v.GetString("tls.key_file")
 
 	cfg.Audit.Path = v.GetString("audit.path")
+	cfg.Alerts.SinkPath = v.GetString("alerts.sink_path")
+	cfg.Alerts.HostTag = v.GetString("alerts.host_tag")
 
 	cfg.RateLimit.RequestsPerMinute = v.GetInt("ratelimit.requests_per_minute")
 
@@ -877,4 +941,36 @@ func loadConfig() (appConfig, error) {
 	_ = v.UnmarshalKey("auth.api_tokens", &cfg.Auth.APITokens)
 
 	return cfg, nil
+}
+
+// walFillThresholds matches wal-durability-review item #6 + PLAN.md:159
+// (503 at 0.80). 0.90 / 0.95 add two critical bands so ops sees
+// escalation before cap-fire drops oldest segments.
+var walFillThresholds = [3]float64{0.80, 0.90, 0.95}
+
+// walFillAlertEmitter wires an alerts.Sink to the BackpressureMiddleware's
+// per-TTL sample callback. The BandTracker debounces so the sink sees
+// one event per real crossing — not one per sample.
+func walFillAlertEmitter(sink *alerts.Sink) func(ratio float64) {
+	if sink == nil {
+		return nil
+	}
+
+	var tracker alerts.BandTracker
+
+	return func(ratio float64) {
+		band, sev := alerts.ClassifyRatio(ratio, walFillThresholds)
+
+		t := tracker.Observe(band)
+		if !t.Entered && !t.Exited {
+			return
+		}
+
+		resolved := t.Exited && band == 0
+
+		sink.Emit(context.Background(), alerts.NameWALHighFillRatio, sev, resolved,
+			slog.Float64("value", ratio),
+			slog.Int("band", int(band)),
+		)
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/statnive/statnive.live/internal/alerts"
 	"github.com/statnive/statnive.live/internal/audit"
 )
 
@@ -32,9 +33,13 @@ const (
 // ExpiryWatcher checks the loader's leaf certificate NotAfter on a slow
 // ticker and emits audit events as the cert approaches expiry. No
 // outbound notifications — this is file-sink only per air-gap rules.
+// Phase 8: the same events also fan out to the alerts.Sink so the
+// Notice UI (6-polish-5) can surface cert-expiry as a persistent
+// warning.
 type ExpiryWatcher struct {
 	loader *Loader
 	audit  *audit.Logger
+	alerts *alerts.Sink
 	clock  func() time.Time
 
 	mu        sync.Mutex
@@ -43,7 +48,8 @@ type ExpiryWatcher struct {
 
 // NewExpiryWatcher constructs the watcher. clock is injectable for tests;
 // callers in production should pass time.Now (or nil to default to it).
-func NewExpiryWatcher(loader *Loader, auditLog *audit.Logger, clock func() time.Time) *ExpiryWatcher {
+// alertsSink may be nil (no-op) — the audit fan-out remains load-bearing.
+func NewExpiryWatcher(loader *Loader, auditLog *audit.Logger, alertsSink *alerts.Sink, clock func() time.Time) *ExpiryWatcher {
 	if clock == nil {
 		clock = time.Now
 	}
@@ -51,6 +57,7 @@ func NewExpiryWatcher(loader *Loader, auditLog *audit.Logger, clock func() time.
 	return &ExpiryWatcher{
 		loader:    loader,
 		audit:     auditLog,
+		alerts:    alertsSink,
 		clock:     clock,
 		lastLevel: expiryFresh,
 	}
@@ -98,14 +105,33 @@ func (w *ExpiryWatcher) check() {
 	switch level {
 	case expiryCritical:
 		w.emit(audit.EventTLSExpiryCritical, notAfter, remaining)
+		w.alert(alerts.NameTLSExpiryCritical, alerts.SeverityCritical, false, notAfter, remaining)
 	case expiryWarn:
 		w.emit(audit.EventTLSExpiryWarn, notAfter, remaining)
+		w.alert(alerts.NameTLSExpiryWarn, alerts.SeverityWarn, false, notAfter, remaining)
 	case expiryFresh:
-		// Cert was renewed past 30d — recover silently. Operators
-		// can confirm via `tls.cert_loaded` at the same time.
+		// Cert was renewed past 30d — recover silently in the audit
+		// log (tls.cert_loaded serves as the confirmation). Emit an
+		// explicit `resolved=true` alert so the Notice UI can
+		// auto-dismiss the warn/critical banner it was showing.
+		if w.lastLevel == expiryWarn || w.lastLevel == expiryCritical {
+			w.alert(alerts.NameTLSExpiryWarn, alerts.SeverityInfo, true, notAfter, remaining)
+		}
 	}
 
 	w.lastLevel = level
+}
+
+func (w *ExpiryWatcher) alert(name string, sev alerts.Severity, resolved bool, notAfter time.Time, remaining time.Duration) {
+	if w.alerts == nil {
+		return
+	}
+
+	w.alerts.Emit(context.Background(), name, sev, resolved,
+		slog.Time("not_after", notAfter),
+		slog.String("remaining", remaining.Round(time.Hour).String()),
+		slog.String("subject", w.loader.Subject()),
+	)
 }
 
 func (w *ExpiryWatcher) emit(name audit.EventName, notAfter time.Time, remaining time.Duration) {

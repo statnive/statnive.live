@@ -728,3 +728,167 @@ All Phase 7b deliverables shipped:
   `wal-durability-review` item 7 — last open of 10).
 
 Next slice: **Phase 5 frontend** is unblocked.
+
+---
+
+## Phase 8 — Deploy + airgap bundle (operator SOPs)
+
+### Air-gap bundle install
+
+Applies to any Linux 5.x+ host (Hetzner CX32 staging, Asiatech Iranian
+DC, enterprise on-prem). ClickHouse 24+ must already be running, bound
+to 127.0.0.1:9000. The bundle is architecture-specific
+(`*-linux-amd64-airgap.tar.gz`); arm64 variants build the same way by
+overriding `GOARCH` at `make build`.
+
+```bash
+# 1. From a trusted bastion, verify the received tarball.
+cd /tmp
+sudo ./deploy/airgap-verify-bundle.sh statnive-live-v0.8.0-linux-amd64-airgap.tar.gz /etc/statnive/release-key.pub
+# exit 0 = SHA256 + Ed25519 both OK
+# exit 1 = SHA256 mismatch — REJECT
+# exit 2 = signature mismatch / missing — REJECT
+
+# 2. Unpack + install.
+tar -xzf statnive-live-v0.8.0-linux-amd64-airgap.tar.gz
+cd statnive-live-v0.8.0-linux-amd64-airgap
+sudo ./deploy/airgap-install.sh
+
+# 3. Seed the master secret (choose ONE).
+#    Option A — file:
+sudo openssl rand -hex 32 > /etc/statnive-live/master.key
+sudo chmod 0600 /etc/statnive-live/master.key
+sudo chown statnive:statnive /etc/statnive-live/master.key
+#    Option B — systemd env (drop-in):
+sudo mkdir -p /etc/systemd/system/statnive-live.service.d
+cat <<'EOF' | sudo tee /etc/systemd/system/statnive-live.service.d/env.conf
+[Service]
+Environment="STATNIVE_MASTER_SECRET=<64-hex-chars>"
+EOF
+sudo systemctl daemon-reload
+
+# 4. First-run bootstrap envs (one-shot; comment out after first start).
+cat <<'EOF' | sudo tee -a /etc/systemd/system/statnive-live.service.d/env.conf
+Environment="STATNIVE_BOOTSTRAP_ADMIN_EMAIL=ops@example.com"
+Environment="STATNIVE_BOOTSTRAP_ADMIN_PASSWORD=<32+ chars>"
+Environment="STATNIVE_BOOTSTRAP_ADMIN_USERNAME=ops"
+EOF
+sudo systemctl daemon-reload
+
+# 5. Start + verify.
+sudo systemctl start statnive-live
+curl -s http://127.0.0.1:8080/healthz | jq .
+# status=ok, clickhouse=up, wal_fill_ratio=0
+```
+
+Common troubleshooting:
+
+- **`systemctl status` shows `activating` then `failed`** — master secret
+  is not readable. `sudo journalctl -u statnive-live -n 50`; look for
+  `master secret: …`. The loader now uses `os.OpenRoot` (Phase 7d F7),
+  so symlinks pointing outside `/etc/statnive-live/` fail by design.
+- **iptables conflict with UFW** — `airgap-install.sh --apply-iptables`
+  loads `deploy/iptables/rules.v4`, which default-DROPs INPUT. If UFW
+  is managing firewall rules, skip the flag and edit UFW's rulebook to
+  permit 80 / 443 / the tracker-client subnet.
+- **systemd Type=notify mismatch** — the unit ships with `Type=simple`
+  (the default). If an operator changed it to `notify`, the binary
+  doesn't call `sd_notify` and systemd times out.
+
+### GeoIP update procedure
+
+Monthly cadence for the LITE DB23. SamplePlatform cutover (Phase 10)
+will upgrade to paid DB23 with attribution waived.
+
+```bash
+# On the operator workstation (outside the air-gap if needed):
+wget -O /tmp/IP2LOCATION-LITE-DB23.BIN https://lite.ip2location.com/download?file=DB23LITEBIN
+
+# Transfer to the target host:
+scp /tmp/IP2LOCATION-LITE-DB23.BIN root@statnive-host:/var/tmp/
+
+# On the target host (same filesystem as the GeoIP dir — required for
+# atomic mv; the script aborts otherwise):
+sudo /opt/statnive-bundle/deploy/airgap-update-geoip.sh /var/tmp/IP2LOCATION-LITE-DB23.BIN
+
+# Observe success in audit.jsonl (should appear within 2 seconds):
+sudo tail -n 5 /var/log/statnive-live/audit.jsonl | grep geoip.reloaded
+```
+
+Exit codes:
+
+- `0` — new BIN installed + SIGHUP sent + reload event observed.
+- `1` — precondition failure (missing BIN, wrong filesystem, not root).
+- `2` — reload event not observed within 30 s. The pre-swap probe
+  (`8.8.8.8` → non-empty country; `185.143.232.1` → `IR`) failed; the
+  OLD BIN is still active. Inspect `audit.jsonl` for
+  `geoip.reload_failed` + the attached `err` field.
+
+### Alerts file format (`/var/log/statnive-live/alerts.jsonl`)
+
+Phase 8 adds a file-sink alert channel. Event schema (one JSON object
+per line):
+
+| Field      | Type    | Notes                                                              |
+|------------|---------|--------------------------------------------------------------------|
+| `time`     | RFC3339 | UTC; slog's default time field.                                    |
+| `alert`    | string  | Event taxonomy (see below).                                        |
+| `severity` | string  | `warn` / `critical` / `info`. `info` only on paired `resolved`.    |
+| `band`     | int     | `1` / `2` / `3` on enter-band; `0` on recovery.                    |
+| `resolved` | bool    | `false` on enter; `true` when the condition clears.                |
+| `value`    | number  | Current observation (0.0–1.0 for WAL/disk ratios).                 |
+| `host`     | string  | Populated when `alerts.host_tag` is set in YAML. Optional.         |
+
+Event taxonomy (Phase 8 ships 4 types; v1.1 adds Telegram/syslog fan-out):
+
+- `wal_high_fill_ratio` — WAL disk utilization crossing 0.80 / 0.90 / 0.95.
+- `clickhouse_down` / `clickhouse_up` — ClickHouse Ping state change. Paired.
+- `disk_high_fill_ratio` — `/var/lib/statnive-live` mountpoint crossing 0.85 / 0.90 / 0.95.
+- `tls_expiry_warn` / `tls_expiry_critical` — manual-PEM expiry <30 d / <7 d.
+
+Grep recipes:
+
+```bash
+# All alerts emitted in the last 24 hours
+sudo find /var/log/statnive-live -name 'alerts.jsonl*' -mtime -1 -exec cat {} \;
+
+# Unresolved events (the "still-active" alert set)
+sudo jq -c 'select(.resolved == false)' /var/log/statnive-live/alerts.jsonl
+
+# CH-down incidents (time + duration proxy via up-event)
+sudo jq -c 'select(.alert | startswith("clickhouse_"))' /var/log/statnive-live/alerts.jsonl
+
+# Disk-full escalation path
+sudo jq -c 'select(.alert == "disk_high_fill_ratio" and .band >= 2)' /var/log/statnive-live/alerts.jsonl
+```
+
+### Log rotation (advisory)
+
+`alerts.jsonl` is append-only and unrotated by default. Operators who
+use logrotate can drop this at `/etc/logrotate.d/statnive-live`:
+
+```
+/var/log/statnive-live/*.jsonl {
+    weekly
+    rotate 12
+    compress
+    copytruncate
+    notifempty
+    create 0640 statnive statnive
+}
+```
+
+`copytruncate` avoids the SIGHUP-based reopen; the runtime also handles
+SIGHUP-driven reopen if you prefer `create` semantics — just call
+`systemctl kill -s HUP statnive-live` in `postrotate`.
+
+### Phase 8 deferred items (tracked for later)
+
+- **Docker tarball** (`docker save`) — deployment.md §87 → v1.1.
+- **Telegram / syslog remote alert sinks** — deployment.md §98,101 → v1.1.
+- **Alerts dashboard UI** — Phase 6-polish-5 Notice primitive; the
+  `GET /api/ops/alerts` read endpoint ships there, not Phase 8.
+- **Ed25519 signing CLI** — Phase 8 ships only the verify side. Signing
+  stays operator-side in the age-encrypted vault until v1.1 / Phase 11b.
+- **Backup cron automation** — SOP shipped above; operator-owned cron
+  line (commented exemplar in the install script hints).

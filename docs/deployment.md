@@ -95,7 +95,7 @@ The final platform runs as a **single, self-contained binary on one server with 
 | Service | Purpose | Disable via config |
 |---|---|---|
 | Let's Encrypt (ACME) | TLS cert issuance | v1 uses manual PEM only — LE never called from the binary. Operator obtains certs separately via `certbot certonly --manual` and drops PEMs. |
-| Telegram Bot API | Operator alerts | v1.1 only — v1 uses file sink (`/var/log/statnive/alerts.jsonl`) |
+| Telegram Bot API | Operator alerts | v1.1 only — v1 ships the file sink at `/var/log/statnive-live/alerts.jsonl` (Phase 8; event taxonomy + grep recipes in [runbook.md § Alerts file format](runbook.md#alerts-file-format-varlogstatnive-livealertsjsonl)) |
 | `license.statnive.live` | SaaS license phone-home | `license.phone_home = false` (v1 default) |
 | ip2location.com | Monthly GeoIP DB refresh | Never auto-fetched — always manual file drop |
 | Remote syslog | Audit log shipping | v1.1 only — v1 uses file sink |
