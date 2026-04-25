@@ -102,6 +102,35 @@ Every code change must pass through `/simplify` before you propose a commit. **N
 
 **Other non-negotiables:** every new dep requires `go-licenses` verification (MIT/Apache/BSD/ISC); every API endpoint requires an integration test; ClickHouse schema changes go through migrations (embedded SQL, run on startup); `goals` / `funnels` config hot-reloads via SIGHUP (no restart).
 
+## Workflow Rule — `LEARN.md` is canonical institutional memory
+
+[`LEARN.md`](LEARN.md) captures hard-won lessons from prior cutovers / outages / bug-discovery sessions. **Read it BEFORE planning any task that touches:**
+
+- `deploy/` (`airgap-bundle.sh`, `airgap-install.sh`, `airgap-update-geoip.sh`, systemd units, iptables rules)
+- `cmd/statnive-live/main.go` (especially the `loadConfig` / viper / flag-parsing surface)
+- `config/statnive-live.yaml.example` (schema parity with binary defaults)
+- Operator-facing scripts (`step-b.sh`, `step-d.sh`, `statnive-deploy.sh`, `courier-iran.sh`)
+- Any cutover SOP in [`docs/runbook.md`](docs/runbook.md)
+
+The point is to **avoid re-discovering bugs we already caught**. Each LEARN.md entry encodes a specific bug class; cross-reference before designing a fix or a new operator path.
+
+**Update LEARN.md when:**
+
+- A cutover (Milestone N) completes — capture every surprise as a lesson.
+- A bug-discovery class hits ≥3 related bugs in a single operation.
+- A production outage / SSH lockout / on-call incident is resolved — root cause + preventive measure goes in.
+
+**Per-lesson format** (enforced):
+
+> **Lesson N — <one-sentence rule>**
+>
+> 1. **What we did** — the action that broke (factual, no blame).
+> 2. **Why it broke** — the underlying mismatch / assumption.
+> 3. **The fix we applied** — what unblocked us in the moment.
+> 4. **Preventive measure** — the durable change so the next operator doesn't hit it (CI gate / doc / process).
+
+Lessons live forever. Don't delete entries; mark them `[obsolete]` if the underlying cause is gone (e.g. a CI gate now catches the bug class).
+
 ## Test Gate
 
 ```bash

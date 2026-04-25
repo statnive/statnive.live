@@ -735,6 +735,16 @@ Next slice: **Phase 5 frontend** is unblocked.
 
 ### Air-gap bundle install
 
+> ⚠️ **Known issues hit during the Milestone 1 cutover (2026-04-25).** Read [`PLAN.md § Milestone 1 cutover postmortem`](../PLAN.md#milestone-1-cutover-postmortem-2026-04-25) before starting; full bug catalog + lessons there. Until follow-up PR-A merges:
+>
+> - **Build the bundle on Linux x86_64.** `make airgap-bundle` on Mac produces a darwin/arm64 binary inside a `linux-amd64`-named tarball. Cross-compile manually: `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -mod=vendor -o /tmp/statnive-live ./cmd/statnive-live` and replace the bundle's `bin/statnive-live` before SCP. Or use the GHA `release.yml` pipeline (ubuntu-latest runner).
+> - **Manually copy `deploy/statnive-deploy.sh` into the bundle** before running `airgap-install.sh` — the bundling script doesn't include it. Until PR-A merges: `cp deploy/statnive-deploy.sh build/<bundle-dir>/deploy/`.
+> - **Manually copy `internal/enrich/crawler-user-agents.json` into the bundle**. Without it, the bot detector falls back to ~60 patterns instead of the full ~700. Non-blocking but degrades quality.
+>
+> ⚠️ **Until PR-B merges**, the bundled `config/statnive-live.yaml.example` uses an entirely wrong schema vs the binary's actual `loadConfig` keys (`audit.sink_path` ≠ `audit.path`, etc.) — the file is **silently ignored** because the binary also doesn't honor the `-c` flag. Override every path via systemd `Environment=` drop-in directives instead. See § Post-cutover state below for the full env-var template that actually works.
+>
+> ⚠️ **Until PR-C merges**, `airgap-install.sh` sets `/etc/statnive-live/` and `/etc/statnive-live/tls/` to mode `0700 root:root`. The `statnive` service user can't traverse → all reads inside fail. Manually fix: `sudo chmod 0755 /etc/statnive-live` + `sudo chown root:statnive /etc/statnive-live/tls && sudo chmod 0750 /etc/statnive-live/tls`.
+
 Applies to any Linux 5.x+ host (Hetzner CX32 staging, Asiatech Iranian
 DC, enterprise on-prem). ClickHouse 24+ must already be running, bound
 to 127.0.0.1:9000. The bundle is architecture-specific
@@ -900,6 +910,8 @@ SIGHUP-driven reopen if you prefer `create` semantics — just call
 > **GDPR ops gate.** Before the first EU visitor reaches the box, the operator MUST run through [`docs/rules/netcup-vps-gdpr.md`](rules/netcup-vps-gdpr.md) end-to-end: sign the Netcup AV contract in CCP (§2), populate [`docs/compliance/subprocessor-register.md`](compliance/subprocessor-register.md) (§3 + §7), publish DNS hygiene records (§4), wire HSTS + monthly testssl (§5), and apply server-side hardening above Netcup's Annex 1 TOM (§6 — LUKS on `/var/lib/clickhouse` is **required** here, not optional). The dedicated SOP for the DPA-signing step lives at § Sign the Netcup DPA + populate the sub-processor register below. None of this is optional once the box receives EU visitors.
 
 ### Provision a fresh Netcup VPS 2000 G12 NUE for dogfood / free-tier SaaS
+
+> **Distro choice: Ubuntu 24 LTS is the canonical path. Debian 13 (Netcup default) requires deltas.** Both work; pick one and follow the matching subsection. The Milestone 1 cutover (2026-04-25) ran on Debian 13 and uncovered ~5 distinct distro deltas — see [Debian 13 deltas](#debian-13-deltas-applies-only-when-the-vps-image-is-debian-not-ubuntu) below.
 
 Target D1 host for Milestone 1 + early SaaS customers. Actual
 procurement (2026-04-24, commit `4ff19dd`): **Netcup VPS 2000 G12 iv
@@ -1122,6 +1134,96 @@ sysctl vm.swappiness         # expect: 1
 
 If swap is required by the image, encrypt it with a random-key LUKS device that regenerates at boot.
 
+#### Debian 13 deltas (applies only when the VPS image is Debian, not Ubuntu)
+
+The Milestone 1 cutover (2026-04-25) was provisioned on Debian 13 (trixie) — Netcup's default minimal image. The canonical commands above are written against Ubuntu 24 LTS conventions; Debian 13 deviates in five places. Apply these deltas in order, in addition to the canonical procedure (not as a replacement).
+
+```bash
+# 1. iptables is not installed by default on Debian 13 minimal — `airgap-install.sh
+#    --apply-iptables` will fail with "iptables-restore: command not found".
+sudo apt update && sudo apt install -y iptables
+
+# 2. ClickHouse install: prefer the APT repo on Debian 13. The upstream installer
+#    (`curl https://clickhouse.com/ | sh && ./clickhouse install`) DOES NOT register
+#    the systemd unit on Debian 13 — `Failed to enable unit: Unit clickhouse-server.service
+#    does not exist`. The APT repo always ships a working unit:
+sudo apt-get install -y apt-transport-https ca-certificates curl gnupg
+curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key' \
+  | sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg
+ARCH=$(dpkg --print-architecture)
+echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg arch=${ARCH}] https://packages.clickhouse.com/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/clickhouse.list
+sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y clickhouse-server clickhouse-client
+sudo systemctl enable --now clickhouse-server
+
+# 2-fallback. If you already ran the upstream installer (binary in place but no unit),
+#    drop the canonical upstream unit by hand:
+sudo tee /etc/systemd/system/clickhouse-server.service > /dev/null <<'EOF'
+[Unit]
+Description=ClickHouse Server (analytic DBMS for big data)
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+User=clickhouse
+Group=clickhouse
+Restart=always
+RestartSec=30
+RuntimeDirectory=clickhouse-server
+ExecStart=/usr/bin/clickhouse-server --config=/etc/clickhouse-server/config.xml --pid-file=/run/clickhouse-server/clickhouse-server.pid
+LimitCORE=infinity
+LimitNOFILE=500000
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_IPC_LOCK CAP_SYS_NICE CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_IPC_LOCK CAP_SYS_NICE CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now clickhouse-server
+
+# 3. ClickHouse upstream installer pulls LATEST (currently 26.x), not 24.x as the
+#    canonical block above claims. The "ClickHouse 24+" floor is the real requirement;
+#    accept whatever the installer ships. Verify mergeability via `clickhouse-client
+#    --query 'SELECT version()'` afterwards.
+
+# 4. CREATE the statnive database in ClickHouse before binary first-boot — the binary
+#    expects it to exist before running its schema migrations. The upstream APT package
+#    creates only the `default` and `system` databases:
+sudo clickhouse-client --query 'CREATE DATABASE IF NOT EXISTS statnive'
+
+# 5. IPv6 binding via netplan (next section, "### Bind IPv6 on Netcup VM") DOES NOT WORK
+#    on Debian 13 — netplan is not installed by default (Ubuntu-only convention).
+#    Use a systemd oneshot service instead:
+sudo tee /etc/systemd/system/statnive-ipv6-bind.service > /dev/null <<'EOF'
+[Unit]
+Description=Bind static IPv6 host address for statnive-live
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '/sbin/ip -6 addr add 2a03:4000:51:f0c::1/64 dev eth0 || true'
+ExecStart=/bin/sh -c '/sbin/ip -6 route add default via fe80::1 dev eth0 onlink || true'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now statnive-ipv6-bind.service
+
+# 6. Default network interface name varies on Debian. Netcup Debian uses `eth0`,
+#    but other Debian images can be `enp1s0` or `ens3`. Auto-detect:
+ETH_IFACE=$(ip -4 route show default 2>/dev/null | awk '/default/{print $5; exit}')
+echo "default iface: ${ETH_IFACE:-eth0}"
+# If different from eth0, edit the systemd oneshot above.
+```
+
+After these deltas land, return to the canonical sequence at § Bind IPv6 on Netcup VM (the netplan block can be skipped — your systemd oneshot above replaces it).
+
 
 ### Bind IPv6 on Netcup VM
 
@@ -1193,6 +1295,15 @@ sudo chmod 0644 /etc/statnive/release-key.pub
 #    direct from the repo for the bootstrap deploy).
 sudo install -m 0755 /opt/statnive-bundles/<initial-version>/deploy/statnive-deploy.sh \
   /usr/local/bin/statnive-deploy
+
+# 5b. ⚠️ Until follow-up PR-C lands, airgap-install.sh sets /etc/statnive-live/ and
+#     /etc/statnive-live/tls/ to 0700 root:root — `statnive` service user can't traverse,
+#     all reads inside fail with "permission denied". Apply the workaround:
+sudo chmod 0755 /etc/statnive-live
+sudo chown root:statnive /etc/statnive-live/tls
+sudo chmod 0750 /etc/statnive-live/tls
+# Verify: `sudo -u statnive cat /etc/statnive-live/tls/fullchain.pem | head -1`
+# should print "-----BEGIN CERTIFICATE-----" (proves traversal + read works as statnive).
 
 # 6. NOPASSWD sudoers entry — deploy user can ONLY run statnive-deploy.
 sudo tee /etc/sudoers.d/10-statnive-deploy <<'EOF'
@@ -1267,6 +1378,8 @@ curl -s https://app.statnive.live/healthz | jq .
 ```
 
 If the on-box `statnive-deploy` is itself broken (extremely rare), fall back to the lower-level primitives shipped in the bundle: `airgap-verify-bundle.sh` → manual extract to `/opt/statnive-bundles/<version>/` → `ln -sfn` the symlink → `cp bin/statnive-live /usr/local/bin/statnive-live` → `systemctl daemon-reload && systemctl restart statnive-live`. The atomic `mv` and symlink swap are the same operations the script performs; doing them by hand is acceptable for one-off recovery.
+
+> **Cutover postmortem cross-link.** The Milestone 1 cutover (2026-04-25) executed the manual breakglass path end-to-end and surfaced 24 bugs across the bundle / config / install / cutover-script layers. **Read [`PLAN.md § Milestone 1 cutover postmortem`](../PLAN.md#milestone-1-cutover-postmortem-2026-04-25) and [`LEARN.md`](../LEARN.md) before starting the next manual cutover** — many of the wall-time-eating surprises have known workarounds documented there.
 
 ### DNS import to Cloudflare — `statnive.live`
 
@@ -1401,3 +1514,72 @@ sudo jq -c 'select(.resolved == false)' /var/log/statnive-live/alerts.jsonl
 ```
 
 Green on all five → Milestone 1 achieved.
+
+### Post-cutover state (2026-04-25)
+
+**Cross-reference**: full bug catalog + lessons from this cutover live in [`PLAN.md § Milestone 1 cutover postmortem`](../PLAN.md#milestone-1-cutover-postmortem-2026-04-25) + [`LEARN.md`](../LEARN.md). Read both before starting any cutover (Phase 10 P1, future SaaS customer onboarding, …).
+
+**Live VPS facts** (canonical record — also in PLAN.md):
+
+| Item | Value |
+|---|---|
+| Provider | Netcup VPS 2000 G12 iv NUE — Nuremberg |
+| OS | Debian 13 (trixie), kernel `6.12.74+deb13+1-amd64` |
+| IPv4 | `94.16.108.78` |
+| IPv6 | `2a03:4000:51:f0c::1/64` (gw `fe80::1`, persisted via systemd oneshot) |
+| ClickHouse | `26.5.1.68` (upstream installer pulled latest, NOT 24.x) |
+| TLS cert | LE 3-SAN (`statnive.live` + `app.` + `demo.`); valid until 2026-07-24 |
+| DNS | Cloudflare `.live` zone (DNS-only / grey cloud); `deploy/dns/statnive.live.zone` is canonical |
+
+**The systemd `Environment=` drop-in that actually works on Debian 13.**
+
+Until follow-up PR-B fixes `config/statnive-live.yaml.example` schema parity + adds `-c <path>` flag handling, the bundled config file is silently ignored. Override every path via systemd env. Drop-in lives at `/etc/systemd/system/statnive-live.service.d/env.conf`:
+
+```ini
+[Service]
+# Master secret + bootstrap admin (one-shot; comment out after first successful login)
+Environment="STATNIVE_MASTER_SECRET=<paste-64-hex-chars>"
+# Environment="STATNIVE_BOOTSTRAP_ADMIN_EMAIL=ops@statnive.live"
+# Environment="STATNIVE_BOOTSTRAP_ADMIN_PASSWORD=<32+ chars>"
+# Environment="STATNIVE_BOOTSTRAP_ADMIN_USERNAME=ops"
+Environment="STATNIVE_AUTH_DEMO_BANNER=Demo: demo@statnive.live (viewer, read-only)"
+
+# Path overrides — every key the binary's loadConfig reads must point at an absolute,
+# statnive-readable path. Without these, the binary uses relative defaults that fail under
+# systemd ProtectSystem=strict + ReadWritePaths.
+Environment="STATNIVE_SERVER_LISTEN=0.0.0.0:443"
+Environment="STATNIVE_TLS_CERT_FILE=/etc/statnive-live/tls/fullchain.pem"
+Environment="STATNIVE_TLS_KEY_FILE=/etc/statnive-live/tls/privkey.pem"
+Environment="STATNIVE_AUDIT_PATH=/var/log/statnive-live/audit.jsonl"
+Environment="STATNIVE_ALERTS_SINK_PATH=/var/log/statnive-live/alerts.jsonl"
+Environment="STATNIVE_INGEST_WAL_DIR=/var/lib/statnive-live/wal"
+Environment="STATNIVE_MASTER_SECRET_PATH=/etc/statnive-live/master.key"
+Environment="STATNIVE_CLICKHOUSE_ADDR=127.0.0.1:9000"
+Environment="STATNIVE_CLICKHOUSE_DATABASE=statnive"
+Environment="STATNIVE_ENRICH_SOURCES_PATH=/etc/statnive-live/sources.yaml"
+Environment="STATNIVE_DASHBOARD_SPA_ENABLED=true"
+```
+
+After editing: `sudo systemctl daemon-reload && sudo systemctl restart statnive-live`.
+
+**Watch-outs that aren't intuitive:**
+
+- **`dashboard.spa_enabled` defaults to `false`.** Without `STATNIVE_DASHBOARD_SPA_ENABLED=true`, `/app/*` returns 404 (the SPA mount is gated). The dashboard appears broken; the binary is fine.
+- **The binary expects the `statnive` ClickHouse database to exist before first boot.** Run `sudo clickhouse-client --query 'CREATE DATABASE IF NOT EXISTS statnive'` after CH is up but before starting the binary. Otherwise: `clickhouse ping: code: 81, message: Database statnive does not exist`.
+- **Real-browser-shaped User-Agent (>=16 chars) required for ingest tests.** `curl -X POST .../api/event` with default UA `curl/8.7.1` (10 chars) hits the pre-pipeline fast-reject (CLAUDE.md Architecture Rule 6) and returns 204 without ingesting. Use `curl -A 'Mozilla/5.0 ...'` for any manual smoke check.
+- **Operators with DNT enabled in their browser will see `tracker.js` load (200) but no `POST /api/event` ever fire.** The tracker silently disables itself when `navigator.doNotTrack === '1'` per privacy-by-default. Test in Chrome Incognito (default settings) or a clean Firefox Private Window — not your daily browser.
+
+**Final sanity check after a cutover (real-browser variant):**
+
+```bash
+# === LAPTOP — Chrome Incognito with DevTools Network tab open ===
+# 1. Visit https://statnive.com/
+# 2. Confirm POST https://statnive.live/api/event returns 202
+# 3. Click around to a few pages — each one fires another POST
+
+# === VPS as ops ===
+sleep 3
+sudo clickhouse-client -d statnive --query \
+  "SELECT site_id, hostname, count() AS pv FROM events_raw GROUP BY site_id, hostname ORDER BY site_id"
+# Expected: ≥1 row per site_id you visited
+```
