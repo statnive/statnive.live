@@ -970,7 +970,32 @@ ping -6 -c2 google.com                                # confirm routing works
 # 5. Continue with § Air-gap bundle install from step 1.
 ```
 
-> **Why `::1` and not the EUI-64 SLAAC address (`2a03:4000:51:f0c:b8c5:98ff:fe09:1428`)?** EUI-64 is derived from the vNIC MAC and changes if the VM is rebuilt. A static `::1` from the /64 is stable across rebuilds, easier to remember, and decouples the AAAA record from VM lifecycle. Cloudflare's AAAA for `statnive.live` points at `::1`; if you change the binding, update [`deploy/dns/statnive.live.zone`](../deploy/dns/statnive.live.zone) and re-import.
+### Bind IPv6 on Netcup VM
+
+Step 4b above is the canonical procedure; this heading exists so cross-references from `PLAN.md § Domains` and `deployment.md` resolve cleanly. **Do not skip step 4b** — without it, AAAA queries for `statnive.live` answer (Cloudflare returns the record) but TCP6 connections to the VPS fail (no routable IPv6 bound on `eth0`). The chosen address is `2a03:4000:51:f0c::1`, picked from the Netcup-assigned `2a03:4000:51:f0c::/64` subnet.
+
+**Why `::1` and not the EUI-64 SLAAC address (`2a03:4000:51:f0c:b8c5:98ff:fe09:1428`)?** EUI-64 is derived from the vNIC MAC and changes if the VM is rebuilt. A static `::1` from the /64 is stable across rebuilds, easier to remember, and decouples the AAAA record from VM lifecycle. Cloudflare's AAAA for `statnive.live` points at `::1`; if you change the binding, update [`deploy/dns/statnive.live.zone`](../deploy/dns/statnive.live.zone) and re-import.
+
+If the VM is already provisioned and you need to add the IPv6 binding standalone (without re-running steps 1–4):
+
+```bash
+# Standalone IPv6 binding — only run if step 4b above was skipped.
+sudo tee /etc/netplan/60-statnive-ipv6.yaml >/dev/null <<'EOF'
+network:
+  version: 2
+  ethernets:
+    eth0:
+      addresses:
+        - 2a03:4000:51:f0c::1/64
+      routes:
+        - to: ::/0
+          via: fe80::1
+          on-link: true
+EOF
+sudo chmod 0600 /etc/netplan/60-statnive-ipv6.yaml
+sudo netplan apply
+ip -6 addr show eth0 | grep '2a03:4000:51:f0c::1'
+```
 
 ### Provision the GHA deploy seam (Phase 8b — one-time per VPS)
 
