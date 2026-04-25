@@ -741,9 +741,9 @@ Next slice: **Phase 5 frontend** is unblocked.
 > - **Manually copy `deploy/statnive-deploy.sh` into the bundle** before running `airgap-install.sh` — the bundling script doesn't include it. Until PR-A merges: `cp deploy/statnive-deploy.sh build/<bundle-dir>/deploy/`.
 > - **Manually copy `internal/enrich/crawler-user-agents.json` into the bundle**. Without it, the bot detector falls back to ~60 patterns instead of the full ~700. Non-blocking but degrades quality.
 >
-> ⚠️ **Until PR-B merges**, the bundled `config/statnive-live.yaml.example` uses an entirely wrong schema vs the binary's actual `loadConfig` keys (`audit.sink_path` ≠ `audit.path`, etc.) — the file is **silently ignored** because the binary also doesn't honor the `-c` flag. Override every path via systemd `Environment=` drop-in directives instead. See § Post-cutover state below for the full env-var template that actually works.
+> ✅ **PR-B merged (#55):** the bundled `config/statnive-live.yaml.example` now matches the binary's `loadConfig` schema and the binary honors `-c` / `--config` / `STATNIVE_CONFIG_FILE`. Existing systemd `Environment=` drop-ins continue to work; new installs can choose either the YAML-on-disk path or the env path. The post-cutover state section retains the canonical env-var template.
 >
-> ⚠️ **Until PR-C merges**, `airgap-install.sh` sets `/etc/statnive-live/` and `/etc/statnive-live/tls/` to mode `0700 root:root`. The `statnive` service user can't traverse → all reads inside fail. Manually fix: `sudo chmod 0755 /etc/statnive-live` + `sudo chown root:statnive /etc/statnive-live/tls && sudo chmod 0750 /etc/statnive-live/tls`.
+> ✅ **PR-C merged:** `airgap-install.sh` now creates `/etc/statnive-live/{tls,geoip}` at mode `0750 root:statnive` so the service user can traverse. Idempotent on re-run — no manual `chmod`/`chown` fixup needed on a fresh VPS. On the live production box the perms are already correct (PR #49 hot-fix), and re-running the installer is a no-op.
 
 Applies to any Linux 5.x+ host (Hetzner CX32 staging, Asiatech Iranian
 DC, enterprise on-prem). ClickHouse 24+ must already be running, bound
@@ -1136,14 +1136,14 @@ If swap is required by the image, encrypt it with a random-key LUKS device that 
 
 #### Debian 13 deltas (applies only when the VPS image is Debian, not Ubuntu)
 
-The Milestone 1 cutover (2026-04-25) was provisioned on Debian 13 (trixie) — Netcup's default minimal image. The canonical commands above are written against Ubuntu 24 LTS conventions; Debian 13 deviates in five places. Apply these deltas in order, in addition to the canonical procedure (not as a replacement).
+The Milestone 1 cutover (2026-04-25) was provisioned on Debian 13 (trixie) — Netcup's default minimal image. The canonical commands above are written against Ubuntu 24 LTS conventions; Debian 13 deviates in three places that **operators still apply by hand** (the rest is now in `airgap-install.sh` itself per PR-C):
+
+- **`iptables` package**: PR-C's `airgap-install.sh --apply-iptables` now auto-installs `iptables` on Debian via apt before invoking `iptables-restore` (Lesson 9). No operator action required.
+- **`statnive` ClickHouse database**: created automatically by the binary's `MigrationRunner` on first boot via `clickhouse/migrations/001_initial.sql` (`CREATE DATABASE IF NOT EXISTS statnive`). The runner tolerates the missing-database case via `isMissingTable(err)` in `appliedVersions`. No operator action required.
+- **ClickHouse version**: the upstream installer ships ClickHouse 26.x as of 2026-04. The "ClickHouse 24+" floor in the canonical block is the real requirement; accept whatever the installer ships and verify with `clickhouse-client --query 'SELECT version()'`.
 
 ```bash
-# 1. iptables is not installed by default on Debian 13 minimal — `airgap-install.sh
-#    --apply-iptables` will fail with "iptables-restore: command not found".
-sudo apt update && sudo apt install -y iptables
-
-# 2. ClickHouse install: prefer the APT repo on Debian 13. The upstream installer
+# 1. ClickHouse install: prefer the APT repo on Debian 13. The upstream installer
 #    (`curl https://clickhouse.com/ | sh && ./clickhouse install`) DOES NOT register
 #    the systemd unit on Debian 13 — `Failed to enable unit: Unit clickhouse-server.service
 #    does not exist`. The APT repo always ships a working unit:
@@ -1157,7 +1157,7 @@ sudo apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y clickhouse-server clickhouse-client
 sudo systemctl enable --now clickhouse-server
 
-# 2-fallback. If you already ran the upstream installer (binary in place but no unit),
+# 1-fallback. If you already ran the upstream installer (binary in place but no unit),
 #    drop the canonical upstream unit by hand:
 sudo tee /etc/systemd/system/clickhouse-server.service > /dev/null <<'EOF'
 [Unit]
@@ -1184,17 +1184,7 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now clickhouse-server
 
-# 3. ClickHouse upstream installer pulls LATEST (currently 26.x), not 24.x as the
-#    canonical block above claims. The "ClickHouse 24+" floor is the real requirement;
-#    accept whatever the installer ships. Verify mergeability via `clickhouse-client
-#    --query 'SELECT version()'` afterwards.
-
-# 4. CREATE the statnive database in ClickHouse before binary first-boot — the binary
-#    expects it to exist before running its schema migrations. The upstream APT package
-#    creates only the `default` and `system` databases:
-sudo clickhouse-client --query 'CREATE DATABASE IF NOT EXISTS statnive'
-
-# 5. IPv6 binding via netplan (next section, "### Bind IPv6 on Netcup VM") DOES NOT WORK
+# 2. IPv6 binding via netplan (next section, "### Bind IPv6 on Netcup VM") DOES NOT WORK
 #    on Debian 13 — netplan is not installed by default (Ubuntu-only convention).
 #    Use a systemd oneshot service instead:
 sudo tee /etc/systemd/system/statnive-ipv6-bind.service > /dev/null <<'EOF'
@@ -1296,13 +1286,9 @@ sudo chmod 0644 /etc/statnive/release-key.pub
 sudo install -m 0755 /opt/statnive-bundles/<initial-version>/deploy/statnive-deploy.sh \
   /usr/local/bin/statnive-deploy
 
-# 5b. ⚠️ Until follow-up PR-C lands, airgap-install.sh sets /etc/statnive-live/ and
-#     /etc/statnive-live/tls/ to 0700 root:root — `statnive` service user can't traverse,
-#     all reads inside fail with "permission denied". Apply the workaround:
-sudo chmod 0755 /etc/statnive-live
-sudo chown root:statnive /etc/statnive-live/tls
-sudo chmod 0750 /etc/statnive-live/tls
-# Verify: `sudo -u statnive cat /etc/statnive-live/tls/fullchain.pem | head -1`
+# 5b. (✅ PR-C merged: airgap-install.sh now creates /etc/statnive-live/{tls,geoip}
+#     at mode 0750 root:statnive automatically — no manual chmod/chown needed.)
+# Verify post-install: `sudo -u statnive cat /etc/statnive-live/tls/fullchain.pem | head -1`
 # should print "-----BEGIN CERTIFICATE-----" (proves traversal + read works as statnive).
 
 # 6. NOPASSWD sudoers entry — deploy user can ONLY run statnive-deploy.

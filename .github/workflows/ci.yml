@@ -85,6 +85,23 @@ jobs:
       - name: Check licenses (PLAN.md License Rules)
         run: go-licenses check ./internal/... ./cmd/... --disallowed_types=forbidden,restricted --ignore github.com/statnive/statnive.live --ignore github.com/segmentio/asm
 
+  airgap-install-matrix:
+    name: airgap-install matrix (Ubuntu 24 + Debian 13)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      # Smokes deploy/airgap-install.sh on a fresh ubuntu:24.04 AND
+      # debian:13-slim container — verifies perms (0755 parent, 0750
+      # root:statnive subdirs), iptables auto-install path, idempotency,
+      # and that the `statnive` service user can traverse + read the
+      # protected dirs. LEARN.md Lessons 7 (parent-dir perms) + 9
+      # (>=2-distro matrix). docker is preinstalled on ubuntu-latest.
+      - name: Run airgap-install Docker matrix
+        run: make airgap-install-test
+
   wal-killtest-smoke:
     name: WAL durability — kill-9 5-iter smoke
     runs-on: ubuntu-latest
