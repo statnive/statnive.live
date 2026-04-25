@@ -1,5 +1,14 @@
 # NSD configuration — AT-VPS-B1 Tehran secondary
 
+> **⚠️ ROLE CHANGE FOR SAMPLEPLATFORM (2026-04-25 — Architecture C).** This file describes NSD as an **AXFR-secondary** under Architecture B (pulling zones from a Hetzner hidden-primary). SamplePlatform's deployment uses **Architecture C** (dual-domain, disjoint customer sets per `PLAN.md` §§ Domains / Phase 10 + doc 26 § 3.3a) — under Architecture C, NSD on AT-VPS-B1 is an **authoritative primary** for the `statnive.ir` zone (no AXFR-in, no hidden-primary, no `request-xfr:` lines, no TSIG key for inbound transfers). Substitutions:
+>
+> - Replace the two `request-xfr:` lines below with no inbound transfer config; NSD reads zones directly from `/etc/nsd/zones/statnive.ir.signed` (or `.zone`).
+> - The `nsd-xfr-watch.timer` companion unit is unnecessary — there's no upstream to pull from.
+> - Operators edit the zone file directly on AT-VPS-B1 (or via SCP from a deploy script), bump the SOA serial, then `nsd-control reload`.
+> - The `statnive.live` zone block in `nsd.conf` (if any) goes away — `statnive.live` is served entirely by outside-Iran DNS (Bunny/Cloudflare).
+> - Hardening items (`NoNewPrivileges`, `ProtectSystem=strict`, drop-privs, chroot) all remain canonical.
+> - License clean-up: NSD itself is BSD-3 either way — license posture unchanged.
+
 NLnetLabs NSD (BSD-3) as the authoritative-secondary nameserver inside NIN. Source: doc 28 §Gap 2 lines 480–504.
 
 ## `/etc/nsd/nsd.conf`

@@ -28,7 +28,10 @@ Minimum fits the cheapest Asiatech VPS (~15–28M Rial/mo). Maximum requires a 2
 
 - **Repo:** https://github.com/statnive/statnive.live.git
 - **Folder:** `statnive-live/`
-- **Domain:** statnive.live
+- **Domains (dual-domain Architecture C, disjoint customer sets):**
+  - `statnive.live` — international SaaS only (Phase A dogfood + Phase C self-serve). Outside-Iran DNS + Netcup origin. No Iranian resolver ever queries this zone.
+  - `statnive.ir` — Iranian customers only (Phase B SamplePlatform + future Iranian tenants). Self-hosted NSD on Asiatech + Iranian-DC origin. No Cloudflare per [`iranian-dc-deploy`](.claude/skills/iranian-dc-deploy/README.md) `iran-no-cloudflare` rule. Optional `statnive.ایران` IDN reserved at IRNIC (v1.1).
+  - Decision rationale + carve-out from [doc 26 § 3.3 + § 7.2](../jaan-to/docs/research/26-iran-shutdown-dns-strategy.md): doc 26 originally rejected dual-domain (Architecture C) for the unified-customer case; this deployment is the disjoint-customer-set carve-out where C wins on simplicity (no GeoDNS, no AXFR, Namecheap-friendly NS-only delegation per zone).
 
 ## Product Definition
 
@@ -320,7 +323,12 @@ Canonical spec: [`../jaan-to/docs/research/29-Production-load-simulation-gate-st
 
 **Onboarding app-by-app.** Full StreamCo-class (MAX: 5M DAU / 200M events/day) requires a cluster. Enter with **web only** (MIN: ~200K DAU / 3M views/day — 30× smaller), onboard iOS/Android/TV across months 1–12.
 
-**DNS & shutdown-resilience (non-negotiable):** `statnive.live` authoritative DNS split outside-Iran primary (Bunny/ClouDNS) + Iran-hosted NSD on Asiatech VPS (AT-VPS-B1) via AXFR + NOTIFY. Parent zone lists both NS sets. Iranian resolvers reach Iranian NS over NIN during int'l shutdowns. Plus defensive `statnive.ir` at Pars.ir parked 301 → `statnive.live`. Replaces Cloudflare. Spec: [`../jaan-to/docs/research/26-iran-shutdown-dns-strategy.md`](../jaan-to/docs/research/26-iran-shutdown-dns-strategy.md). ~$14/mo + $15/yr.
+**DNS & shutdown-resilience (non-negotiable, dual-domain Architecture C — disjoint-customer-set carve-out from [doc 26 § 3.3 + § 7.2](../jaan-to/docs/research/26-iran-shutdown-dns-strategy.md)):** Two independent zones serving disjoint customer sets. No GeoDNS, no AXFR, no shared zone, no client-side region detection.
+- **`statnive.live`** (international SaaS only — Phase A dogfood + Phase C signups) — authoritative DNS at Bunny (or Cloudflare free tier; Cloudflare is permitted *only* on this zone because no Iranian resolver ever queries it). Records resolve to Netcup VPS 2000 G12 NUE.
+- **`statnive.ir`** (SamplePlatform + future Iranian customers — Phase B only) — authoritative DNS via self-hosted NSD on Asiatech AT-VPS-B1 (~7M Rial/mo). Single primary, no secondary. Iranian resolvers reach NSD over NIN; reachability survives 2019 / 2022 / 2025 / 2026 shutdown shapes because both DNS and origin sit inside Iran on Tehran-IX. **No Cloudflare on this zone** per [`iranian-dc-deploy`](.claude/skills/iranian-dc-deploy/README.md) `iran-no-cloudflare` rule. Registration via Pars.ir in EUR/USDT (~$15/yr). Optional `statnive.ایران` IDN reserved at IRNIC (v1.1).
+- **No cross-zone redirect.** SamplePlatform staff use `statnive.ir` exclusively; international customers use `statnive.live` exclusively. Tracker URL is hardcoded per-deployment at install time, never picked client-side.
+- **Cost:** ~$15/yr (.ir registration) + ~7M Rial/mo NSD VPS (folded into Iranian-DC ops budget) + $0–$1/mo for `.live` DNS.
+- **Doc 26 update pending:** doc 26 § 0 still recommends Architecture B (Bunny + AXFR + NSD secondary on a shared `statnive.live` zone) as the default. This PLAN supersedes that recommendation for the SamplePlatform deployment per the disjoint-customer-set carve-out described in doc 26 § 3.3 caveats. Update doc 26 § 7.1 + § 7.4 to reflect the chosen architecture.
 
 Per-phase Iranian DC sizing:
 
@@ -335,7 +343,7 @@ Per-phase Iranian DC sizing:
 - [ ] P1 cutover: Asiatech G1/G2 standard VPS (~15–28M Rial/mo, 150 GB/mo fits web)
 - [ ] Negotiate P3+ quotes: Asiatech BW upgrades + dedicated from Asiatech/Shatel/Afranet/ParsPack
 - [ ] D2 provisioning (VPS P1/P2 → dedicated P3)
-- [ ] DNS: `CNAME SamplePlatform.statnive.live → <Iranian-DC-IP>` (Cloudflare proxy **OFF**)
+- [ ] DNS: `A/AAAA SamplePlatform.statnive.ir → <Iranian-DC-IP>` in NSD zone file on AT-VPS-B1. **No Cloudflare** (`iran-no-cloudflare`). NS delegation at IRNIC: `ns1.statnive.ir` glue → AT-VPS-B1 IP.
 - [ ] `make airgap-bundle` → SCP → verify SHA256 + Ed25519 sig → `deploy/airgap-install.sh` → `make smoke` (Phase 5a-smoke harness, backend readiness) + `npm --prefix web run e2e` (Phase 5c Playwright, UI readiness + CH-oracle parity) for the pre-cutover readiness check against the freshly-installed binary
 - [ ] Manual PEM (LE throwaway or SamplePlatform internal CA), quarterly rotation
 - [ ] **Paid IP2Location DB23** on D2 only (city accuracy matters)
@@ -343,7 +351,7 @@ Per-phase Iranian DC sizing:
 - [ ] Config overrides: `audit.sink=file`, `license.phone_home=false`. Only `site_id=1`.
 - [ ] Seed `sites` with SamplePlatform hostnames (`SamplePlatform.com`, `www.SamplePlatform.com`, CDN subdomains)
 - [ ] Admin user → secure channel (Signal / in-person / PGP)
-- [ ] SamplePlatform pastes `<script src="https://SamplePlatform.statnive.live/tracker.js" defer></script>` + root-domain cookie walking (Clarity pattern, doc 21)
+- [ ] SamplePlatform pastes `<script src="https://SamplePlatform.statnive.ir/tracker.js" defer></script>` + root-domain cookie walking (Clarity pattern, doc 21)
 - [ ] Acceptance per sub-phase (doc 29 §4): P1 72h soak @ 240 EPS + 7-scenario chaos (+ G international-egress per doc 30 §3) + 0→450 EPS breakpoint → binary SLO sign-off before SamplePlatform web cutover; P2/P3/P4/P5 repeat the gate at their respective envelopes (1K / 4K / 9K-18K match / 40K peak) before onboarding each app. PII wire-scan `rate()` = 0 throughout. Air-gap end-to-end + backup+restore remain prerequisite (§17 / §37).
 
 ### v1.1 — Pre-SaaS prerequisites
@@ -405,7 +413,7 @@ Not open-source. Self-hosted customers need a license.
 
 **v1 (Manual):** JWT `{site_id, customer, expires, max_events_per_day, features[]}` signed Ed25519. Startup: decode → verify signature → check expiry. File `config/license.key`. No payment system yet. Unlicensed = demo mode (30-day trial, 10K events/day cap, dashboard watermark).
 
-**v2 (Automated):** license server at `license.statnive.live`. Daily phone-home with 30-day offline grace (Iran connectivity fragile per doc 19). Payload strictly `{site_id, events_day_count, version}` — no PII. Polar.sh Merchant of Record.
+**v2 (Automated):** license server at `license.statnive.live` (international SaaS only — D1 customers). Daily phone-home with 30-day offline grace. Payload strictly `{site_id, events_day_count, version}` — no PII. Polar.sh Merchant of Record. **D2 (Iranian DC) deployments NEVER reach this endpoint** — `license.phone_home=false` per Phase B config + `iptables -P OUTPUT DROP` end-to-end. Iranian customers stay on offline Ed25519 JWT (v1 model) indefinitely; v2 phone-home is a SaaS-only convenience.
 
 **Key management (v1):** private key in age-encrypted file on offline laptop. Single keypair for all of v1; compromise = rotate + ship new binary. HSM + yearly rotation = v2 when volume justifies.
 
@@ -466,9 +474,9 @@ statnive-live ships in **three public-facing phases across two deployments**. Sa
 | Deployment | Host | Tenancy | Purpose | Phases |
 |---|---|---|---|---|
 | **D1 — `statnive.live` (SaaS)** | Netcup VPS 2000 G12 NUE (v1, current — procured 2026-04-24) → Hetzner AX41/AX42 OR Netcup RS 2000/4000 G12 (Phase C growth) | Multi-tenant, pooled CH | Dogfood + public SaaS | A, C |
-| **D2 — `SamplePlatform.statnive.live` (Dedicated)** | Iranian DC (Asiatech / Shatel / Afranet) | Single-tenant (`site_id=1`), air-gapped | SamplePlatform production | B |
+| **D2 — `SamplePlatform.statnive.ir` (Dedicated)** | Iranian DC (Asiatech / Shatel / Afranet) | Single-tenant (`site_id=1`), air-gapped | SamplePlatform production | B |
 
-**Routing:** single tracker URL per deployment (`statnive.live/tracker.js`, `SamplePlatform.statnive.live/tracker.js`); `site_id` resolved server-side from `Origin`/`Referer`. Path-based tenant routing in Phase C: `app.statnive.live/s/<slug>/…`. One TLS cert for `statnive.live` + `demo.statnive.live` + `app.statnive.live` + `SamplePlatform.statnive.live`; no wildcard in v1. Subdomain-per-tenant branding = v2 upsell.
+**Routing:** single tracker URL per deployment, hardcoded at install time — `statnive.live/tracker.js` for international SaaS, `SamplePlatform.statnive.ir/tracker.js` (and future `<tenant>.statnive.ir/tracker.js`) for Iranian customers. `site_id` resolved server-side from `Origin`/`Referer`. Path-based tenant routing in Phase C on D1: `app.statnive.live/s/<slug>/…`. **Two independent TLS cert chains** (one per domain — Architecture C consequence): (a) D1 `statnive.live` + `demo.statnive.live` + `app.statnive.live` via Let's Encrypt DNS-01 from outside-Iran (manual PEM, quarterly cron+SIGHUP); (b) D2 `statnive.ir` + `SamplePlatform.statnive.ir` via SamplePlatform internal CA OR Let's Encrypt DNS-01 issued on outside-Iran cert-forge then rsync'd inward (never ACME-from-Iran per `iran-no-letsencrypt-in-binary`). No wildcards in v1. Subdomain-per-tenant branding = v2 upsell.
 
 **Auth per phase:** A demo = shared `demo/demo-statnive` viewer (displayed on login); B SamplePlatform = admin+viewer, rotatable via `/api/admin/users`; C SaaS = email+password, bcrypt + 14-day session.
 
@@ -482,7 +490,7 @@ D1 Netcup VPS 2000 G12 iv NUE hourly-based (€25.48/mo + €5 one-time setup, 8
 
 ### Phase B — SamplePlatform dedicated Iranian VPS (Weeks 22–25)
 
-Cutover scope = **SamplePlatform web only** (P1 onboarding, ~200K DAU / 3M views/day). D2 initial = Asiatech G1/G2 VPS (~15–28M Rial/mo). Graduates to dedicated bare-metal at P3 (~3mo post-cutover, +iOS). Hardware per sub-phase table in Phase 10. Install = offline bundle (`make airgap-bundle`) → SCP via bastion → verify SHA256+Ed25519 → `deploy/airgap-install.sh`. DNS `CNAME SamplePlatform.statnive.live → <Iranian-DC-IP>` (Cloudflare proxy **OFF**). Manual PEM (SamplePlatform internal CA preferred, or self-signed w/ distributed root), quarterly. Upgrade to paid IP2Location DB23. License JWT + age-encrypted key. Config: `audit.sink=file`, `license.phone_home=false`. Seed SamplePlatform hostnames. Admin via secure channel. Tracker `<script src="https://SamplePlatform.statnive.live/tracker.js" defer></script>` + root-domain cookie walking. Firewall: `iptables -P OUTPUT DROP` except loopback, CH localhost, tracker client IPs, DNS, NTP.
+Cutover scope = **SamplePlatform web only** (P1 onboarding, ~200K DAU / 3M views/day). D2 initial = Asiatech G1/G2 VPS (~15–28M Rial/mo). Graduates to dedicated bare-metal at P3 (~3mo post-cutover, +iOS). Hardware per sub-phase table in Phase 10. Install = offline bundle (`make airgap-bundle`) → SCP via bastion → verify SHA256+Ed25519 → `deploy/airgap-install.sh`. **DNS (Architecture C):** `statnive.ir` zone served by self-hosted NSD on AT-VPS-B1 (~7M Rial/mo separate from D2 origin); `A/AAAA SamplePlatform.statnive.ir → <Iranian-DC-IP>`. **No Cloudflare on `.ir`** (`iran-no-cloudflare`). Manual PEM (SamplePlatform internal CA preferred, or self-signed w/ distributed root, or LE DNS-01 issued from outside-Iran cert-forge then rsync'd inward — never ACME-from-Iran), quarterly. Upgrade to paid IP2Location DB23. License JWT + age-encrypted key. Config: `audit.sink=file`, `license.phone_home=false`. Seed SamplePlatform hostnames. Admin via secure channel. Tracker `<script src="https://SamplePlatform.statnive.ir/tracker.js" defer></script>` + root-domain cookie walking. Firewall: `iptables -P OUTPUT DROP` except loopback, CH localhost, tracker client IPs, DNS, NTP.
 
 **Acceptance (P1 StreamCo MIN) — doc 29 §4.1 graduation gate:** 72h soak @ 240 EPS with diurnal curve, 7-scenario chaos matrix (BGP cut / mobile curfew / DPI RST / Tehran-IX degrade / Asiatech DC outage / clock skew / international-egress per doc 30 §3), 0→450 EPS breakpoint. Every SLO green (server loss ≤0.05%, client loss ≤0.5%, duplicates ≤0.1%, attribution ≥99.5% independently across 62% Iran + 38% diaspora cohorts per doc 30 §3, PII wire-scan rate()=0, p99<500ms, TTFB overhead ≤+25ms). Air-gap end-to-end + monthly backup+restore remain prerequisite. P2/P3/P4/P5 repeat the gate at 1K/4K/9K-18K/40K peak EPS before onboarding each successive app; P4 + P5 additionally require the long-session memory-leak soak (doc 30 §6, verification §48).
 
@@ -535,7 +543,7 @@ Context7-cached per-library API references (14 libs, 2026-04-17 snapshot). Full 
 29. **AI channel day 1** (doc 24 §Sec 3.3): `chat.openai.com` / `claude.ai` / `gemini.google.com` / `copilot.microsoft.com` / `perplexity.ai` → `channel="AI"`
 30. **Day-of-week growth comparison** (v1.1, doc 24 §Sec 5 T2 #19): this-Tuesday-vs-last-Tuesday correct
 31. **Phase A (dogfood)**: statnive.com pageview → `demo.statnive.live` <5min; shared viewer 403 on `/api/admin/*`; login cap 10/min/IP
-32. **Phase B (SamplePlatform)**: `SamplePlatform.statnive.live/tracker.js` → dashboard <5min; `iptables -P OUTPUT DROP` end-to-end on Iranian DC; backup+restore on dedicated instance
+32. **Phase B (SamplePlatform)**: `SamplePlatform.statnive.ir/tracker.js` → dashboard <5min; `iptables -P OUTPUT DROP` end-to-end on Iranian DC; backup+restore on dedicated instance; NSD authoritative on AT-VPS-B1 answers `dig SamplePlatform.statnive.ir @localhost` from inside Iran during simulated international cut
 33. **Phase C (SaaS)**: signup → tracker → first event in `app.statnive.live/s/<slug>` <5min; cross-tenant isolation (URL-manipulation blocked); Polar sandbox webhook updates `sites.plan`; idempotent; 6th signup/hr rejected
 34. **Kill-9 WAL gate** (doc 27 §Gap 1): CI 10K events → kill -9 random 100ms–2s → restart → `count() FROM events_raw == client 2xx` (within 0.05% SLO). 50 runs/PR. 7b close gate. (skill: [`wal-durability-review`](.claude/skills/wal-durability-review/README.md))
 35. **CGNAT rate-limit tiering** (doc 27 §Gap 2): k6 `cgnat` = 7K EPS from 100 IPs simulating AS44244 — MUST NOT 429. `ddos` = 30K EPS from 50 IPs — MUST 429 (>50% fail). `normal` = 7K EPS from 10K IPs — <1% fail p99 <500ms. Phase 10 cutover gate. (skill: [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md))

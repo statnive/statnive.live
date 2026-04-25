@@ -1,0 +1,141 @@
+name: release
+
+# Phase 8b — twelve-factor V (build/release/run) seam over `make airgap-bundle`.
+#
+# Trigger: pushing a vX.Y.Z tag.
+# Output:  signed airgap bundle attached to a GitHub Release.
+#
+# Required repo secret (Settings → Secrets → Actions):
+#   STATNIVE_RELEASE_PRIVKEY   OpenSSH Ed25519 PRIVATE key (PEM format,
+#                              same key as referenced in
+#                              /etc/statnive/release-key.pub on prod
+#                              boxes — generated once with
+#                              `ssh-keygen -t ed25519 -f release-key`).
+#
+# Deliberate non-features: no Docker image, no container registry, no
+# binary push to non-GitHub destinations. Bundle tarball is the single
+# distribution channel for both SaaS and air-gap.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # gh release create needs this
+
+jobs:
+  release:
+    name: build + sign + publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0   # release script reads `git describe`
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # Node is required because `make airgap-bundle` depends on `make
+      # web-build`: the Preact SPA is //go:embed-ed and must exist before
+      # the binary compiles.
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
+      - name: Resolve version from tag
+        id: tag
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building release: $VERSION"
+
+      - name: Vendor check
+        run: make vendor-check
+
+      - name: Boot ClickHouse via docker-compose
+        run: docker compose -f deploy/docker-compose.dev.yml up -d clickhouse
+
+      - name: Wait for ClickHouse ready
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec statnive-clickhouse-dev clickhouse-client --port 9000 -q "SELECT 1" >/dev/null 2>&1; then
+              echo "ClickHouse ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ClickHouse never came up" >&2
+          docker logs statnive-clickhouse-dev || true
+          exit 1
+
+      - name: Stage signing key
+        env:
+          SIGNING_KEY: ${{ secrets.STATNIVE_RELEASE_PRIVKEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::STATNIVE_RELEASE_PRIVKEY secret is missing"
+            exit 1
+          fi
+          umask 077
+          mkdir -p .ci-keys
+          printf '%s' "$SIGNING_KEY" > .ci-keys/release.key
+          # Ensure trailing newline (ssh-keygen requires it).
+          tail -c1 .ci-keys/release.key | read -r _ || echo "" >> .ci-keys/release.key
+          chmod 0600 .ci-keys/release.key
+          # Sanity: derive the pubkey + abort if the secret is malformed.
+          ssh-keygen -y -f .ci-keys/release.key > .ci-keys/release.pub
+          echo "Signing pubkey: $(cat .ci-keys/release.pub)"
+
+      - name: Release gate (lint + test + integration + audit + airgap-bundle)
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          SIGNING_KEY: ${{ github.workspace }}/.ci-keys/release.key
+        run: make release
+
+      - name: Verify signed bundle locally
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          BASE="statnive-live-${VERSION}-linux-amd64-airgap"
+          ./deploy/airgap-verify-bundle.sh "build/${BASE}.tar.gz" .ci-keys/release.pub
+
+      - name: Wipe signing key
+        if: always()
+        run: rm -rf .ci-keys
+
+      - name: Tear down ClickHouse
+        if: always()
+        run: docker compose -f deploy/docker-compose.dev.yml down -v
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          BASE="statnive-live-${VERSION}-linux-amd64-airgap"
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes "Auto-generated release for $VERSION. Signed airgap bundle attached. Verify with \`airgap-verify-bundle.sh\` against the public key at \`/etc/statnive/release-key.pub\`." \
+            "build/${BASE}.tar.gz" \
+            "build/SHA256SUMS" \
+            "build/SHA256SUMS.sig"
+
+      - name: Upload bundle as workflow artifact (debug aid, 14d retention)
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4
+        if: always()
+        with:
+          name: airgap-bundle-${{ steps.tag.outputs.version }}
+          path: |
+            build/*.tar.gz
+            build/SHA256SUMS
+            build/SHA256SUMS.sig
+          retention-days: 14

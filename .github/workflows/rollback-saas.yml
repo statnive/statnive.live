@@ -1,0 +1,78 @@
+name: rollback-saas
+
+# Phase 8b — manual revert primitive. Reuses the same restricted SSH
+# channel as deploy-saas.yml; calls `statnive-deploy rollback <version>`
+# which atomic-symlinks the previous bundle and restarts.
+#
+# Use when:
+#   - deploy-saas.yml's auto-revert fired but the prior version is also
+#     unhealthy (rare; manual intervention)
+#   - a regression surfaces hours after deploy and you need to roll back
+#     before chasing the root cause
+
+on:
+  workflow_dispatch:
+    inputs:
+      to_version:
+        description: 'Version to roll back to (must already be installed on the box; check Actions → "list versions" workflow)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-saas
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: rollback to ${{ inputs.to_version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate version format
+        env:
+          V: ${{ inputs.to_version }}
+        run: |
+          if ! [[ "$V" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::bad version format: $V (expected vX.Y.Z[-suffix])"
+            exit 1
+          fi
+
+      - name: Set up SSH
+        env:
+          SSH_KEY:   ${{ secrets.NETCUP_SSH_KEY }}
+          SSH_HOSTS: ${{ secrets.NETCUP_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 0700 ~/.ssh
+          umask 077
+          printf '%s\n' "$SSH_KEY"   > ~/.ssh/id_deploy
+          printf '%s\n' "$SSH_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/id_deploy ~/.ssh/known_hosts
+
+      - name: Confirm target is installed
+        env:
+          USER: ${{ secrets.NETCUP_SSH_USER }}
+          HOST: ${{ secrets.NETCUP_SSH_HOST }}
+          V:    ${{ inputs.to_version }}
+        run: |
+          if ! ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes "${USER}@${HOST}" \
+              sudo /usr/local/bin/statnive-deploy versions | grep -q "statnive-live-${V}-linux-amd64-airgap"; then
+            echo "::error::$V is not installed on the box; rollback only swaps already-installed versions"
+            exit 1
+          fi
+
+      - name: Roll back
+        env:
+          USER: ${{ secrets.NETCUP_SSH_USER }}
+          HOST: ${{ secrets.NETCUP_SSH_HOST }}
+          V:    ${{ inputs.to_version }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes "${USER}@${HOST}" \
+            sudo /usr/local/bin/statnive-deploy rollback "$V"
+
+      - name: Cleanup SSH artifacts
+        if: always()
+        run: rm -rf ~/.ssh

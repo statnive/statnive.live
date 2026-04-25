@@ -208,10 +208,10 @@ Also mirrored in [CLAUDE.md § Anti-patterns](../../CLAUDE.md#anti-patterns-doc-
 
 - Fill in full Semgrep rule bodies (already written in `semgrep/rules.yaml` per skill; wire into `.github/workflows/*.yml`).
 - Author `ops/cert-forge/` Hetzner box provisioning + ACME DNS-01 automation.
-- Register `statnive.ir` + `.ایران` IDN bundle at IRNIC (Pars.ir or Gandi; US persons excluded from Gandi per T&Cs).
-- Quote Asiatech IRR pricing across AT-VPS-B1 / AT-VPS-G2 / AT-VPS-A1 / dedicated 8c/32GB tiers.
+- Register `statnive.ir` + `.ایران` IDN bundle at IRNIC (Pars.ir or Gandi; US persons excluded from Gandi per T&Cs). **[2026-04-25 update]** `.ir` is now the canonical SamplePlatform-facing domain under Architecture C (dual-domain, disjoint customer sets per `PLAN.md` § Domains + doc 26 § 3.3a) — no longer "defensive". Pars.ir is the recommended registrar (EUR/USDT payment).
+- Quote Asiatech IRR pricing across AT-VPS-B1 / AT-VPS-G2 / AT-VPS-A1 / dedicated 8c/32GB tiers. AT-VPS-B1 now also hosts the authoritative NSD primary for `statnive.ir` under Architecture C.
 - Quote paid IP2Location DB23 Site License for Phase 10 (SamplePlatform).
-- Verify Bunny DNS AXFR-out support (likely unsupported; ClouDNS as AXFR primary instead).
+- ~~Verify Bunny DNS AXFR-out support (likely unsupported; ClouDNS as AXFR primary instead).~~ **[2026-04-25 obsolete under Architecture C]** AXFR is no longer in the architecture — `statnive.live` is single-zone-outside-Iran (Bunny/Cloudflare), `statnive.ir` is single-zone-inside-Iran (NSD primary on AT-VPS-B1). Bunny's AXFR-out capability is no longer relevant.
 - Place Ed25519 license-signing keypair on offline YubiKey in a non-US, non-Iran jurisdiction (operator decision).
 - Decide MiravaOrg/Mirava licence (UNCONFIRMED); wrap functionality in-house if not permissive.
 - **Phase 8 skill-roster review** — mid-Phase-8 checkpoint: re-validate each custom skill's trigger globs against real code before its Semgrep body lands. Triggers designed 8 weeks in advance often fire on the wrong globs once real code exists. Scope: all 14 custom skills, cross-check `globs:` in frontmatter vs actual file layout, remove the activation-preamble from any skill whose CI gate went green in the interim. Owner: TBD; blocks Weeks 19–22 body-authoring PRs.

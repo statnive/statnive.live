@@ -1,0 +1,142 @@
+name: deploy-saas
+
+# Phase 8b — collapses the Phase 9 ops cutover to a single GHA run.
+#
+# Trigger: a release.yml run published a GitHub Release. Auto-fires on
+# release-published; manual dispatch supports breakglass re-run against
+# any existing release tag.
+#
+# Required repo secrets (Settings → Secrets → Actions):
+#   NETCUP_SSH_HOST   FQDN or IP of the SaaS box (statnive.live)
+#   NETCUP_SSH_USER   non-root deploy user (e.g. `deploy`) with
+#                     NOPASSWD sudoers for /usr/local/bin/statnive-deploy
+#                     and write access to /opt/statnive-bundles/incoming/
+#   NETCUP_SSH_KEY    OpenSSH private key authorised for that user
+#   NETCUP_SSH_KNOWN_HOSTS   `ssh-keyscan -t ed25519 <host>` output
+#                     (pin the host key to defeat MITM on first run)
+#
+# Required prep on the box (one-time, runbook-driven):
+#   /etc/statnive/release-key.pub          OpenSSH Ed25519 pubkey
+#                                          (the matching pubkey for
+#                                          STATNIVE_RELEASE_PRIVKEY)
+#   /usr/local/bin/statnive-deploy         from deploy/statnive-deploy.sh
+#   /opt/statnive-bundles/incoming/        owner=deploy:statnive-deploy
+#   sudoers: deploy ALL=(root) NOPASSWD: /usr/local/bin/statnive-deploy *
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to deploy (e.g. v0.10.0). Leave blank to deploy the latest release.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-saas
+  cancel-in-progress: false   # never cancel an in-flight deploy
+
+jobs:
+  deploy:
+    name: ship to Netcup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (for the verify script + about-probe)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Resolve target version
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ]; then
+            VERSION="$RELEASE_TAG"
+          elif [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="$(gh release view --json tagName -q .tagName)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Resolve the tag to a commit SHA so post-deploy /api/about can verify.
+          SHA="$(git rev-parse "$VERSION^{commit}" 2>/dev/null || gh api "/repos/${REPO}/git/ref/tags/$VERSION" -q .object.sha)"
+          # Short form matches `git rev-parse --short HEAD` baked into airgap-bundle.sh.
+          echo "sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "Deploying $VERSION (sha=${SHA:0:7})"
+
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          mkdir -p artifacts
+          gh release download "$VERSION" --dir artifacts \
+            --pattern '*airgap.tar.gz' \
+            --pattern 'SHA256SUMS' \
+            --pattern 'SHA256SUMS.sig'
+          ls -la artifacts
+
+      - name: Set up SSH
+        env:
+          SSH_KEY:   ${{ secrets.NETCUP_SSH_KEY }}
+          SSH_HOSTS: ${{ secrets.NETCUP_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 0700 ~/.ssh
+          umask 077
+          printf '%s\n' "$SSH_KEY"   > ~/.ssh/id_deploy
+          printf '%s\n' "$SSH_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/id_deploy ~/.ssh/known_hosts
+
+      - name: SCP bundle + checksums
+        env:
+          USER: ${{ secrets.NETCUP_SSH_USER }}
+          HOST: ${{ secrets.NETCUP_SSH_HOST }}
+        run: |
+          scp -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
+            artifacts/*airgap.tar.gz \
+            artifacts/SHA256SUMS \
+            artifacts/SHA256SUMS.sig \
+            "${USER}@${HOST}:/opt/statnive-bundles/incoming/"
+
+      - name: Run on-box deploy
+        env:
+          USER:    ${{ secrets.NETCUP_SSH_USER }}
+          HOST:    ${{ secrets.NETCUP_SSH_HOST }}
+          VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes "${USER}@${HOST}" \
+            sudo /usr/local/bin/statnive-deploy deploy "$VERSION"
+
+      - name: Post-deploy probe (/api/about .git_sha matches tag)
+        env:
+          ABOUT_URL: ${{ vars.STATNIVE_ABOUT_URL || 'https://app.statnive.live/api/about' }}
+          EXPECTED_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          # Allow up to 30s for DNS/cache to settle after restart.
+          for _ in $(seq 1 30); do
+            BODY="$(curl -fsS "$ABOUT_URL" 2>/dev/null || true)"
+            ACTUAL_SHA="$(echo "$BODY" | jq -r '.git_sha // empty' 2>/dev/null || true)"
+            if [ -n "$ACTUAL_SHA" ]; then
+              break
+            fi
+            sleep 1
+          done
+          echo "expected_sha=$EXPECTED_SHA"
+          echo "actual_sha=$ACTUAL_SHA"
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::/api/about .git_sha=$ACTUAL_SHA != expected $EXPECTED_SHA — deploy did not advance, investigate"
+            exit 1
+          fi
+
+      - name: Cleanup SSH artifacts
+        if: always()
+        run: rm -rf ~/.ssh

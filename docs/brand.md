@@ -11,7 +11,7 @@ Every public surface that carries the statnive.live name:
 - **statnive.live root** — marketing landing page (Phase 9 + Phase 11). Hero uses the wordmark + teal accent on paper; CTAs in Space Grotesk display face.
 - **demo.statnive.live** — public demo dashboard (Phase 9). Same surface as tenant dashboards but with the "Public demo" banner from Phase A.
 - **app.statnive.live/s/&lt;slug&gt;** — tenant dashboards (Phase 11). The Preact SPA from Phase 5 owns the implementation; brand tokens ship as CSS custom properties so per-tenant white-label (a v2 upsell) is a token swap, not a refactor.
-- **SamplePlatform.statnive.live** — SamplePlatform dedicated dashboard (Phase 10). Same brand by default; SamplePlatform can request white-label co-branding under v2.
+- **SamplePlatform.statnive.ir** — SamplePlatform dedicated dashboard (Phase 10). Hosted on the dual-domain Architecture C `.ir` zone per `PLAN.md` § Domains; same brand by default; SamplePlatform can request white-label co-branding under v2.
 - **README + docs site** — when we eventually publish operator docs, they use the same palette + display face wordmark.
 
 ## Tokens to ship as CSS custom properties
