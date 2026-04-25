@@ -133,18 +133,30 @@ Lessons live forever. Don't delete entries; mark them `[obsolete]` if the underl
 
 ## Test Gate
 
+Three tiers, picked by how much risk you want covered before you stop typing:
+
+| Tier | Command | Time | When |
+|---|---|---|---|
+| **1 — Inner-loop** | `make test && npm --prefix web run test` | <10 s | Tight write-test-rerun cycles |
+| **2 — Pre-push fast** | `make ci-local-fast` | <60 s | Default for `STATNIVE_PREPUSH_FAST=1 git push`. Skips Docker-dependent jobs (CH, integration, smoke, e2e). |
+| **3 — Full CI parity** | `make ci-local` | ~8–12 min | Default for `git push` once `make hooks` is run. Mirrors `.github/workflows/ci.yml` + `security-gate.yml` exactly. |
+
+**One-time setup:** `make tools` installs the pinned versions (`golangci-lint v2.5.0`, `govulncheck v1.1.4`, `go-licenses v1.6.0`, `semgrep 1.91.0`, `playwright chromium`). Then `make hooks` activates `.githooks/pre-push`. Bump version pins in `scripts/install-dev-tools.sh` whenever the workflow files change.
+
+**`make ci-local` covers, in order:** `vendor-check` → `lint` (with `STRICT_GATES=1` so semgrep gates fail hard like CI) → `skill-sanitizer` → `test` → `licenses` → `govulncheck` → `tracker-test` → `web-test` / `web-lint` / `web-build` / `bundle-gate` → `brand-grep` / `web-airgap-grep` → `ch-up` → `build` → `test-integration` → `wal-killtest` → `smoke` → `web-e2e` → `ch-down`. The single CI job not reproducible locally is **CodeQL** (GitHub-hosted DB, requires `security-events: write`) — that finding surfaces only on the PR.
+
+**Daily commands** (still fine to use individually):
+
 ```bash
 make test                   # Go unit tests (fast, <5s)
-make test-integration       # Go + ClickHouse integration (needs `docker compose up clickhouse`)
-make lint                   # golangci-lint + go vet + govulncheck
+make test-integration       # Go + ClickHouse integration (needs `make ch-up`)
+make lint                   # golangci-lint + tenancy-grep + identity-gate + privacy-gate
 make bench                  # benchmarks (enrichment pipeline, rollup queries)
 npm --prefix web run test   # Vitest (Preact dashboard)
 npm --prefix web run lint   # eslint
 ```
 
-Pre-commit hook runs `make test && make lint` + `npm --prefix web run test` on staged frontend files. Release gate (`make release`) additionally runs `make test-integration` + the air-gap test.
-
-The `make test` / `make test-integration` / `make lint` / `npm run test` suite is the **per-PR CI tier**. The **graduation gate** (Locust + k6 + Vegeta + wrk2 + observability VPS, 72h soak + 6-scenario chaos + breakpoint per doc 29 §4) is a separate **pre-Phase-cutover** process invoked at `make load-gate PHASE=Px` (Phase 7e deliverable — scaffold + skill `load-gate-harness` land together). The graduation gate runs once per phase, not continuously; passing is a Phase 10 hard gate per PLAN.md Verification §41.
+Release gate (`make release`) additionally runs `make test-integration` + the air-gap test. The **graduation gate** (Locust + k6 + Vegeta + wrk2 + observability VPS, 72h soak + 6-scenario chaos + breakpoint per doc 29 §4) is a separate **pre-Phase-cutover** process invoked at `make load-gate PHASE=Px` (Phase 7e deliverable). It runs once per phase, not continuously; passing is a Phase 10 hard gate per PLAN.md Verification §41.
 
 ## Feature Scope
 
