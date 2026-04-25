@@ -4,75 +4,125 @@
 # install script copies it to `/etc/statnive-live/config.yaml` on first
 # run (and NEVER overwrites an existing config). Edit in place.
 #
-# Every sensitive value is read from the environment, not from this
-# file — the master secret, the bootstrap admin password, and the API
-# tokens (if any) stay out of the YAML. See docs/quickstart.md § Minute 3.
-
-server:
-  addr:        "0.0.0.0:8080"
-  # TLS: leave cert_file/key_file empty to run plain HTTP (only safe
-  # behind a TLS-terminating reverse proxy). Rotate manually; the
-  # cert-expiry watcher emits alerts at <30 d and <7 d.
-  tls:
-    cert_file: "/etc/statnive-live/tls/fullchain.pem"
-    key_file:  "/etc/statnive-live/tls/privkey.pem"
-
-clickhouse:
-  # ClickHouse MUST be bound to 127.0.0.1 (Security Rule 2). The binary
-  # connects over the local network stack; no TLS needed on the CH hop.
-  dsn: "clickhouse://default@127.0.0.1:9000/statnive"
-  # Client-side batch window — see CLAUDE.md Architecture Rule 4.
-  batch:
-    rows_per_batch:   1000
-    flush_interval_ms: 500
-
-# The master secret NEVER lives in YAML. Set STATNIVE_MASTER_SECRET
-# (64 hex chars or ≥32 raw bytes) via systemd EnvironmentFile, or drop
-# a chmod-0600 file at master_secret.path.
-secret:
-  # Absolute path is safer than the empty default in an air-gap install
-  # — keeps the master.key outside /var/lib/statnive-live so backups
-  # don't include it.
-  path: "/etc/statnive-live/master.key"
-
-geoip:
-  # IP2Location LITE DB23 — download monthly from lite.ip2location.com
-  # and drop here; SIGHUP triggers a hot-reload (see
-  # deploy/airgap-update-geoip.sh). Leave empty to disable GeoIP (the
-  # enricher becomes a no-op; country_code defaults to "--").
-  bin_path: "/etc/statnive-live/geoip/IP2LOCATION-LITE-DB23.BIN"
-
-audit:
-  sink_path: "/var/log/statnive-live/audit.jsonl"
-
-alerts:
-  # File-sink alerts (Phase 8). Consumed by ops directly via tail or
-  # logrotate + grep. The Phase 6-polish-5 Notice UI surfaces these in
-  # the dashboard via a future read endpoint. Remote sinks (Telegram,
-  # syslog) are v1.1.
-  sink_path: "/var/log/statnive-live/alerts.jsonl"
-  # Optional host tag — populates the `host` field in every alert.
-  host_tag:  ""
-
-# First-run bootstrap reads these envs and creates the initial admin
-# user + site. After the first boot succeeds, the envs can be cleared
-# (the bootstrap is idempotent: it skips when any admin exists).
+# Every key here mirrors one in the Go binary's loadConfig. The CI test
+# `cmd/statnive-live/config_test.go` round-trips this file and fails the
+# build if the example drifts from the binary's schema.
 #
-#   STATNIVE_BOOTSTRAP_ADMIN_EMAIL
-#   STATNIVE_BOOTSTRAP_ADMIN_PASSWORD
-#   STATNIVE_BOOTSTRAP_ADMIN_USERNAME
+# Every key has a matching STATNIVE_<KEY> env var. Env wins over YAML;
+# in production the systemd unit drop-in at
+# /etc/systemd/system/statnive-live.service.d/env.conf is the canonical
+# config surface for paths and secrets.
 
+# ─── Master secret ─────────────────────────────────────────────────────
+# The master secret value NEVER lives in YAML. Set STATNIVE_MASTER_SECRET
+# (64 hex chars or ≥32 raw bytes) via systemd EnvironmentFile, OR drop a
+# chmod-0600 file at master_secret_path.
+master_secret_path: "/etc/statnive-live/master.key"   # STATNIVE_MASTER_SECRET_PATH
+
+# ─── HTTP server ───────────────────────────────────────────────────────
+server:
+  listen:        "0.0.0.0:8080"   # STATNIVE_SERVER_LISTEN
+  read_timeout:  "5s"             # STATNIVE_SERVER_READ_TIMEOUT
+  write_timeout: "5s"             # STATNIVE_SERVER_WRITE_TIMEOUT
+
+# ─── TLS (top-level; not nested under server) ──────────────────────────
+# Leave empty to run plain HTTP (only safe behind a TLS-terminating
+# reverse proxy). Rotate manually; the cert-expiry watcher emits alerts
+# at <30 d and <7 d. Autocert + LE slips to v1.1.
+tls:
+  cert_file: "/etc/statnive-live/tls/fullchain.pem"   # STATNIVE_TLS_CERT_FILE
+  key_file:  "/etc/statnive-live/tls/privkey.pem"     # STATNIVE_TLS_KEY_FILE
+
+# ─── ClickHouse ────────────────────────────────────────────────────────
+# Bound to 127.0.0.1 by Security Rule 2. The binary connects over the
+# local network stack; no TLS on the CH hop. cluster="" = single-node.
+clickhouse:
+  addr:     "127.0.0.1:9000"   # STATNIVE_CLICKHOUSE_ADDR
+  database: "statnive"          # STATNIVE_CLICKHOUSE_DATABASE
+  username: "default"           # STATNIVE_CLICKHOUSE_USERNAME
+  password: ""                  # STATNIVE_CLICKHOUSE_PASSWORD
+  cluster:  ""                  # STATNIVE_CLICKHOUSE_CLUSTER
+
+# ─── Ingest (WAL + batching) ───────────────────────────────────────────
+# CLAUDE.md Architecture Rule 4: WAL for durability, batch 500ms / 1000 rows.
+ingest:
+  wal_dir:                              "/var/lib/statnive-live/wal"  # STATNIVE_INGEST_WAL_DIR
+  wal_max_bytes:                        10737418240                   # STATNIVE_INGEST_WAL_MAX_BYTES (10 GiB)
+  batch_rows:                           1000                          # STATNIVE_INGEST_BATCH_ROWS
+  batch_interval:                       "500ms"                       # STATNIVE_INGEST_BATCH_INTERVAL
+  batch_max_bytes:                      10485760                      # STATNIVE_INGEST_BATCH_MAX_BYTES (10 MiB)
+  max_pageviews_per_minute_per_visitor: 500                           # STATNIVE_INGEST_MAX_PAGEVIEWS_PER_MINUTE_PER_VISITOR
+
+# ─── Enrichment ────────────────────────────────────────────────────────
+# sources_path = YAML of Iranian-referrer / channel-grouping rules.
+# geoip_bin_path = IP2Location LITE DB23, monthly refresh; SIGHUP hot-reloads.
+# Empty geoip_bin_path = enrichment becomes no-op; country_code defaults to "--".
+enrich:
+  sources_path:   "/etc/statnive-live/sources.yaml"                          # STATNIVE_ENRICH_SOURCES_PATH
+  geoip_bin_path: "/etc/statnive-live/geoip/IP2LOCATION-LITE-DB23.BIN"       # STATNIVE_ENRICH_GEOIP_BIN_PATH
+
+# ─── Audit ─────────────────────────────────────────────────────────────
+audit:
+  path: "/var/log/statnive-live/audit.jsonl"   # STATNIVE_AUDIT_PATH
+
+# ─── Alerts (file sink) ────────────────────────────────────────────────
+# Phase 8 file-sink only; remote sinks (Telegram, syslog) land in v1.1.
+alerts:
+  sink_path: "/var/log/statnive-live/alerts.jsonl"   # STATNIVE_ALERTS_SINK_PATH
+  host_tag:  ""                                       # STATNIVE_ALERTS_HOST_TAG
+
+# ─── Rate limiting ─────────────────────────────────────────────────────
+ratelimit:
+  requests_per_minute: 6000   # STATNIVE_RATELIMIT_REQUESTS_PER_MINUTE
+
+# ─── Dashboard ─────────────────────────────────────────────────────────
+# spa_enabled gates the embedded Preact SPA at /app/*. Phase 2b ships
+# session + RBAC, so production may flip to true.
+# bearer_token is the legacy Phase 3b pre-shared secret kept for
+# back-compat with the Phase 5a-smoke harness; new auth uses sessions.
+dashboard:
+  bearer_token: ""        # STATNIVE_DASHBOARD_BEARER_TOKEN
+  spa_enabled:  true      # STATNIVE_DASHBOARD_SPA_ENABLED
+
+# ─── Auth (Phase 2b: sessions, RBAC, lockout) ──────────────────────────
+# First-run bootstrap reads STATNIVE_BOOTSTRAP_ADMIN_{EMAIL,PASSWORD,USERNAME}
+# and creates the initial admin user + site. After first boot the envs
+# can be cleared (the bootstrap is idempotent: it skips when any admin
+# exists).
 auth:
   session:
-    ttl_days: 14
-    # Secure=true requires HTTPS. Leave the default `true`; set
-    # STATNIVE_SESSION_INSECURE=1 for local HTTP dev only.
+    ttl:         "336h"              # STATNIVE_AUTH_SESSION_TTL (14 d)
+    cookie_name: "statnive_session"  # STATNIVE_AUTH_SESSION_COOKIE_NAME
+    secure:      true                # STATNIVE_AUTH_SESSION_SECURE (HTTPS only)
+    same_site:   "lax"               # STATNIVE_AUTH_SESSION_SAME_SITE
+    cache_ttl:   "60s"               # STATNIVE_AUTH_SESSION_CACHE_TTL
+  bcrypt_cost: 12                    # STATNIVE_AUTH_BCRYPT_COST
+  login_rate_limit:
+    requests: 10                     # STATNIVE_AUTH_LOGIN_RATE_LIMIT_REQUESTS
+    window:   "1m"                   # STATNIVE_AUTH_LOGIN_RATE_LIMIT_WINDOW
+  lockout:
+    fails:   10                      # STATNIVE_AUTH_LOCKOUT_FAILS
+    decay:   "15m"                   # STATNIVE_AUTH_LOCKOUT_DECAY
+    lockout: "5m"                    # STATNIVE_AUTH_LOCKOUT_LOCKOUT
+  bootstrap:
+    site_id:  1                      # STATNIVE_AUTH_BOOTSTRAP_SITE_ID
+    username: "admin"                # STATNIVE_AUTH_BOOTSTRAP_USERNAME
+  default_site_id: 1                 # STATNIVE_AUTH_DEFAULT_SITE_ID
+  demo_banner:    ""                 # STATNIVE_AUTH_DEMO_BANNER
+  # api_tokens: list of {token_hash_hex, site_id, label, role}; populate
+  # via `statnive-live admin token issue ...` rather than editing here.
+  # api_tokens:
+  #   - token_hash_hex: "<sha256 hex>"
+  #     site_id: 1
+  #     label: "ci-smoke"
+  #     role: "viewer"
 
-# Opt-in outbound features — ALL default to OFF. Turning any of these
-# on leaves the Isolation invariant (zero required outbound).
+# ─── Opt-in outbound features (ALL default OFF) ────────────────────────
+# Turning any on breaks the Isolation invariant (zero required outbound).
+# Placeholders shown for visibility; activated in v1.1 / Phase 11.
 #
 # outbound:
-#   allowlist: []          # FQDNs permitted for http.Client dial (v1.1)
+#   allowlist: []          # FQDNs permitted for http.Client dial
 # billing:
 #   polar:
 #     enabled: false

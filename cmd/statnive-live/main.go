@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -57,6 +58,10 @@ const (
 	// masterSecretEnv is the env var name the operator sets to the master
 	// secret value. Not the secret itself.
 	masterSecretEnv = "STATNIVE_MASTER_SECRET" //nolint:gosec // env-var NAME, not a credential
+	// configFileEnv is the env-var fallback for the -c / --config CLI
+	// flag (operators who can only set env, e.g. systemd EnvironmentFile,
+	// reach the same fatal-on-missing semantics as -c).
+	configFileEnv = "STATNIVE_CONFIG_FILE"
 )
 
 func main() {
@@ -854,13 +859,50 @@ type appConfig struct {
 	}
 }
 
-//nolint:funlen // YAML loader with 15+ distinct sections; splitting fragments the config surface
+// loadConfig parses CLI flags + env vars to find the config file path,
+// then defers to loadConfigFromPath. Splitting the two means tests can
+// drive loadConfigFromPath directly without flag-parse side effects.
 func loadConfig() (appConfig, error) {
+	fs := flag.NewFlagSet("statnive-live", flag.ContinueOnError)
+
+	var configFile string
+
+	fs.StringVar(&configFile, "c", "", "path to YAML config file")
+	fs.StringVar(&configFile, "config", "", "path to YAML config file (long form)")
+
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		return appConfig{}, fmt.Errorf("parse flags: %w", err)
+	}
+
+	if configFile == "" {
+		configFile = os.Getenv(configFileEnv)
+	}
+
+	return loadConfigFromPath(configFile)
+}
+
+// loadConfigFromPath builds the typed appConfig. When configFile is
+// non-empty, viper opens that exact path; a missing-file os.PathError
+// is fatal so an operator-supplied path can't be silently ignored
+// (LEARN.md Lesson 6). When configFile is empty, viper searches
+// ./config and .; a search miss returns ConfigFileNotFoundError which
+// becomes a stderr warning + defaults (back-compat for dev).
+//
+//nolint:funlen // YAML loader with 15+ distinct sections; splitting fragments the config surface
+func loadConfigFromPath(configFile string) (appConfig, error) {
 	v := viper.New()
-	v.SetConfigName("statnive-live")
-	v.SetConfigType("yaml")
-	v.AddConfigPath("./config")
-	v.AddConfigPath(".")
+	if configFile != "" {
+		v.SetConfigFile(configFile)
+		// SetConfigFile auto-detects type from extension; .yaml.example
+		// would parse as "example" (unsupported). Pin the type.
+		v.SetConfigType("yaml")
+	} else {
+		v.SetConfigName("statnive-live")
+		v.SetConfigType("yaml")
+		v.AddConfigPath("./config")
+		v.AddConfigPath(".")
+	}
+
 	v.SetEnvPrefix("STATNIVE")
 	v.AutomaticEnv()
 	// Map nested config keys to env vars: clickhouse.addr → STATNIVE_CLICKHOUSE_ADDR.
@@ -891,6 +933,7 @@ func loadConfig() (appConfig, error) {
 	v.SetDefault("alerts.host_tag", "")
 	v.SetDefault("ratelimit.requests_per_minute", 6000)
 	v.SetDefault("dashboard.bearer_token", "")
+	v.SetDefault("dashboard.spa_enabled", false)
 
 	// Auth (Phase 2b). Secure defaults: 14-day cookie, SameSite=Lax,
 	// bcrypt cost 12, 10 login attempts / min / IP, 10 fails / 15 min →
@@ -914,8 +957,14 @@ func loadConfig() (appConfig, error) {
 	if readErr := v.ReadInConfig(); readErr != nil {
 		var notFound viper.ConfigFileNotFoundError
 		if !errors.As(readErr, &notFound) {
+			// Any error other than search-mode miss is fatal: parse
+			// errors, permission errors, or missing-explicit-file
+			// (os.PathError, the case when SetConfigFile pointed at a
+			// path that doesn't exist on disk).
 			return appConfig{}, fmt.Errorf("read config: %w", readErr)
 		}
+
+		fmt.Fprintln(os.Stderr, "statnive-live: WARN: no config file found at ./config/statnive-live.yaml or ./statnive-live.yaml; using defaults + STATNIVE_* env")
 	}
 
 	var cfg appConfig
