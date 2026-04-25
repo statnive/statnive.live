@@ -84,6 +84,7 @@ Art. 28(2) requires we list every sub-processor to our customers. The minimum pu
 | DATASIX Rechenzentrumsbetriebs GmbH | Data-center operations | DE | Netcup Annex 2 (inherited) |
 | ANX Holding GmbH | Support services (billing, regulatory) | AT (EEA) | Netcup Annex 2 (inherited) |
 | Let's Encrypt / ISRG | TLS certificate issuance (DV) | US | Adequacy via EU-US DPF; `certbot --dns-01` only — no personal data transfer (see §5) |
+| Cloudflare, Inc. | Authoritative DNS for `statnive.live` zone (DNS-only / grey-cloud — no proxy, no Workers, no Analytics) | US | Adequacy via EU-US DPF; receives DNS query metadata only (resolver IP + queried name); no application payload. Decision logged 2026-04-25 (see §4.1) |
 
 **Update cadence.** Any change to Netcup's Annex 2 → we re-publish the list within **7 days** of receiving notice (keeps us inside the 14-day upstream notice window and the 14-day downstream window we owe customers).
 
@@ -95,8 +96,12 @@ Art. 28(2) requires we list every sub-processor to our customers. The minimum pu
 
 ### 4.1 Registrar and authoritative DNS
 
-- **Registrar:** INWX, Netcup, or Netim (EU-located). **Not Cloudflare** — Cloudflare inserts a US-adequacy-decision-dependent sub-processor we have not disclosed, and the anti-pattern "Never Cloudflare on IR-resident paths" (CLAUDE.md § Anti-patterns) is a carryover habit worth keeping outside Iran too.
-- **Authoritative NS:** registrar's own EU-located NS. Record the NS operator as a row in the sub-processor register (§7).
+> **Decision (2026-04-25): Cloudflare free-tier authoritative DNS, DNS-only / grey-cloud, for `.live` only.** The original rule preferred an EU-located registrar's own NS (INWX / Netcup / Netim) to avoid an undisclosed US sub-processor. The project picked Cloudflare's free tier for the `.live` zone after weighing it against Bunny on 2026-04-25 (canonical zone file: [`deploy/dns/statnive.live.zone`](../../deploy/dns/statnive.live.zone); runbook procedure: [`docs/runbook.md` § DNS import to Cloudflare](../runbook.md)). Cloudflare is now disclosed as a US-DPF sub-processor in [`docs/compliance/subprocessor-register.md`](../compliance/subprocessor-register.md) and on `https://statnive.live/privacy`. Carve-out applies to the `.live` zone only; **never put `.ir` zones on Cloudflare** (`iran-no-cloudflare` Semgrep rule + OFAC `560.540(b)(3)`).
+
+- **Registrar:** EU-located registrar (INWX / Netcup / Netim) is preferred for `statnive.live`. The registrar choice is decoupled from authoritative-DNS choice — registrar holds the WHOIS contact + nameserver delegation only.
+- **Authoritative NS:** Cloudflare free tier (DNS-only / grey-cloud, no proxy, no Workers, no Cloudflare Analytics). Two NS records assigned at zone delegation; record the assigned pair (e.g. `dana.ns.cloudflare.com` + `kirk.ns.cloudflare.com`) in the sub-processor register row alongside Cloudflare.
+- **Why DNS-only and not orange-cloud proxy:** Netcup origin terminates TLS via Let's Encrypt directly. Orange-cloud proxy would require Cloudflare Full/Strict TLS + origin certs + a Cloudflare-issued chain in the visitor's TLS handshake, all of which would expand the disclosed-data scope to "Cloudflare sees every page-view payload." Grey-cloud keeps the application traffic Netcup-only; only DNS query metadata (resolver IP, queried name) reaches Cloudflare.
+- **Fallback (if Cloudflare ever needs to be removed):** flip authoritative NS to the registrar's EU-located NS (INWX / Netcup / Netim), update [`deploy/dns/statnive.live.zone`](../../deploy/dns/statnive.live.zone) commentary + the sub-processor register, and re-publish `/privacy` within 7 days. Re-issue zone DNSSEC at the new operator.
 
 ### 4.2 Records to publish
 

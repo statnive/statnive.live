@@ -897,6 +897,8 @@ SIGHUP-driven reopen if you prefer `create` semantics — just call
 
 ## Phase 9 — Dogfood on statnive.com / .de / fr.statnive.com (operator SOPs)
 
+> **GDPR ops gate.** Before the first EU visitor reaches the box, the operator MUST run through [`docs/rules/netcup-vps-gdpr.md`](rules/netcup-vps-gdpr.md) end-to-end: sign the Netcup AV contract in CCP (§2), populate [`docs/compliance/subprocessor-register.md`](compliance/subprocessor-register.md) (§3 + §7), publish DNS hygiene records (§4), wire HSTS + monthly testssl (§5), and apply server-side hardening above Netcup's Annex 1 TOM (§6 — LUKS on `/var/lib/clickhouse` is **required** here, not optional). The dedicated SOP for the DPA-signing step lives at § Sign the Netcup DPA + populate the sub-processor register below. None of this is optional once the box receives EU visitors.
+
 ### Provision a fresh Netcup VPS 2000 G12 NUE for dogfood / free-tier SaaS
 
 Target D1 host for Milestone 1 + early SaaS customers. Actual
@@ -969,6 +971,157 @@ ping -6 -c2 google.com                                # confirm routing works
 
 # 5. Continue with § Air-gap bundle install from step 1.
 ```
+
+### Sign the Netcup DPA + populate the sub-processor register
+
+GDPR Art. 28(3) requires a signed processor contract with Netcup before the box receives any EU visitor's data. The CCP form blocks with "if you do not conclude a Data Processing Agreement … netcup GmbH will assume that you do not intend to … process personal data" — signing it is not optional once Phase 9 dogfood traffic is live. Verbatim Annex 3 values to enter live in [`docs/rules/netcup-vps-gdpr.md` § 2.2](rules/netcup-vps-gdpr.md#22-annex-3-form--verbatim-values-to-enter); read that section into the form field by field.
+
+```bash
+# 1. In a browser:
+#    a. Log in to https://ccp.netcup.net/ as Parhum Khoshbakht — customer 365334.
+#    b. Master Data → Order processing → Agreement on contract data processing.
+#    c. Click "Create AV Contract".
+#    d. Fill the Annex 3 fields verbatim from netcup-vps-gdpr.md § 2.2:
+#       - EU/EEA-only checkbox: TICK. Do NOT authorize processing outside the EEA
+#         (would break the "no Chapter V transfer" claim on /privacy).
+#       - Special categories (Art. 9): tick the "no special categories" line only.
+#       - Data-protection contact: Parhum Khoshbakht · wellslimstat@gmail.com.
+#    e. Submit via electronic signature. Netcup emails back a PDF.
+#    f. Do NOT hide the 14-day reminder banner if it appears — sign on first sight.
+
+# 2. Save the returned PDF to the encrypted-archive path. The releases/infrastructure
+#    tree is gitignored per netcup-vps-gdpr.md § 7 (PDFs carry signatures + master
+#    data — sensitive enough to never enter git).
+mkdir -p releases/infrastructure
+mv ~/Downloads/netcup-av-contract-*.pdf releases/infrastructure/netcup-dpa-2026-04-24.pdf
+chmod 0600 releases/infrastructure/netcup-dpa-2026-04-24.pdf
+sha256sum  releases/infrastructure/netcup-dpa-2026-04-24.pdf
+
+# 3. Record signing date + customer 365334 + the PDF SHA-256 in the Netcup row
+#    of docs/compliance/subprocessor-register.md. Commit the register update.
+$EDITOR docs/compliance/subprocessor-register.md
+git add docs/compliance/subprocessor-register.md
+git commit -m "compliance: record Netcup DPA signing 2026-04-24"
+
+# 4. Publish the same sub-processor list to https://statnive.live/privacy. Update
+#    cadence is 7 days from any upstream change (keeps us inside Netcup's 14-day
+#    Annex 2 window + the 14-day downstream window we owe customers).
+```
+
+### DNS hygiene — MX null + SPF + DMARC + DNSSEC for `statnive.live`
+
+[`deploy/dns/statnive.live.zone`](../deploy/dns/statnive.live.zone) currently ships A/AAAA + CAA only. Before Phase 9 cutover, add the §4.2 records below to the zone file and re-import via Cloudflare. The domain receives no email — these records prevent a forgotten mail receiver from becoming an undisclosed data flow and block spoofed mail claiming `@statnive.live`.
+
+```
+@      3600 IN  MX     0 .                                          ; null MX, RFC 7505 — domain receives no email
+@      3600 IN  TXT    "v=spf1 -all"                                ; belt-and-braces with null MX
+_dmarc 3600 IN  TXT    "v=DMARC1; p=reject; adkim=s; aspf=s"        ; hard-reject spoofed mail; no rua= until a mailbox exists
+```
+
+Then enable DNSSEC at Cloudflare (one-click in the zone's DNS settings) and add the resulting DS record at the registrar. DNSSEC is GDPR-relevant because a DNS hijack silently redirects traffic to an undisclosed "sub-processor" (the hijacker), breaking the Art. 28 chain without us noticing.
+
+Verify after re-import:
+
+```bash
+dig +short statnive.live MX                          # expect: 0 .
+dig +short statnive.live TXT     | grep 'v=spf1 -all'
+dig +short _dmarc.statnive.live TXT | grep 'p=reject'
+dig +dnssec statnive.live | grep RRSIG
+```
+
+### Pin chrony to Netcup's NTP peer
+
+The IRST salt-rotation boundary in `HMAC(master_secret, site_id || YYYY-MM-DD IRST)` (Privacy Rule 2) breaks if the system clock drifts past midnight IRST. Netcup publishes an internal NTP peer; prefer it over `pool.ntp.org` to reduce outbound surface. Operator step:
+
+```bash
+# /etc/chrony/chrony.conf — replace the default pool block with Netcup's peer.
+sudo sed -i 's|^pool .*|server 192.168.1.1 iburst   # placeholder — confirm Netcup-internal NTP IP|' /etc/chrony/chrony.conf
+sudo systemctl restart chrony
+chronyc sources                                      # expect: ^* line pointing at the Netcup peer
+chronyc tracking | grep -i 'system time'             # expect: drift well under 1s
+```
+
+If the Netcup-internal NTP IP is not yet known, fall back to the EU-located public pool (`server 0.de.pool.ntp.org iburst` etc.) and document the fallback in the host's runbook entry — but the Netcup-internal peer is preferred per [`docs/rules/netcup-vps-gdpr.md` § 6.6](rules/netcup-vps-gdpr.md#6-vps-server-side-hardening-layered-above-netcups-annex-1-tom).
+
+### SSH hardening — key-only, allow-list IPs
+
+Per [`docs/rules/netcup-vps-gdpr.md` § 6.4](rules/netcup-vps-gdpr.md#6-vps-server-side-hardening-layered-above-netcups-annex-1-tom). Operator step:
+
+```bash
+# /etc/ssh/sshd_config.d/statnive-live.conf — supersedes the default sshd_config.
+sudo tee /etc/ssh/sshd_config.d/statnive-live.conf >/dev/null <<'EOF'
+PermitRootLogin no
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+AllowUsers deploy ops
+MaxAuthTries 3
+EOF
+sudo sshd -t && sudo systemctl reload ssh
+
+# IP allow-list (gitignored — operator IPs only). One IP/CIDR per line with a
+# comment explaining the source. No wildcard 0.0.0.0/0. If the operator IP is
+# dynamic, use WireGuard + allow-list the bastion only.
+sudoedit /etc/iptables/ssh-allow-list.txt
+# Then either iptables -A INPUT -p tcp --dport 22 -s <allow-list> -j ACCEPT
+# or fail2ban (sudo apt install fail2ban) — pick one.
+```
+
+### TLS posture — HSTS + OCSP stapling + monthly testssl snapshot
+
+Per [`docs/rules/netcup-vps-gdpr.md` § 5.3](rules/netcup-vps-gdpr.md#53-protocol-posture-both-paths). When configuring the TLS terminator (Caddy / nginx / the Go binary's PEM loader path), apply:
+
+- TLS 1.3 only — TLS 1.2 downgrade forbidden; TLS 1.1 / 1.0 not compiled in.
+- Add the response header `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Hold off the `; preload` directive until 6 months of clean operation (HSTS preload is sticky — opt-in only after the deployment is stable).
+- OCSP stapling on. Must-Staple flag on certs from a CA that supports it.
+- Monthly `testssl.sh statnive.live` snapshot committed to `releases/infrastructure/testssl/YYYY-MM-DD.txt` (path gitignored per netcup-vps-gdpr.md § 7).
+
+```bash
+# Verify after deploy:
+curl -sSI https://statnive.live | grep -i 'strict-transport-security'
+curl -sSI https://statnive.live | grep -iE 'HTTP/2|HTTP/3'
+testssl.sh --quiet --fast statnive.live | grep -iE 'TLS 1.3|HSTS|OCSP'
+
+# Schedule the snapshot:
+echo '0 3 1 * * statnive testssl.sh --quiet --fast statnive.live > /var/lib/statnive-live/testssl/$(date +%F).txt' \
+  | sudo tee /etc/cron.d/statnive-testssl
+```
+
+### Audit-log append-only discipline + logrotate
+
+Per [`docs/rules/netcup-vps-gdpr.md` § 6.5](rules/netcup-vps-gdpr.md#6-vps-server-side-hardening-layered-above-netcups-annex-1-tom) and Security Rule 10. The active audit-log file must be append-only (`chattr +a`); logrotate must use `create` (not `copytruncate`) so the immutable flag isn't bypassed. Retention is 1 year per Art. 30 records-of-processing.
+
+```
+# /etc/logrotate.d/statnive-live
+/var/log/statnive-live/audit.jsonl {
+    weekly
+    rotate 52
+    create 0640 statnive statnive
+    missingok
+    notifempty
+    sharedscripts
+    postrotate
+        chattr +a /var/log/statnive-live/audit.jsonl
+    endscript
+}
+```
+
+After the first rotation, verify: `lsattr /var/log/statnive-live/audit.jsonl` shows the `a` flag.
+
+### Swap policy — vm.swappiness=1
+
+Avoid leaking `master_secret` or daily-salt memory to disk swap. Per [`docs/rules/netcup-vps-gdpr.md` § 6.11](rules/netcup-vps-gdpr.md#6-vps-server-side-hardening-layered-above-netcups-annex-1-tom):
+
+```bash
+sudo tee /etc/sysctl.d/99-statnive-live.conf >/dev/null <<'EOF'
+vm.swappiness = 1
+EOF
+sudo sysctl --system
+sysctl vm.swappiness         # expect: 1
+```
+
+If swap is required by the image, encrypt it with a random-key LUKS device that regenerates at boot.
+
 
 ### Bind IPv6 on Netcup VM
 

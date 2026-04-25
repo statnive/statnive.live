@@ -1,30 +1,31 @@
 # LUKS disk encryption — operator guide
 
-Operator-facing SOP for the **optional** disk-encryption layer described
-in [`docs/rules/security-detail.md`](rules/security-detail.md#rule-9--disk-encryption-luks-optional)
+Operator-facing SOP for the disk-encryption layer described in
+[`docs/rules/security-detail.md`](rules/security-detail.md#rule-9--disk-encryption-luks-optional)
 (Rule 9) and CLAUDE.md Security #9. LUKS protects the on-disk data set
 (ClickHouse parts, the WAL, the audit log) against offline-device theft
 and shared-tenant recovery attacks on cloud VPS disks. It does **not**
 replace encrypted backups — that requirement stands regardless of LUKS.
 
-## When to enable
+## Tier matrix — when LUKS is required vs. optional
 
-- **Cloud VPS** where the underlying block device is shared with other
-  tenants (Hetzner SX/AX series, Asiatech shared pool, ParsPack VPS).
-  The cloud operator controls the physical device; LUKS plus a
-  passphrase held by the statnive operator keeps the data opaque even
-  under host-side imaging or reallocation.
-- **Laptop / workstation** where the disk physically leaves the office.
+CLAUDE.md Security #9 marks LUKS as "optional" overall. That default
+applies to dedicated hardware. Shared-tenant cloud virt elevates LUKS
+to **required**, because the cloud operator's Annex 1 protections do
+not cover co-tenant VM-escape or post-decommission disk reallocation.
 
-## When to skip
+| Tier | Hosts | LUKS posture | Source |
+|---|---|---|---|
+| **Required** | **Netcup VPS 2000 G12 NUE (D1 SaaS)** — `/var/lib/clickhouse` and the WAL volume must be on LUKS. Annex 1 physical-DC protections do not cover co-tenant VM-escape. | **Required** | [`docs/rules/netcup-vps-gdpr.md` § 6.1](rules/netcup-vps-gdpr.md#6-vps-server-side-hardening-layered-above-netcups-annex-1-tom) |
+| Required | Hetzner SX/AX/CX shared-tenant series, ParsPack VPS, Asiatech shared pool, any other cloud VPS where the underlying block device is multi-tenant. | Required | This file (cloud-VPS row in original "When to enable"). |
+| Recommended | Laptop / workstation that physically leaves the office. | Recommended | This file. |
+| Optional / skip | Dedicated cage hardware with physical access controls and a working encrypted-backup pipeline — threat model already covered, 40–50% I/O hit not worth paying. | Optional | This file. |
+| Optional / skip | Iranian DC deployments with physical cage access (Asiatech Milad Tower, ParsPack, Shatel) and encrypted `clickhouse-backup` archives shipped off-box per [`docs/runbook.md`](runbook.md#backup--restore-phase-7b2). | Optional | This file. |
 
-- **Dedicated cage hardware** with physical access controls and a
-  working encrypted-backup pipeline — the threat model is already
-  covered and the 40–50% I/O hit is not worth paying.
-- **Iranian DC deployments** where the operator has physical cage
-  access (Asiatech Milad Tower, ParsPack, Shatel) and encrypted
-  `clickhouse-backup` archives are shipped off-box per
-  [`docs/runbook.md`](runbook.md#backup--restore-phase-7b2).
+For the Netcup row specifically: encrypt `/var/lib/clickhouse`. Rollups
+on a separate non-encrypted volume is an option worth benchmarking on
+dogfood traffic if the I/O ceiling becomes load-bearing — but the raw
+events volume must stay encrypted.
 
 ## I/O cost
 

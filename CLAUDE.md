@@ -42,7 +42,7 @@
 
 ## Privacy Rules (Non-Negotiable)
 
-Iran allows cookies + `user_id`; the EU/SaaS tier does not. Both code paths live in the same binary — these rules keep them consistent. Extended GDPR Art./Recital-26/C-413/23 chain in [`docs/rules/privacy-detail.md`](docs/rules/privacy-detail.md).
+Iran allows cookies + `user_id`; the EU/SaaS tier does not. Both code paths live in the same binary — these rules keep them consistent. Extended GDPR Art./Recital-26/C-413/23 chain in [`docs/rules/privacy-detail.md`](docs/rules/privacy-detail.md). **SaaS-only ops contract** (Netcup Art. 28(3) DPA, sub-processor register, DNS hygiene, server hardening above Netcup's Annex 1 TOM) lives in [`docs/rules/netcup-vps-gdpr.md`](docs/rules/netcup-vps-gdpr.md) — load before provisioning or re-provisioning the SaaS VPS or when a sub-processor changes; canonical sub-processor list at [`docs/compliance/subprocessor-register.md`](docs/compliance/subprocessor-register.md); customer-facing DPA at [`docs/dpa-draft.md`](docs/dpa-draft.md).
 
 1. **Raw IP never persisted** — IP enters the pipeline only for GeoIP lookup, discarded before the batch writer sees the row (`internal/enrich/geoip.go` contract, asserted by integration test).
 2. **Daily rotating salts** — `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`. Derived, never stored.
@@ -66,7 +66,7 @@ Extended operational detail (fallback CA list, full systemd option list, LUKS I/
 6. Dashboard auth (bcrypt + `crypto/rand` sessions, 14-day TTL, `SameSite=Lax` cookies for CSRF).
 7. RBAC (admin / viewer / API-only). 2FA deferred to v2.
 8. Encrypted backups (`clickhouse-backup` + `age` + `zstd`, cron-scheduled, restore test on every release).
-9. Disk encryption (LUKS **optional** — 40–50% I/O overhead; physical DC security + encrypted backups usually suffice).
+9. Disk encryption (LUKS — **required** on shared-tenant cloud VPS including the Netcup VPS 2000 G12 NUE D1 host per [`docs/rules/netcup-vps-gdpr.md` § 6.1](docs/rules/netcup-vps-gdpr.md#6-vps-server-side-hardening-layered-above-netcups-annex-1-tom); optional on dedicated cage hardware — 40–50% I/O overhead; tier matrix in [`docs/luks.md`](docs/luks.md)).
 10. Audit log (JSONL via `slog`, append-only, **file sink only** in v1). Syslog / remote sinks = v1.1.
 11. User ID hashed before storage (SHA-256 of `master_secret || site_id || user_id`; never log raw user_id).
 12. systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`) + tracker via `go:embed` (first-party, no external CDN, ad-blocker-resistant).

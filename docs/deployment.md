@@ -17,12 +17,13 @@ If offering as SaaS alongside self-hosted:
 
 AGPL Section 13 is not the only reason hosting outside Iran matters: **GDPR applies to any EU visitor on a SaaS-hosted customer site.** v1 SaaS must ship with:
 
-- **Data Processing Agreement (DPA)** template signed with every paying customer
-- **Consent banner** with Reject / Accept / Custom (ePrivacy compliant); when consent is declined we drop user_id + cookies and fall back to BLAKE3 hash of (ip+ua+site_secret+daily_salt)
-- **User rights endpoint**: `GET /api/privacy/export?user_id=X`, `DELETE /api/privacy/erase?user_id=X` (WordPress-style privacy API, CASCADE through rollups)
-- **Retention**: raw 90d default, rollups 2y default (configurable per site)
-- **Sub-processor list**: Hetzner (Germany, IAAS), Let's Encrypt (certs) — published at statnive.live/privacy
-- **Audit trail**: every admin access logged to append-only JSONL + shipped to external syslog
+- **Data Processing Agreement (DPA)** — customer-facing template at [`docs/dpa-draft.md`](dpa-draft.md), signed with every paying customer (and accepted at signup for free-tier).
+- **Consent banner** with Reject / Accept / Custom (ePrivacy compliant); when consent is declined we drop user_id + cookies and fall back to BLAKE3 hash of (ip+ua+site_secret+daily_salt).
+- **User rights endpoint**: `GET /api/privacy/export?user_id=X`, `DELETE /api/privacy/erase?user_id=X` (WordPress-style privacy API, CASCADE through rollups).
+- **Retention**: raw 90d default, rollups 2y default (configurable per site).
+- **Sub-processor list** (canonical at [`docs/compliance/subprocessor-register.md`](compliance/subprocessor-register.md), public mirror at `statnive.live/privacy`): Netcup GmbH (DE — VPS), ANEXIA Deutschland GmbH (DE), ANEXIA Internetdienstleistungs GmbH (AT), DATASIX Rechenzentrumsbetriebs GmbH (DE), ANX Holding GmbH (AT) — all inherited from Netcup Annex 2; ISRG / Let's Encrypt (US — DPF, TLS DV); Cloudflare, Inc. (US — DPF, DNS-only / grey-cloud authoritative NS for `.live` only). Operational + Annex 2 inheritance details in [`docs/rules/netcup-vps-gdpr.md` § 3](rules/netcup-vps-gdpr.md#3-sub-processor-disclosure-downstream-obligation).
+- **Upstream Netcup DPA** must be signed in CCP per [`docs/rules/netcup-vps-gdpr.md` § 2](rules/netcup-vps-gdpr.md#2-article-283-dpa-with-netcup--procedural-checklist) before the first EU visitor reaches the box. Operator step.
+- **Audit trail**: every admin access logged to append-only JSONL + shipped to external syslog.
 
 Iranian self-hosted deployments are exempt (no EU visitors / data stays on customer server).
 
