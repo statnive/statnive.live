@@ -43,6 +43,16 @@ fi
 
 BUNDLE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Distro detection — Debian and Ubuntu share most of the install path
+# but diverge on iptables packaging (Debian minimal images miss the
+# package; Ubuntu Server includes it) and netplan vs systemd-networkd.
+DISTRO_ID="unknown"
+if [ -r /etc/os-release ]; then
+	# shellcheck disable=SC1091
+	. /etc/os-release
+	DISTRO_ID="${ID:-unknown}"
+fi
+
 # --- uninstall path ----------------------------------------------------------
 if [ "$UNINSTALL" = "1" ]; then
 	echo "airgap-install: uninstalling (keeps /var/lib/statnive-live + /etc/statnive-live)"
@@ -93,8 +103,13 @@ fi
 install -d -m 0750 -o statnive -g statnive /var/lib/statnive-live
 install -d -m 0755 -o statnive -g statnive /var/log/statnive-live
 install -d -m 0755 -o root     -g root     /etc/statnive-live
-install -d -m 0700 -o statnive -g statnive /etc/statnive-live/geoip
-install -d -m 0700 -o root     -g root     /etc/statnive-live/tls
+# /etc/statnive-live/{geoip,tls} are 0750 root:statnive: parent traversal
+# requires execute on /etc/statnive-live (0755 above) AND on the subdir
+# itself; the service user reaches files via the statnive group, not the
+# owning user. Mode 0700 here makes the subdir unreachable to systemd's
+# User=statnive process even when individual files are mode 0644.
+install -d -m 0750 -o root -g statnive /etc/statnive-live/geoip
+install -d -m 0750 -o root -g statnive /etc/statnive-live/tls
 
 # --- binary ------------------------------------------------------------------
 echo "airgap-install: installing binary"
@@ -134,6 +149,20 @@ fi
 
 # --- iptables (opt-in) -------------------------------------------------------
 if [ "$APPLY_IPTABLES" = "1" ]; then
+	# Debian minimal images don't ship iptables; Ubuntu Server does. Auto-
+	# install on Debian rather than failing with cryptic command-not-found.
+	if ! command -v iptables-restore >/dev/null 2>&1; then
+		case "$DISTRO_ID" in
+			debian|ubuntu)
+				echo "airgap-install: iptables not present; installing via apt"
+				DEBIAN_FRONTEND=noninteractive apt-get install -y iptables
+				;;
+			*)
+				echo "airgap-install: iptables-restore missing on $DISTRO_ID — install it manually before --apply-iptables" >&2
+				exit 1
+				;;
+		esac
+	fi
 	echo "airgap-install: applying iptables rules.v4 + rules.v6"
 	iptables-restore < "$BUNDLE_ROOT/deploy/iptables/rules.v4"
 	ip6tables-restore < "$BUNDLE_ROOT/deploy/iptables/rules.v6"

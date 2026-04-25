@@ -18,7 +18,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -195,6 +195,16 @@ perf-tests: crash-test ch-outage-test disk-full-test
 ## up (same convention as wal-killtest).
 smoke: build
 	./test/smoke/harness.sh
+
+## airgap-install-test: Docker matrix smoke for deploy/airgap-install.sh.
+## Spins up `ubuntu:24.04` AND `debian:13-slim` containers, runs the
+## installer twice (first + idempotency pass), asserts /etc/statnive-live
+## perm matrix (parent 0755, tls/geoip 0750 root:statnive) and that the
+## `statnive` service user can traverse + read protected files. Catches
+## the perm + distro-delta bug class from LEARN.md Lessons 7 & 9.
+## Requires docker; runs ~30 s per distro on a warm cache.
+airgap-install-test:
+	./deploy/scripts/test-fresh-install.sh
 
 ## wal-killtest: 5-iteration kill-9 smoke (chained into make audit).
 ## Asserts CH count >= sent * (1 - 0.0005) after each random-offset SIGKILL.
@@ -449,6 +459,7 @@ ci-local:
 	$(MAKE) tracker-test
 	$(MAKE) web-test web-lint web-build bundle-gate
 	$(MAKE) brand-grep web-airgap-grep
+	$(MAKE) airgap-install-test
 	$(MAKE) ch-up
 	@set -e; \
 	trap '$(MAKE) ch-down' EXIT; \
