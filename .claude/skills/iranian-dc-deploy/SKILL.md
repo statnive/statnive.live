@@ -14,6 +14,10 @@ metadata:
 
 > **Activation gate (Phase 8 Weeks 17–18 — HARD GATE on SamplePlatform cutover).** This skill's Semgrep rule bodies and CI wiring are scheduled for Phase 8 Weeks 17–18 (first skill to ship; blocks every SamplePlatform-destined PR after Week 20). Until the corresponding `.github/workflows/blackout-sim.yml` is green on main, treat this skill as **advisory-only** — surface the checklist to the reviewer, do not block merges, and flag any mismatch as `activation-pending` rather than auto-fixing.
 
+> **DNS architecture update (2026-04-25 — Architecture C).** Items 13 + 14 below were originally written for **Architecture B** (single shared `statnive.live` zone, AXFR-secondary on AT-VPS-B1, defensive parked `.ir`). The SamplePlatform deployment chose **Architecture C** instead (dual-domain, disjoint customer sets) per `PLAN.md` §§ Domains / Phase 10 + doc 26 § 3.3a. Read items 13 + 14 with these substitutions:
+> - **Item 13:** NSD on AT-VPS-B1 is now an **authoritative primary** for `statnive.ir` (single primary, no AXFR-in, no hidden-primary). The TSIG / hidden-primary / AXFR-from-Hetzner pattern was Architecture B and does not apply. The `iran-no-cloudflare` Semgrep rule still applies absolutely to the `.ir` zone; Cloudflare is now permitted on `.live` only because no Iranian resolver queries that zone.
+> - **Item 14:** `.ir` is no longer "defensive" — it is the canonical SamplePlatform-facing domain. Pars.ir registration, IRNIC DS record, and `.ایران` IDN bundle remain required. Tracker URL is `https://SamplePlatform.statnive.ir/tracker.js` (hardcoded at install time, not picked client-side).
+
 Encodes **CLAUDE.md § Isolation / Air-Gapped Capability** + **CLAUDE.md § Security #1 (TLS 1.3 via manual PEM)** for the Iranian DC deployment surface. National Information Network (NIN) blackout events (2019, 2026-01-08) confirm this is not a hypothetical — intl connectivity sat at ~1–4% of baseline for 100+ days during the most recent blackout while Iranian-resident services kept serving Iranian eyeballs. Every pattern in this skill has a blackout-survivability reason.
 
 ## When this skill fires

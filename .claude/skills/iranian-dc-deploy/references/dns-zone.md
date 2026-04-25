@@ -1,5 +1,12 @@
 # DNS zone layout — `statnive.live` + `statnive.ir`
 
+> **⚠️ SUPERSEDED FOR SAMPLEPLATFORM (2026-04-25 — Architecture C).** This file describes the **Architecture B** topology — single shared `statnive.live` zone with outside-Iran hidden-primary NSD on Hetzner + AXFR fan-out to ClouDNS / AT-VPS-B1 / Bunny + defensive parked `.ir`. SamplePlatform's deployment uses **Architecture C** instead (dual-domain, disjoint customer sets per `PLAN.md` §§ Domains / Phase 10 + doc 26 § 3.3a). Under Architecture C:
+>
+> - **`statnive.live`** is hosted entirely outside Iran — Bunny or Cloudflare DNS only, no Iranian-side NS, no AXFR. Records resolve to Netcup origin. No Iranian resolver ever queries this zone.
+> - **`statnive.ir`** is hosted entirely inside Iran — single self-hosted NSD primary on AT-VPS-B1 (no AXFR-in, no hidden-primary, no fan-out). Records resolve to Iranian DC origin. NS delegation at IRNIC: `ns1.statnive.ir` glue → AT-VPS-B1 IP.
+> - The `statnive.live` zone file template below (3-NS mix, AXFR source, defensive `.ir` CNAME) is **not used** under Architecture C. Keep it for reference if Architecture B is ever revisited.
+> - The CAA + DNSSEC + IDN-bundle items below remain applicable to whichever zone they're attached to.
+
 Canonical DNS configuration for the outside-Iran hidden-primary + ClouDNS AXFR + AT-VPS-B1 Tehran secondary fan-out. Lifted from doc 28 §Gap 2 config samples (lines 466–477).
 
 ## Zone file — `statnive.live`

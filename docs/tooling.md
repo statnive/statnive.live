@@ -92,10 +92,10 @@ Security-audit primitives for Phase 2:
 |---|---|
 | `server-management` | Create/list/destroy Hetzner servers |
 | `server-bootstrap` | Docker + Caddy + deploy user + unattended upgrades |
-| `dns-management` | Cloudflare DNS records |
+| `dns-management` | Cloudflare DNS records — **`.live` zone only** (international SaaS); `.ir` zone is self-hosted NSD on AT-VPS-B1 per `iranian-dc-deploy` skill. See `PLAN.md` § Domains. |
 | `app-deployment` | git-push-to-deploy with Docker Compose |
 
-**Iranian DC caveat:** Hetzner-specific. Cloudflare DNS unused (Iran routes around CF); server-bootstrap's `apt` needs Iranian mirror. Expect to fork or custom-script for Iran.
+**Iranian DC caveat:** Hetzner-tooling-specific. Under dual-domain Architecture C, `dns-management` (Cloudflare) is fine for `statnive.live` because no Iranian resolver queries that zone; `statnive.ir` zone changes go through `nsd-control` on AT-VPS-B1 — never Cloudflare (`iran-no-cloudflare` rule, absolute). Server-bootstrap's `apt` needs Iranian mirror for the `.ir` host. Expect to fork or custom-script for the Iranian DC.
 
 ## MCP servers
 
@@ -226,7 +226,8 @@ Task arrives
   ├─ Bootstrap server (Docker/Caddy)?      → `server-bootstrap`
   ├─ Deploy app?                           → `app-deployment` +
                                              /jaan-to:devops-deploy-activate
-  ├─ DNS records?                          → `dns-management` (Cloudflare)
+  ├─ DNS records (`.live` int'l SaaS)?     → `dns-management` (Cloudflare/Bunny)
+  ├─ DNS records (`.ir` Iranian DC)?       → `iranian-dc-deploy` skill (NSD on AT-VPS-B1, never Cloudflare)
   ├─ Verify running build?                 → /jaan-to:dev-verify
   ├─ Monitoring dashboards / alerts?       → `grafana` MCP
 

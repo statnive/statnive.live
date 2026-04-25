@@ -2,6 +2,14 @@
 
 Full spec for the Iranian-DC deployment guardrail. Research anchors: [`jaan-to/docs/research/28-geoip-iranian-dc-clickhouse.md`](../../../../jaan-to/docs/research/28-geoip-iranian-dc-clickhouse.md) §Gap 2 (lines 336–577).
 
+> **⚠️ DNS architecture update (2026-04-25 — Architecture C).** The DNS sections below (§ Architecture / DNS, the `statnive.live` zone file with three-NS mix, the AXFR fan-out, the "register both `statnive.live` + `statnive.ir`" line, the README references to ClouDNS / Bunny / hidden-primary) describe **Architecture B** from doc 26 § 3.2. The SamplePlatform deployment uses **Architecture C (dual-domain, disjoint customer sets)** instead — see `PLAN.md` §§ Domains / Phase 10 / Launch Sequence Phase B + doc 26 § 3.3a carve-out. Substitutions for Architecture C:
+>
+> - **`statnive.live`** zone is international-only, Bunny or Cloudflare DNS, → Netcup origin. No Iranian-side NS for this zone, no AXFR fan-out.
+> - **`statnive.ir`** zone is Iranian-only, single self-hosted NSD primary on AT-VPS-B1 (no AXFR-in, no hidden-primary). Cloudflare ban absolute on this zone (`iran-no-cloudflare`). Tracker URL `https://SamplePlatform.statnive.ir/tracker.js` hardcoded at install time.
+> - **Cloudflare** is now permitted on the `.live` zone only. The categorical ban below applies to the `.ir` zone and any Iranian-resident traffic, not to the international SaaS.
+>
+> Non-DNS items in this README (TLS issue-outside-deploy-inside, NTP to Iranian sources, offline Ed25519 JWT, Asiatech provider posture, ArvanCloud ban, blackout-sim CI) all remain canonical regardless of Architecture B vs C.
+
 ## Why this skill exists
 
 **Iran is not a normal deployment surface.** Three constraints stack:
