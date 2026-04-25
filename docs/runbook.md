@@ -947,6 +947,124 @@ grep listen_host /etc/clickhouse-server/config.xml
 # 5. Continue with § Air-gap bundle install from step 1.
 ```
 
+### Provision the GHA deploy seam (Phase 8b — one-time per VPS)
+
+Wires the box for `.github/workflows/deploy-saas.yml` so future releases ship via a tag push.
+
+```bash
+# 1. Create the deploy user (no password, SSH-key only).
+sudo useradd --create-home --shell /bin/bash --comment 'GHA deploy user' deploy
+sudo install -d -m 0700 -o deploy -g deploy /home/deploy/.ssh
+
+# 2. Authorise the GHA deploy SSH pubkey. Generate the keypair locally
+#    (operator laptop), keep the private key in the repo's GHA secret
+#    NETCUP_SSH_KEY, paste the public part here:
+#       ssh-keygen -t ed25519 -f netcup-deploy -C 'gha-deploy@statnive'
+sudo tee /home/deploy/.ssh/authorized_keys <<'EOF'
+ssh-ed25519 AAAA... gha-deploy@statnive
+EOF
+sudo chmod 0600 /home/deploy/.ssh/authorized_keys
+sudo chown deploy:deploy /home/deploy/.ssh/authorized_keys
+
+# 3. Provision the bundle-staging tree.
+sudo install -d -m 0750 -o root   -g root            /etc/statnive
+sudo install -d -m 0755 -o root   -g root            /opt/statnive-live
+sudo install -d -m 0755 -o root   -g root            /opt/statnive-bundles
+sudo groupadd --system statnive-deploy 2>/dev/null || true
+sudo usermod -aG statnive-deploy deploy
+sudo install -d -m 0775 -o root -g statnive-deploy /opt/statnive-bundles/incoming
+# Future bundles extracted into /opt/statnive-bundles/<version>/ are
+# owned by root; deploy user can only WRITE into incoming/, not modify
+# already-deployed trees.
+
+# 4. Drop the release pubkey (matches the GHA secret STATNIVE_RELEASE_PRIVKEY).
+#    The pubkey is the standard `ssh-keygen -t ed25519 -f release-key`
+#    output; share-safe (public).
+sudo tee /etc/statnive/release-key.pub <<'EOF'
+ssh-ed25519 AAAA... statnive-release@<host>
+EOF
+sudo chmod 0644 /etc/statnive/release-key.pub
+
+# 5. Install the on-box deploy primitive (ships in the bundle's
+#    deploy/statnive-deploy.sh; copy from the first installed bundle or
+#    direct from the repo for the bootstrap deploy).
+sudo install -m 0755 /opt/statnive-bundles/<initial-version>/deploy/statnive-deploy.sh \
+  /usr/local/bin/statnive-deploy
+
+# 6. NOPASSWD sudoers entry — deploy user can ONLY run statnive-deploy.
+sudo tee /etc/sudoers.d/10-statnive-deploy <<'EOF'
+# Allow the GHA deploy user to invoke the deploy primitive only.
+# Restricts blast radius from "shell access" to "ship a verified bundle".
+deploy ALL=(root) NOPASSWD: /usr/local/bin/statnive-deploy *
+Defaults!/usr/local/bin/statnive-deploy !requiretty
+EOF
+sudo chmod 0440 /etc/sudoers.d/10-statnive-deploy
+sudo visudo -c   # syntax check
+
+# 7. Verify deploy-user shell access works as expected:
+ssh deploy@<host> sudo /usr/local/bin/statnive-deploy versions
+# Expected: "no bundles installed" on first run, then a list with `*`
+# marking the current after the first GHA run.
+```
+
+GitHub Actions repo secrets to add (Settings → Secrets and variables → Actions → New repository secret):
+
+| Secret | Source |
+|---|---|
+| `STATNIVE_RELEASE_PRIVKEY` | OpenSSH Ed25519 PRIVATE key (the matching pubkey lives at `/etc/statnive/release-key.pub`). Generated once: `ssh-keygen -t ed25519 -f release-key -N ''`. |
+| `NETCUP_SSH_HOST`          | FQDN or IP, e.g. `app.statnive.live`. |
+| `NETCUP_SSH_USER`          | `deploy`. |
+| `NETCUP_SSH_KEY`           | OpenSSH PRIVATE key for the deploy user. Generated once: `ssh-keygen -t ed25519 -f netcup-deploy -N ''`. |
+| `NETCUP_SSH_KNOWN_HOSTS`   | Output of `ssh-keyscan -t ed25519 <host>` — pin the host key. Re-keyscan and update if the box is reprovisioned. |
+
+Optional repo variable (Settings → Variables → Actions, NOT a secret):
+
+| Variable | Default |
+|---|---|
+| `STATNIVE_ABOUT_URL` | `https://app.statnive.live/api/about` — overridden when the dashboard host differs from defaults. |
+
+Once 1–7 are done, **the next release is one tag push**:
+
+```bash
+git tag v0.10.0 && git push origin v0.10.0
+# release.yml:    builds + signs the bundle, attaches to a GitHub Release
+# deploy-saas.yml: SCPs the bundle, runs `statnive-deploy deploy v0.10.0`,
+#                  asserts /api/about .git_sha matches
+```
+
+Failure modes auto-handled by `statnive-deploy`:
+- Bundle SHA256 / Ed25519 mismatch → reject before extraction.
+- `systemctl restart` succeeds but `/healthz` does not turn `clickhouse=up` within 30 s → auto-revert symlink + binary + unit to the previous version, restart, re-poll. Workflow exits 1 so you get a notification.
+
+To roll back manually after the deploy window: Actions → `rollback-saas` → workflow_dispatch with the previous version tag.
+
+### Phase 9 breakglass — manual cutover (when GHA is unavailable)
+
+Use this only if `release.yml` / `deploy-saas.yml` are blocked (GitHub-side incident, secret rotation in flight, etc.). The 13-step path the GHA pipeline replaces:
+
+```bash
+# 0. Build the bundle on a trusted laptop:
+make release   # produces build/*.tar.gz + SHA256SUMS + SHA256SUMS.sig
+
+# 1. SCP to the box.
+scp build/statnive-live-vX.Y.Z-linux-amd64-airgap.tar.gz \
+    build/SHA256SUMS \
+    build/SHA256SUMS.sig \
+    deploy@<host>:/opt/statnive-bundles/incoming/
+
+# 2. SSH in, run the deploy primitive directly (same script GHA uses).
+ssh deploy@<host>
+sudo /usr/local/bin/statnive-deploy deploy vX.Y.Z
+
+# 3. Confirm /api/about advanced.
+curl -s https://app.statnive.live/api/about | jq -r .git_sha
+
+# 4. Confirm /healthz green.
+curl -s https://app.statnive.live/healthz | jq .
+```
+
+If the on-box `statnive-deploy` is itself broken (extremely rare), fall back to the lower-level primitives shipped in the bundle: `airgap-verify-bundle.sh` → manual extract to `/opt/statnive-bundles/<version>/` → `ln -sfn` the symlink → `cp bin/statnive-live /usr/local/bin/statnive-live` → `systemctl daemon-reload && systemctl restart statnive-live`. The atomic `mv` and symlink swap are the same operations the script performs; doing them by hand is acceptable for one-off recovery.
+
 ### Issue + rotate TLS for `statnive.live` + `app.statnive.live` + `demo.statnive.live`
 
 One Let's Encrypt cert with three SANs covers the dogfood surface.
