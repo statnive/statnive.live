@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# .githooks/pre-push — run the full local CI mirror before every push.
+#
+# Activate: make hooks   (sets core.hooksPath = .githooks)
+# Bypass once:    git push --no-verify
+# Fast subset:    STATNIVE_PREPUSH_FAST=1 git push
+#
+# The full run takes ~8–12 min (Docker ClickHouse, integration tests,
+# Playwright E2E). The fast subset (<60s) skips Docker-dependent jobs.
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+if [ "${STATNIVE_PREPUSH_FAST:-0}" = "1" ]; then
+  echo "[pre-push] STATNIVE_PREPUSH_FAST=1 → running 'make ci-local-fast'"
+  exec make ci-local-fast
+fi
+
+echo "[pre-push] running 'make ci-local' (full CI mirror; ~8–12 min)"
+echo "[pre-push] tip: STATNIVE_PREPUSH_FAST=1 git push   to skip Docker-dependent jobs"
+exec make ci-local

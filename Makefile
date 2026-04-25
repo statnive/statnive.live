@@ -2,13 +2,23 @@
 # Targets stay aligned with PLAN.md:120–131 and CLAUDE.md test gate.
 
 GO            ?= go
-GOLANGCI_LINT ?= golangci-lint
-GO_LICENSES   ?= go-licenses
 BIN_DIR       := bin
 BIN_NAME      := statnive-live
 PKG           := $(shell go list -mod=vendor ./... 2>/dev/null | grep -v '/web/node_modules/')
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local
+# `make tools` installs golangci-lint / go-licenses / govulncheck / semgrep into
+# $(go env GOPATH)/bin. Resolve those tool paths once here so recipes work even
+# when the user hasn't added GOPATH/bin to their shell PATH (otherwise GNU make
+# 3.81's direct-exec path on macOS fails to find the binaries).
+GOPATH_BIN := $(shell go env GOPATH)/bin
+export PATH := $(GOPATH_BIN):$(PATH)
+
+# Prefer the GOPATH-installed binary when present, else fall back to $PATH.
+GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/golangci-lint,golangci-lint)
+GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
+GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
+
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -41,28 +51,33 @@ lint: tenancy-grep identity-gate privacy-gate
 	$(GOLANGCI_LINT) run ./...
 
 ## identity-gate: auth-return nil-guard regression (CVE-2024-10924, PLAN.md §53).
-## Advisory in v1: Semgrep is optional on developer laptops; the nil-guard
-## regression unit test at internal/auth/nilguard_test.go is the hard gate
-## and runs unconditionally via `make test`. This target invokes semgrep
-## only if it's installed (same convention used by `tracker-size`).
+## Advisory by default (semgrep optional on dev laptops). Set STRICT_GATES=1
+## (or run via `make ci-local`) to fail hard on missing semgrep — that mirrors
+## .github/workflows/security-gate.yml exactly.
 identity-gate:
-	@if command -v semgrep >/dev/null 2>&1; then \
-		semgrep --quiet --error --config=.claude/skills/blake3-hmac-identity-review/semgrep \
-			internal/ || (echo "FAIL: auth-return-nil-guard regression"; exit 1); \
-	else \
-		echo "identity-gate: semgrep not installed, skipping (install: pip install semgrep)"; \
+	@if ! command -v semgrep >/dev/null 2>&1; then \
+		if [ "$$STRICT_GATES" = "1" ]; then \
+			echo "FAIL: semgrep missing — run 'make tools' to install pinned versions"; exit 1; \
+		else \
+			echo "identity-gate: semgrep not installed, skipping (run 'make tools' to enable)"; exit 0; \
+		fi; \
 	fi
+	@semgrep --quiet --error --config=.claude/skills/blake3-hmac-identity-review/semgrep \
+		internal/ || (echo "FAIL: auth-return-nil-guard regression"; exit 1)
 
 ## privacy-gate: slog-no-raw-pii regression (Phase 7d F3, Privacy Rule 4).
-## Blocks any new slog call that writes a raw PII value. Advisory on dev
-## laptops; CI runs it via .github/workflows/security-gate.yml.
+## Blocks any new slog call that writes a raw PII value. Same STRICT_GATES
+## semantics as identity-gate.
 privacy-gate:
-	@if command -v semgrep >/dev/null 2>&1; then \
-		semgrep --quiet --error --config=.claude/skills/gdpr-code-review/semgrep \
-			internal/ cmd/ || (echo "FAIL: slog-no-raw-pii regression"; exit 1); \
-	else \
-		echo "privacy-gate: semgrep not installed, skipping (install: pip install semgrep)"; \
+	@if ! command -v semgrep >/dev/null 2>&1; then \
+		if [ "$$STRICT_GATES" = "1" ]; then \
+			echo "FAIL: semgrep missing — run 'make tools' to install pinned versions"; exit 1; \
+		else \
+			echo "privacy-gate: semgrep not installed, skipping (run 'make tools' to enable)"; exit 0; \
+		fi; \
 	fi
+	@semgrep --quiet --error --config=.claude/skills/gdpr-code-review/semgrep \
+		internal/ cmd/ || (echo "FAIL: slog-no-raw-pii regression"; exit 1)
 
 ## privacy-gate-selftest: assert the rule fires on should-trigger fixtures
 ## and does NOT fire on should-not-trigger fixtures. Run this after any
@@ -130,9 +145,13 @@ vendor-check:
 	$(GO) mod vendor
 	git diff --ignore-cr-at-eol --exit-code vendor/ go.mod go.sum
 
-## licenses: Check no AGPL / strong-copyleft deps shipped (CLAUDE.md License Rules)
+## licenses: Check no AGPL / strong-copyleft deps shipped (CLAUDE.md License Rules).
+## --ignore matches .github/workflows/ci.yml so the self-reference (the module
+## itself has no license file in the working tree) doesn't fail the gate.
 licenses:
-	$(GO_LICENSES) check $(PKG) --disallowed_types=forbidden,restricted
+	$(GO_LICENSES) check ./internal/... ./cmd/... \
+		--disallowed_types=forbidden,restricted \
+		--ignore github.com/statnive/statnive.live
 
 ## bench: Run all Go benchmarks (no integration tag — fast). Output to stdout.
 bench:
@@ -339,6 +358,105 @@ seed-backup-drill:
 ## backup-drill-local: Phase 2c — run the CI backup drill locally (needs CH + MinIO up on 19000/9001)
 backup-drill-local:
 	@bash deploy/backup/drill.sh --config=deploy/backup/config-ci.yml --mode=full
+
+# ---------------------------------------------------------------------------
+# Local CI parity (`make ci-local`)
+# ---------------------------------------------------------------------------
+# Mirrors .github/workflows/ci.yml + .github/workflows/security-gate.yml so a
+# green local run predicts a green CI run. CodeQL stays GitHub-only.
+
+GOPATH_BIN := $(shell go env GOPATH)/bin
+
+## tools: Install pinned versions of golangci-lint, govulncheck, go-licenses, semgrep, playwright.
+tools:
+	@bash scripts/install-dev-tools.sh
+
+## tools-check: Verify pinned tool versions are on PATH (fast-fail before ci-local).
+tools-check:
+	@missing=0; \
+	for t in golangci-lint govulncheck go-licenses semgrep; do \
+		if ! command -v "$$t" >/dev/null 2>&1 && [ ! -x "$(GOPATH_BIN)/$$t" ]; then \
+			echo "MISSING: $$t (run 'make tools')"; missing=1; \
+		fi; \
+	done; \
+	if [ "$$missing" = "1" ]; then exit 1; fi
+	@echo "tools-check: all pinned tools present"
+
+## govulncheck: Go supply-chain CVE scan (security-gate.yml job 1).
+govulncheck:
+	$(GOVULNCHECK) ./...
+
+## ch-up: Bring up dev ClickHouse (deploy/docker-compose.dev.yml) and wait until ready.
+ch-up:
+	@docker compose -f deploy/docker-compose.dev.yml up -d --wait clickhouse
+	@echo "Waiting for ClickHouse to accept connections..."
+	@for i in $$(seq 1 30); do \
+		if docker exec statnive-clickhouse-dev clickhouse-client --port 9000 -q "SELECT 1" >/dev/null 2>&1; then \
+			echo "ClickHouse is ready (after $$i tries)"; exit 0; \
+		fi; sleep 1; \
+	done; \
+	echo "FAIL: ClickHouse did not become ready in 30s"; exit 1
+
+## ch-down: Tear down dev ClickHouse and remove volumes.
+ch-down:
+	@docker compose -f deploy/docker-compose.dev.yml down -v
+
+## ch-reset: Stop+restart the dev ClickHouse cleanly.
+ch-reset: ch-down ch-up
+
+## web-e2e: Playwright E2E (mirrors ci.yml dashboard-e2e job).
+## Requires `make ch-up` first (binary serves dashboard against dev CH).
+web-e2e: web-install
+	cd web && npx playwright install --with-deps chromium && npm run e2e
+
+## ci-local-fast: Fast subset of ci-local — skips Docker-dependent jobs (CH up,
+## test-integration, wal-killtest, smoke, web-e2e). Target <60s on a warm cache.
+## Use as the default pre-push gate via STATNIVE_PREPUSH_FAST=1.
+ci-local-fast:
+	@echo "==> ci-local-fast (mirrors ci.yml minus Docker-dependent jobs)"
+	$(MAKE) tools-check
+	$(MAKE) vendor-check
+	STRICT_GATES=1 $(MAKE) lint
+	$(MAKE) skill-sanitizer
+	$(MAKE) test
+	$(MAKE) licenses
+	$(MAKE) govulncheck
+	$(MAKE) tracker-test
+	$(MAKE) web-test web-lint web-build bundle-gate
+	$(MAKE) brand-grep web-airgap-grep
+	@echo "==> ci-local-fast PASSED"
+
+## ci-local: Full local CI mirror — every job from ci.yml + security-gate.yml
+## except CodeQL (GitHub-hosted). Requires Docker for CH-dependent steps.
+## Run before push: `git push` triggers it via .githooks/pre-push.
+ci-local:
+	@echo "==> ci-local (full mirror of ci.yml + security-gate.yml; CodeQL stays GitHub-only)"
+	$(MAKE) tools-check
+	$(MAKE) vendor-check
+	STRICT_GATES=1 $(MAKE) lint
+	$(MAKE) skill-sanitizer
+	$(MAKE) test
+	$(MAKE) licenses
+	$(MAKE) govulncheck
+	$(MAKE) tracker-test
+	$(MAKE) web-test web-lint web-build bundle-gate
+	$(MAKE) brand-grep web-airgap-grep
+	$(MAKE) ch-up
+	@set -e; \
+	trap '$(MAKE) ch-down' EXIT; \
+		$(MAKE) build && \
+		$(MAKE) test-integration && \
+		$(MAKE) wal-killtest && \
+		$(MAKE) smoke && \
+		$(MAKE) web-e2e
+	@echo "==> ci-local PASSED — note: CodeQL still runs only on GitHub"
+
+## hooks: Activate the in-tree git hooks (.githooks/pre-push runs ci-local on git push).
+hooks:
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/* 2>/dev/null || true
+	@echo "Hooks activated. .githooks/pre-push will run on every 'git push'."
+	@echo "Bypass once: git push --no-verify   |   Use fast subset: STATNIVE_PREPUSH_FAST=1 git push"
 
 ## help: Show this help
 help:
