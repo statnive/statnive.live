@@ -925,7 +925,7 @@ uncertainty.
 # 2. Wait for the setup email (~5 min); root password + IPv4/IPv6
 #    addresses arrive there. SSH in, set up a non-root user, install
 #    your SSH key, disable root password auth:
-ssh root@<netcup-ipv4>
+ssh root@94.16.108.78    # current Netcup IPv4 (live as of 2026-04-25)
 adduser --disabled-password --shell /bin/bash ops
 mkdir -p /home/ops/.ssh && chmod 700 /home/ops/.ssh
 # Paste your ~/.ssh/id_ed25519.pub into /home/ops/.ssh/authorized_keys
@@ -944,8 +944,33 @@ clickhouse-client --query 'SELECT version()' # expect >= 24.12
 #    bound to 127.0.0.1 on the Altinity package; verify:
 grep listen_host /etc/clickhouse-server/config.xml
 
+# 4b. Bind IPv6 on eth0 (load-bearing — without this, AAAA queries
+#     answer but TCP6 connections fail). Netcup assigns a /64 subnet
+#     (e.g. 2a03:4000:51:f0c::/64) but does NOT bind a routable host
+#     address by default — only the link-local fe80::/10. Pick a stable
+#     address from the /64 (convention: ::1) and bind it via netplan
+#     so it survives reboots:
+sudo tee /etc/netplan/60-statnive-ipv6.yaml >/dev/null <<'EOF'
+network:
+  version: 2
+  ethernets:
+    eth0:
+      addresses:
+        - 2a03:4000:51:f0c::1/64
+      routes:
+        - to: ::/0
+          via: fe80::1       # Netcup IPv6 default gateway (link-local)
+          on-link: true
+EOF
+sudo chmod 0600 /etc/netplan/60-statnive-ipv6.yaml   # netplan 0.106+ refuses world-readable
+sudo netplan apply
+ip -6 addr show eth0 | grep '2a03:4000:51:f0c::1'    # should match
+ping -6 -c2 google.com                                # confirm routing works
+
 # 5. Continue with § Air-gap bundle install from step 1.
 ```
+
+> **Why `::1` and not the EUI-64 SLAAC address (`2a03:4000:51:f0c:b8c5:98ff:fe09:1428`)?** EUI-64 is derived from the vNIC MAC and changes if the VM is rebuilt. A static `::1` from the /64 is stable across rebuilds, easier to remember, and decouples the AAAA record from VM lifecycle. Cloudflare's AAAA for `statnive.live` points at `::1`; if you change the binding, update [`deploy/dns/statnive.live.zone`](../deploy/dns/statnive.live.zone) and re-import.
 
 ### Provision the GHA deploy seam (Phase 8b — one-time per VPS)
 
@@ -1012,7 +1037,7 @@ GitHub Actions repo secrets to add (Settings → Secrets and variables → Actio
 | Secret | Source |
 |---|---|
 | `STATNIVE_RELEASE_PRIVKEY` | OpenSSH Ed25519 PRIVATE key (the matching pubkey lives at `/etc/statnive/release-key.pub`). Generated once: `ssh-keygen -t ed25519 -f release-key -N ''`. |
-| `NETCUP_SSH_HOST`          | FQDN or IP, e.g. `app.statnive.live`. |
+| `NETCUP_SSH_HOST`          | FQDN or IP — current Netcup VPS: `94.16.108.78` (or `app.statnive.live` once DNS propagates). |
 | `NETCUP_SSH_USER`          | `deploy`. |
 | `NETCUP_SSH_KEY`           | OpenSSH PRIVATE key for the deploy user. Generated once: `ssh-keygen -t ed25519 -f netcup-deploy -N ''`. |
 | `NETCUP_SSH_KNOWN_HOSTS`   | Output of `ssh-keyscan -t ed25519 <host>` — pin the host key. Re-keyscan and update if the box is reprovisioned. |
@@ -1064,6 +1089,40 @@ curl -s https://app.statnive.live/healthz | jq .
 ```
 
 If the on-box `statnive-deploy` is itself broken (extremely rare), fall back to the lower-level primitives shipped in the bundle: `airgap-verify-bundle.sh` → manual extract to `/opt/statnive-bundles/<version>/` → `ln -sfn` the symlink → `cp bin/statnive-live /usr/local/bin/statnive-live` → `systemctl daemon-reload && systemctl restart statnive-live`. The atomic `mv` and symlink swap are the same operations the script performs; doing them by hand is acceptable for one-off recovery.
+
+### DNS import to Cloudflare — `statnive.live`
+
+Architecture C uses **Cloudflare free tier** for the international `.live` zone (Bunny ruled out 2026-04-25; Cloudflare permitted only because no Iranian resolver queries this zone — see `PLAN.md` § Domains + `iran-no-cloudflare` Semgrep rule scope). All 12 records ship in DNS-only mode (grey cloud); the origin terminates TLS via Let's Encrypt directly per the next section.
+
+```bash
+# 1. The canonical zone file lives at deploy/dns/statnive.live.zone in
+#    this repo. Inspect before importing — every A/AAAA carries
+#    cf_tags=cf-proxied:false to force DNS-only regardless of dashboard
+#    checkbox state:
+cat deploy/dns/statnive.live.zone
+
+# 2. In the Cloudflare dashboard:
+#      DNS > Records > Import and Export > Import DNS records.
+#    Upload deploy/dns/statnive.live.zone OR paste its contents.
+#    UNCHECK "Proxy imported DNS records" (the cf-proxied:false tags
+#    override anyway, but unchecking matches intent).
+#    Click Import.
+
+# 3. Cloudflare assigns 2 nameservers (e.g. dana.ns.cloudflare.com +
+#    kirk.ns.cloudflare.com). Set those as the only 2 NS records at
+#    Namecheap for statnive.live. Propagation usually <5 minutes.
+
+# 4. Verify resolution from a non-Cloudflare resolver:
+dig +short statnive.live        A   # → 94.16.108.78
+dig +short app.statnive.live    A   # → 94.16.108.78
+dig +short demo.statnive.live   A   # → 94.16.108.78
+dig +short www.statnive.live    A   # → 94.16.108.78
+dig +short statnive.live        AAAA  # → 2a03:4000:51:f0c::1
+dig +short statnive.live        CAA   # → 4 lines (LE + Sectigo + issuewild ; + iodef)
+dig +short NS statnive.live           # → 2 cloudflare.com nameservers
+```
+
+To change a record (e.g. swap the Netcup IP after a rebuild): edit `deploy/dns/statnive.live.zone`, commit, then in Cloudflare dashboard either re-import (overwrites) or hand-edit the affected record. Keeping the repo zone file as the single source of truth means the next operator can answer "what's in Cloudflare?" by reading one file.
 
 ### Issue + rotate TLS for `statnive.live` + `app.statnive.live` + `demo.statnive.live`
 

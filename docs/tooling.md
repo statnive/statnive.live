@@ -92,7 +92,7 @@ Security-audit primitives for Phase 2:
 |---|---|
 | `server-management` | Create/list/destroy Hetzner servers |
 | `server-bootstrap` | Docker + Caddy + deploy user + unattended upgrades |
-| `dns-management` | Cloudflare DNS records — **`.live` zone only** (international SaaS); `.ir` zone is self-hosted NSD on AT-VPS-B1 per `iranian-dc-deploy` skill. See `PLAN.md` § Domains. |
+| `dns-management` | Cloudflare DNS records — **`.live` zone only** (international SaaS); `.ir` zone is self-hosted NSD on AT-VPS-B1 per `iranian-dc-deploy` skill. Canonical zone file: [`deploy/dns/statnive.live.zone`](../deploy/dns/statnive.live.zone). Import procedure: [`runbook.md` § DNS import to Cloudflare — `statnive.live`](runbook.md). See `PLAN.md` § Domains for the architectural decision. |
 | `app-deployment` | git-push-to-deploy with Docker Compose |
 
 **Iranian DC caveat:** Hetzner-tooling-specific. Under dual-domain Architecture C, `dns-management` (Cloudflare) is fine for `statnive.live` because no Iranian resolver queries that zone; `statnive.ir` zone changes go through `nsd-control` on AT-VPS-B1 — never Cloudflare (`iran-no-cloudflare` rule, absolute). Server-bootstrap's `apt` needs Iranian mirror for the `.ir` host. Expect to fork or custom-script for the Iranian DC.

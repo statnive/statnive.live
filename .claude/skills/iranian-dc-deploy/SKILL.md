@@ -50,7 +50,7 @@ Encodes **CLAUDE.md § Isolation / Air-Gapped Capability** + **CLAUDE.md § Secu
 
 **DNS + TLS**
 12. `statnive.live` CAA record locks issuance to `letsencrypt.org` + `sectigo.com` with `issuewild ";"`. Fallback CAs: ZeroSSL (Sectigo-backed) + Buypass Go SSL (Norwegian, sanctions-neutral). Iranian CAs (Shenasa, SinaCert) not in Mozilla/CCADB — internal-only trust.
-13. NSD on AT-VPS-B1 uses `hmac-sha256` TSIG for AXFR-in from Hetzner hidden-primary. ClouDNS as AXFR primary (Bunny likely does not support AXFR-out).
+13. NSD on AT-VPS-B1 is **authoritative primary** for `statnive.ir` under Architecture C — single primary, no AXFR-in, no hidden-primary, no TSIG inbound transfer key. Operators edit the zone file directly on AT-VPS-B1 (or via SCP from a deploy script), bump SOA serial, then `nsd-control reload`. (*Architecture B legacy:* the original recommendation was NSD as AXFR-secondary with `hmac-sha256` TSIG pulling from a Hetzner hidden-primary + ClouDNS as AXFR primary — superseded for SamplePlatform 2026-04-25 per PLAN.md § Domains. The Architecture B pattern remains valid for the unified-customer case.)
 14. `.ir` defensive domain registered at IRNIC (via Pars.ir or Gandi EUR €80/yr — **US persons cannot register `.ir` per Gandi T&Cs**); DS record published; `.ایران` IDN bundled. IRNIC nameservers live inside NIN so `.ir` resolves during blackouts.
 
 **License + systemd**

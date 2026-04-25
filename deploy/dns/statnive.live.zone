@@ -1,0 +1,46 @@
+; statnive.live — Cloudflare DNS import file
+; Architecture C, dual-domain, statnive.live = international SaaS only.
+; Origin: Netcup VPS 2000 G12 NUE (Nuremberg, procured 2026-04-24).
+; IPv4: 94.16.108.78 (Netcup-assigned single address)
+; IPv6: 2a03:4000:51:f0c::1 (chosen from the /64 subnet 2a03:4000:51:f0c::/64;
+;       must be bound on the VM via netplan / ip addr add — see runbook).
+;
+; Import via Cloudflare dashboard:
+;   DNS > Records > Import and Export > Import DNS records.
+;   IMPORTANT: uncheck "Proxy imported DNS records" — every record below
+;   carries cf-proxied:false to force DNS-only mode regardless, but the
+;   dashboard checkbox sets the global default.
+;
+; Why DNS-only (grey cloud) and not orange-cloud proxy:
+; Netcup origin terminates TLS via Let's Encrypt (PLAN.md § Phase 9
+; runbook). Cloudflare proxy would require Full/Strict TLS mode + origin
+; certs, adding complexity not in scope. If you ever want CF proxy
+; later, flip cf-proxied:true here and follow CF's Full/Strict setup.
+;
+; CAA records lock cert issuance to letsencrypt.org + sectigo.com
+; per the iranian-dc-deploy SKILL item 12 — applies to .live too even
+; though the rule was originally written for .ir.
+;
+; statnive.ir is NOT in this file — it lives on self-hosted NSD inside
+; Iran per Architecture C. Never put .ir on Cloudflare (iran-no-cloudflare).
+
+$ORIGIN statnive.live.
+$TTL 300
+
+; ===== A records (IPv4) =====
+@      300  IN  A      94.16.108.78  ; cf_tags=cf-proxied:false
+www    300  IN  A      94.16.108.78  ; cf_tags=cf-proxied:false
+app    300  IN  A      94.16.108.78  ; cf_tags=cf-proxied:false
+demo   300  IN  A      94.16.108.78  ; cf_tags=cf-proxied:false
+
+; ===== AAAA records (IPv6) =====
+@      300  IN  AAAA   2a03:4000:51:f0c::1  ; cf_tags=cf-proxied:false
+www    300  IN  AAAA   2a03:4000:51:f0c::1  ; cf_tags=cf-proxied:false
+app    300  IN  AAAA   2a03:4000:51:f0c::1  ; cf_tags=cf-proxied:false
+demo   300  IN  AAAA   2a03:4000:51:f0c::1  ; cf_tags=cf-proxied:false
+
+; ===== CAA records (lock cert issuance) =====
+@      3600 IN  CAA    0 issue "letsencrypt.org"
+@      3600 IN  CAA    0 issue "sectigo.com"
+@      3600 IN  CAA    0 issuewild ";"
+@      3600 IN  CAA    0 iodef "mailto:secops@statnive.live"
