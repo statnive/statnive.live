@@ -71,14 +71,19 @@ jobs:
           go-version-file: go.mod
 
       - name: Install go-licenses
-        run: go install github.com/google/go-licenses@5348b744d0983d85713295ea08a20cca1654a45e  # v1.6.0
+        # v2.0.1 (3e084b0) supersedes v1.6.0 (5348b744...): v2 handles the
+        # Go 1.21+ toolchain split where stdlib lives in $GOPATH/pkg/mod/
+        # golang.org/toolchain@... — v1 errored "Package X does not have
+        # module info" for every stdlib import on Go ≥ 1.21 hosts.
+        run: go install github.com/google/go-licenses/v2@3e084b0caf710f7bfead967567539214f598c0a2  # v2.0.1
 
       # ./internal/... + ./cmd/... covers every package in our binary
       # without tripping on the test-helper subpackages (audittest,
       # storagetest) which intentionally have no LICENSE file (they're
       # our own code; the project LICENSE at the repo root applies).
+      # --ignore segmentio/asm: see Makefile licenses target for rationale.
       - name: Check licenses (PLAN.md License Rules)
-        run: go-licenses check ./internal/... ./cmd/... --disallowed_types=forbidden,restricted --ignore github.com/statnive/statnive.live
+        run: go-licenses check ./internal/... ./cmd/... --disallowed_types=forbidden,restricted --ignore github.com/statnive/statnive.live --ignore github.com/segmentio/asm
 
   wal-killtest-smoke:
     name: WAL durability — kill-9 5-iter smoke

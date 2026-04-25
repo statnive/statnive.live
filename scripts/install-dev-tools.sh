@@ -13,7 +13,7 @@ set -euo pipefail
 # Pinned versions — keep in sync with workflow files.
 GOLANGCI_LINT_VERSION="v2.5.0"
 GOVULNCHECK_VERSION="v1.1.4"
-GO_LICENSES_VERSION="5348b744d0983d85713295ea08a20cca1654a45e"  # v1.6.0 SHA used in ci.yml
+GO_LICENSES_VERSION="3e084b0caf710f7bfead967567539214f598c0a2"  # v2.0.1 SHA used in ci.yml
 SEMGREP_VERSION="1.91.0"
 
 GOPATH_BIN="$(go env GOPATH)/bin"
@@ -51,13 +51,22 @@ else
 fi
 
 # --- go-licenses -------------------------------------------------------------
-# CI pins by SHA; check by trying to install — `go install` is idempotent at
-# module-cache level and cheap when already cached.
-if [ -x "$GOPATH_BIN/go-licenses" ]; then
-  skip "go-licenses already on PATH (CI pin SHA: $GO_LICENSES_VERSION)"
+# v2.0.1 (3e084b0) supersedes the older v1.6.0 (5348b744...) pin: v2 handles
+# Go 1.21+ toolchain split where stdlib lives in $GOPATH/pkg/mod/golang.org/
+# toolchain@... and v1 errored on "Package X does not have module info" for
+# every stdlib import. Install path is /v2 per the module-version layout.
+# Idempotent re-install if SHA changes (force overwrite).
+have_licenses_sha=""
+if [ -x "$GOPATH_BIN/go-licenses" ] && [ -f "$GOPATH_BIN/go-licenses.sha" ]; then
+  have_licenses_sha="$(cat "$GOPATH_BIN/go-licenses.sha" 2>/dev/null || true)"
+fi
+if [ "$have_licenses_sha" = "$GO_LICENSES_VERSION" ]; then
+  skip "go-licenses $GO_LICENSES_VERSION already installed"
 else
-  log "Installing go-licenses $GO_LICENSES_VERSION"
-  GOFLAGS=-mod=mod go install "github.com/google/go-licenses@${GO_LICENSES_VERSION}"
+  log "Installing go-licenses $GO_LICENSES_VERSION (v2)"
+  GOFLAGS=-mod=mod go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"
+  # printf no trailing newline so cat readback compares bytes-exact.
+  printf '%s' "$GO_LICENSES_VERSION" > "$GOPATH_BIN/go-licenses.sha"
   ok "go-licenses $GO_LICENSES_VERSION"
 fi
 

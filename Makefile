@@ -146,12 +146,20 @@ vendor-check:
 	git diff --ignore-cr-at-eol --exit-code vendor/ go.mod go.sum
 
 ## licenses: Check no AGPL / strong-copyleft deps shipped (CLAUDE.md License Rules).
-## --ignore matches .github/workflows/ci.yml so the self-reference (the module
-## itself has no license file in the working tree) doesn't fail the gate.
+## GOFLAGS=-mod=mod overrides the auto-enabled -mod=vendor (vendor/ exists);
+## go-licenses can't read module metadata under vendor mode, mirrors the
+## per-job env override in .github/workflows/ci.yml `licenses` job.
+##
+## --ignore self-reference: the module itself has no license file in the
+## working tree (the project LICENSE at repo root applies to the binary).
+## --ignore github.com/segmentio/asm: MIT-No-Attribution at the module
+## root; v2's classifier doesn't propagate it to sub-packages, but the
+## license is permissive (verified: vendor/github.com/segmentio/asm/LICENSE).
 licenses:
-	$(GO_LICENSES) check ./internal/... ./cmd/... \
+	GOFLAGS=-mod=mod $(GO_LICENSES) check ./internal/... ./cmd/... \
 		--disallowed_types=forbidden,restricted \
-		--ignore github.com/statnive/statnive.live
+		--ignore github.com/statnive/statnive.live \
+		--ignore github.com/segmentio/asm
 
 ## bench: Run all Go benchmarks (no integration tag — fast). Output to stdout.
 bench:
