@@ -113,6 +113,9 @@ func TestLoadConfig_ExampleParity(t *testing.T) { //nolint:paralleltest // mutat
 		{"auth.bootstrap.site_id", cfg.Auth.Bootstrap.SiteID > 0},
 		{"auth.bootstrap.username", cfg.Auth.Bootstrap.Username != ""},
 		{"auth.default_site_id", cfg.Auth.DefaultSiteID > 0},
+		{"consent.required", cfg.Consent.Required},
+		{"consent.respect_gpc", cfg.Consent.RespectGPC},
+		{"consent.respect_dnt", cfg.Consent.RespectDNT},
 	}
 
 	for _, c := range cases {

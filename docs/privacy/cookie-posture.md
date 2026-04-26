@@ -1,7 +1,14 @@
 # `_statnive` Cookie Posture (Milestone 1 Bug #19 / LEARN.md Lesson 17)
 
-> **Status: DECISION REQUIRED before Phase 11a (first public SaaS signup).**
-> Until decided, the cookie ships as-is on the staging-tier `app.statnive.live` host. The decision lives here so a future operator / counsel review picks up the same context, not a transcript scrap.
+> **Status: Option C SHIPPED (2026-04-26).** Three independently-toggleable server-side flags now gate the cookie + visitor-identity hash:
+>
+> - `consent.required` (default `true`, env `STATNIVE_CONSENT_REQUIRED`)
+> - `consent.respect_gpc` (default `true`, env `STATNIVE_CONSENT_RESPECT_GPC`)
+> - `consent.respect_dnt` (default `true`, env `STATNIVE_CONSENT_RESPECT_DNT`)
+>
+> Default posture = SaaS-safe (all three on). Self-hosted Iran tier flips `consent.required=false` to restore pre-Option-C behavior. Operators in jurisdictions where GPC/DNT have no legal weight may flip respect flags off — but doing so regresses the privacy posture and should be paired with a clear in-product disclosure.
+>
+> The decision context below stays archived for counsel review pre-Phase-11a (first paying SaaS customer). Counsel review is also needed for: privacy-page wording, customer DPA (`docs/dpa-draft.md`), and the SaaS sub-processor register (`docs/compliance/subprocessor-register.md`).
 
 ## What the cookie does
 

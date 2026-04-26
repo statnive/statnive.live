@@ -327,12 +327,15 @@ func run() error {
 			OnSample: walFillAlertEmitter(alertsSink),
 		}))
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
-			Pipeline:     pipeline,
-			WAL:          groupSyncer,
-			Sites:        registry,
-			MasterSecret: masterSecret,
-			Audit:        auditLog,
-			Logger:       logger,
+			Pipeline:        pipeline,
+			WAL:             groupSyncer,
+			Sites:           registry,
+			MasterSecret:    masterSecret,
+			Audit:           auditLog,
+			Logger:          logger,
+			ConsentRequired: cfg.Consent.Required,
+			RespectGPC:      cfg.Consent.RespectGPC,
+			RespectDNT:      cfg.Consent.RespectDNT,
 		}))
 	})
 
@@ -857,6 +860,20 @@ type appConfig struct {
 		DefaultSiteID uint32
 		DemoBanner    string
 	}
+	Consent struct {
+		// Required gates the _statnive cookie + user_id hashing behind
+		// an explicit X-Statnive-Consent: given header. Default true on
+		// the SaaS binary; self-hosted Iran tier flips to false.
+		Required bool
+		// RespectGPC honors Sec-GPC: 1 as a deny signal (CLAUDE.md
+		// Privacy Rule 9). Default true.
+		RespectGPC bool
+		// RespectDNT honors DNT: 1 as a deny signal (LEARN.md Lesson
+		// 16). Default true. Tracker JS short-circuits client-side
+		// independently; this is the server-side belt to that
+		// suspenders.
+		RespectDNT bool
+	}
 }
 
 // loadConfig parses CLI flags + env vars to find the config file path,
@@ -935,6 +952,16 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("dashboard.bearer_token", "")
 	v.SetDefault("dashboard.spa_enabled", false)
 
+	// Consent posture (CLAUDE.md Privacy Rules 5 + 9). All three
+	// default true (SaaS-safe + privacy-by-default). Iran self-hosted
+	// flips required → false; jurisdictions where GPC/DNT have no
+	// legal weight may flip those respect flags off too — but doing so
+	// regresses the privacy posture and should be paired with a clear
+	// in-product disclosure.
+	v.SetDefault("consent.required", true)
+	v.SetDefault("consent.respect_gpc", true)
+	v.SetDefault("consent.respect_dnt", true)
+
 	// Auth (Phase 2b). Secure defaults: 14-day cookie, SameSite=Lax,
 	// bcrypt cost 12, 10 login attempts / min / IP, 10 fails / 15 min →
 	// 5 min per-email lockout. Session-cache TTL 60 s.
@@ -1002,6 +1029,10 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 
 	cfg.Dashboard.BearerToken = v.GetString("dashboard.bearer_token")
 	cfg.Dashboard.SPAEnabled = v.GetBool("dashboard.spa_enabled")
+
+	cfg.Consent.Required = v.GetBool("consent.required")
+	cfg.Consent.RespectGPC = v.GetBool("consent.respect_gpc")
+	cfg.Consent.RespectDNT = v.GetBool("consent.respect_dnt")
 
 	cfg.Auth.Session.TTL = v.GetDuration("auth.session.ttl")
 	cfg.Auth.Session.CookieName = v.GetString("auth.session.cookie_name")

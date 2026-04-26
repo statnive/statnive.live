@@ -68,6 +68,24 @@ type HandlerConfig struct {
 	Audit        *audit.Logger    // optional — nil silences audit emissions (test mode)
 	Now          func() time.Time // injectable for tests; defaults to time.Now
 	Logger       *slog.Logger
+	// ConsentRequired gates the _statnive cookie + user_id hashing behind
+	// an explicit consent signal (X-Statnive-Consent: given). Default
+	// true on the SaaS binary (EU posture); operators of self-hosted
+	// Iran tiers (no GDPR) flip to false. Maps to CLAUDE.md Privacy
+	// Rule 5 (SaaS = GDPR applies; Iran = cookies allowed).
+	ConsentRequired bool
+	// RespectGPC honors `Sec-GPC: 1` as a deny signal — see
+	// CLAUDE.md Privacy Rule 9. Default true. Operators may flip to
+	// false in jurisdictions where GPC has no legal weight, but doing
+	// so REGRESSES the SaaS posture and should be paired with a clear
+	// in-product disclosure.
+	RespectGPC bool
+	// RespectDNT honors `DNT: 1` (Do Not Track) as a deny signal.
+	// Default true. The browser-side tracker JS independently
+	// short-circuits on DNT='1' (LEARN.md Lesson 16) — this flag is the
+	// server-side belt to that tracker suspenders, ensuring deny holds
+	// even when a tracker variant skips the client check.
+	RespectDNT bool
 }
 
 // NewHandler returns the http.Handler wired for POST /api/event.
@@ -109,7 +127,20 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 
 	now := cfg.Now().UTC()
 	ip := ClientIP(r)
-	cookieID := readOrSetCookieID(w, r)
+
+	// Consent gate (Privacy Rules 5 + 9). Order: respected deny signals
+	// (Sec-GPC, DNT) first, then ConsentRequired check. Each deny
+	// signal is independently configurable — operators flip the
+	// respect flag off only if they have legal cover in the relevant
+	// jurisdiction. The event still ingests anonymously when denied;
+	// only the cookie + user_id hash get suppressed.
+	allowIdentity := !consentDenied(r, cfg.RespectGPC, cfg.RespectDNT) &&
+		(!cfg.ConsentRequired || consentGiven(r))
+
+	var cookieID string
+	if allowIdentity {
+		cookieID = readOrSetCookieID(w, r)
+	}
 
 	for i := range events {
 		raw := &events[i]
@@ -142,8 +173,10 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 		// || user_id) ever lands in events_raw.user_id_hash. If
 		// hashUserID is false (no master_secret configured), the raw
 		// value is still cleared — silently dropping the uid is the
-		// stricter privacy stance.
-		if hashUserID && raw.UserID != "" {
+		// stricter privacy stance. allowIdentity gates hashing per
+		// Privacy Rule 9 (Sec-GPC + consent decline short-circuit
+		// BEFORE hash computation, not after).
+		if hashUserID && allowIdentity && raw.UserID != "" {
 			raw.UserIDHash = identity.HexUserIDHash(cfg.MasterSecret, raw.SiteID, raw.UserID)
 		}
 
@@ -299,9 +332,35 @@ func ClientIP(r *http.Request) string {
 	return host
 }
 
+// consentDenied reports whether the visitor's browser is signaling
+// "do not process for personalization" through any of the deny
+// signals the operator has configured to respect. Privacy Rule 9
+// (Sec-GPC) and LEARN.md Lesson 16 (DNT) are both wired here so the
+// operator config is the single source of truth.
+func consentDenied(r *http.Request, respectGPC, respectDNT bool) bool {
+	if respectGPC && r.Header.Get("Sec-GPC") == "1" {
+		return true
+	}
+
+	if respectDNT && r.Header.Get("DNT") == "1" {
+		return true
+	}
+
+	return false
+}
+
+// consentGiven reports whether the visitor's site has signaled
+// affirmative consent (e.g. via a CMP integration that flips the
+// X-Statnive-Consent header to "given"). Used only when
+// HandlerConfig.ConsentRequired is true; ignored otherwise.
+func consentGiven(r *http.Request) bool {
+	return r.Header.Get("X-Statnive-Consent") == "given"
+}
+
 // readOrSetCookieID returns the existing _statnive cookie or mints a fresh
 // UUIDv4. Real cookie strategy (httpOnly + 1y max-age + root-domain walking)
-// hardens in Phase 2 + Phase 4.
+// hardens in Phase 2 + Phase 4. Caller gates on consent; this fn unconditionally
+// sets the cookie when invoked.
 func readOrSetCookieID(w http.ResponseWriter, r *http.Request) string {
 	const cookieName = "_statnive"
 

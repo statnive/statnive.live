@@ -338,3 +338,222 @@ func TestHandler_UserIDSkippedWithoutMasterSecret(t *testing.T) {
 		t.Errorf("UserID = %q; want \"\" (must clear regardless of master_secret presence)", got.UserID)
 	}
 }
+
+// consentOpts mirrors the operator-configurable consent flags. The
+// test helper accepts these as a struct so callers can toggle each
+// independently (Sec-GPC respect, DNT respect, ConsentRequired) the
+// same way an operator would in YAML. Defaults are the SaaS posture:
+// all three deny signals respected, ConsentRequired on.
+type consentOpts struct {
+	consentRequired bool
+	respectGPC      bool
+	respectDNT      bool
+}
+
+// Consent gate test cases — Option C: three independently-toggleable
+// flags wire the SaaS-vs-Iran posture. The helper sends a single
+// event and returns (hadCookie, raw) so each case can assert against
+// both surfaces.
+func handleWithConsent(t *testing.T, opts consentOpts, hdrs map[string]string) (bool, *ingest.RawEvent) {
+	t.Helper()
+
+	const rawUID = "user_consent"
+
+	masterSecret := []byte("consent-test-master-secret-padded-")
+
+	body := `{"hostname":"example.com","pathname":"/","event_type":"custom","event_name":"a","user_id":"` + rawUID + `"}`
+
+	fake := &fakePipeline{}
+	wal := &fakeWAL{}
+	inner := ingest.NewHandler(ingest.HandlerConfig{
+		Pipeline:        fake,
+		WAL:             wal,
+		Sites:           ingest.StaticSiteResolver{SiteID: 1},
+		MasterSecret:    masterSecret,
+		ConsentRequired: opts.consentRequired,
+		RespectGPC:      opts.respectGPC,
+		RespectDNT:      opts.respectDNT,
+		Now:             func() time.Time { return time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC) },
+		Logger:          slog.New(slog.DiscardHandler),
+	})
+	handler := ingest.FastRejectMiddleware(nil)(inner)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/event", strings.NewReader(body))
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+	req.Header.Set("Content-Type", "text/plain")
+
+	for k, v := range hdrs {
+		req.Header.Set(k, v)
+	}
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %q", rr.Code, rr.Body.String())
+	}
+
+	hadCookie := false
+
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "_statnive" {
+			hadCookie = true
+
+			break
+		}
+	}
+
+	last := fake.last.Load()
+	if last == nil {
+		t.Fatal("no event reached the pipeline")
+	}
+
+	return hadCookie, last
+}
+
+// saasDefaults returns the production SaaS posture (all three flags
+// true) so each test case sets only the consentRequired axis it cares
+// about.
+func saasDefaults() consentOpts {
+	return consentOpts{consentRequired: true, respectGPC: true, respectDNT: true}
+}
+
+// SaaS defaults (all 3 flags true), no signal → no cookie, no hash,
+// event ingests anonymously. Privacy Rule 5.
+func TestHandler_ConsentRequired_NoSignal_AnonymousIngest(t *testing.T) {
+	t.Parallel()
+
+	hadCookie, raw := handleWithConsent(t, saasDefaults(), nil)
+
+	if hadCookie {
+		t.Error("Set-Cookie sent without consent signal under SaaS defaults")
+	}
+
+	if raw.UserIDHash != "" {
+		t.Errorf("UserIDHash = %q; want \"\" when consent missing", raw.UserIDHash)
+	}
+}
+
+// SaaS defaults + Sec-GPC: 1 → denied even with X-Statnive-Consent
+// also set. Sec-GPC wins. Privacy Rule 9.
+func TestHandler_ConsentRequired_SecGPCDenies(t *testing.T) {
+	t.Parallel()
+
+	hadCookie, raw := handleWithConsent(t, saasDefaults(), map[string]string{
+		"Sec-GPC":            "1",
+		"X-Statnive-Consent": "given",
+	})
+
+	if hadCookie {
+		t.Error("Set-Cookie sent despite Sec-GPC: 1")
+	}
+
+	if raw.UserIDHash != "" {
+		t.Errorf("UserIDHash = %q; want \"\" with Sec-GPC: 1", raw.UserIDHash)
+	}
+}
+
+// SaaS defaults + X-Statnive-Consent: given (no deny signal) → cookie
+// + hash both populate.
+func TestHandler_ConsentRequired_GivenSignal_IdentifiesVisitor(t *testing.T) {
+	t.Parallel()
+
+	hadCookie, raw := handleWithConsent(t, saasDefaults(), map[string]string{
+		"X-Statnive-Consent": "given",
+	})
+
+	if !hadCookie {
+		t.Error("Set-Cookie missing despite X-Statnive-Consent: given")
+	}
+
+	if raw.UserIDHash == "" {
+		t.Error("UserIDHash empty despite consent given + master_secret set")
+	}
+}
+
+// Iran self-hosted (ConsentRequired=false; respect flags still on by
+// default for site-of-incidence DNT/GPC) → cookie + hash always set
+// when no deny signal. Pre-Option-C behavior for the no-signal path.
+func TestHandler_IranPosture_NoSignal_AlwaysIdentifies(t *testing.T) {
+	t.Parallel()
+
+	opts := saasDefaults()
+	opts.consentRequired = false
+
+	hadCookie, raw := handleWithConsent(t, opts, nil)
+
+	if !hadCookie {
+		t.Error("Set-Cookie missing under Iran posture with no deny signal")
+	}
+
+	if raw.UserIDHash == "" {
+		t.Error("UserIDHash empty under Iran posture")
+	}
+}
+
+// Iran posture + Sec-GPC: 1 → still denies because RespectGPC is on.
+// Privacy Rule 9 holds regardless of operator's consent.required.
+func TestHandler_IranPosture_SecGPCDenies(t *testing.T) {
+	t.Parallel()
+
+	opts := saasDefaults()
+	opts.consentRequired = false
+
+	hadCookie, raw := handleWithConsent(t, opts, map[string]string{"Sec-GPC": "1"})
+
+	if hadCookie {
+		t.Error("Set-Cookie sent despite Sec-GPC: 1")
+	}
+
+	if raw.UserIDHash != "" {
+		t.Errorf("UserIDHash = %q; want \"\" with Sec-GPC: 1", raw.UserIDHash)
+	}
+}
+
+// Operator unchecks RespectGPC → Sec-GPC: 1 is ignored, cookie sets.
+// Used by jurisdictions where GPC has no legal weight; should be
+// paired with a clear in-product disclosure.
+func TestHandler_RespectGPCUnchecked_GPCIgnored(t *testing.T) {
+	t.Parallel()
+
+	opts := saasDefaults()
+	opts.consentRequired = false // also drop ConsentRequired so cookie can set
+	opts.respectGPC = false
+
+	hadCookie, _ := handleWithConsent(t, opts, map[string]string{"Sec-GPC": "1"})
+
+	if !hadCookie {
+		t.Error("Set-Cookie missing despite RespectGPC=false unchecking the deny")
+	}
+}
+
+// DNT: 1 denies under SaaS defaults (RespectDNT=true). LEARN.md
+// Lesson 16 — server-side belt to tracker JS short-circuit.
+func TestHandler_DNTDenies(t *testing.T) {
+	t.Parallel()
+
+	hadCookie, raw := handleWithConsent(t, saasDefaults(), map[string]string{"DNT": "1"})
+
+	if hadCookie {
+		t.Error("Set-Cookie sent despite DNT: 1 with RespectDNT=true")
+	}
+
+	if raw.UserIDHash != "" {
+		t.Errorf("UserIDHash = %q; want \"\" with DNT: 1", raw.UserIDHash)
+	}
+}
+
+// Operator unchecks RespectDNT → DNT: 1 is ignored.
+func TestHandler_RespectDNTUnchecked_DNTIgnored(t *testing.T) {
+	t.Parallel()
+
+	opts := saasDefaults()
+	opts.consentRequired = false
+	opts.respectDNT = false
+
+	hadCookie, _ := handleWithConsent(t, opts, map[string]string{"DNT": "1"})
+
+	if !hadCookie {
+		t.Error("Set-Cookie missing despite RespectDNT=false unchecking the deny")
+	}
+}
