@@ -109,6 +109,26 @@ auth:
     username: "admin"                # STATNIVE_AUTH_BOOTSTRAP_USERNAME
   default_site_id: 1                 # STATNIVE_AUTH_DEFAULT_SITE_ID
   demo_banner:    ""                 # STATNIVE_AUTH_DEMO_BANNER
+
+# ─── Consent posture (CLAUDE.md Privacy Rules 5 + 9) ───────────────────
+# All three default to true (privacy-by-default, SaaS-safe).
+#
+# required:   if true (SaaS), the _statnive cookie + user_id hash are
+#             only set when the request carries `X-Statnive-Consent: given`
+#             (set by the customer's CMP integration). Events still
+#             ingest anonymously when missing — only visitor identity
+#             is suppressed. Flip to false on self-hosted Iran tiers
+#             (no GDPR; CLAUDE.md Privacy Rule 5).
+# respect_gpc: honor `Sec-GPC: 1` as a hard deny (Privacy Rule 9). Flip
+#             to false only with documented legal cover.
+# respect_dnt: honor `DNT: 1` as a hard deny (LEARN.md Lesson 16). The
+#             browser-side tracker JS short-circuits independently
+#             (no payload sent); this is the server-side belt to that
+#             tracker suspenders.
+consent:
+  required:    true   # STATNIVE_CONSENT_REQUIRED
+  respect_gpc: true   # STATNIVE_CONSENT_RESPECT_GPC
+  respect_dnt: true   # STATNIVE_CONSENT_RESPECT_DNT
   # api_tokens: list of {token_hash_hex, site_id, label, role}; populate
   # via `statnive-live admin token issue ...` rather than editing here.
   # api_tokens:

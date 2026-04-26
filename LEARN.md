@@ -221,12 +221,12 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
 
 ### Lesson 17
 
-**`_statnive` cookie set on `/api/event` responses needs GDPR review for SaaS posture.**
+**`_statnive` cookie set on `/api/event` responses needs GDPR review for SaaS posture.** [closed by PR-E2 — three configurable flags]
 
 1. **What we did** — Confirmed binary works by sending an event via curl. Response included `set-cookie: _statnive=<UUID>; Max-Age=31536000; HttpOnly; SameSite=Lax`. Noted it; didn't investigate further during cutover.
 2. **Why it broke** — Not a bug we hit; a privacy posture surfaced BY the cutover. CLAUDE.md says "Iran = cookies + user_id allowed; SaaS = GDPR applies to EU visitors". A 1-year HttpOnly visitor cookie may need consent gating in the SaaS posture even though it's privacy-preserving (random UUID, no PII, server-side rotation possible).
 3. **The fix we applied** — Noted for follow-up review. No code change in the cutover.
-4. **Preventive measure** — Add a `consent_required: bool` config flag (`STATNIVE_CONSENT_REQUIRED`). When `true`, gate the `_statnive` cookie behind a consent decision (request header / first-party-cookie banner integration). Default `true` for the SaaS binary, `false` for self-hosted Iran. Decide before Phase 11a (first public signup).
+4. **Preventive measure** — Three independently-toggleable server-side flags shipped via PR-E2 (Option C): `consent.required` (default `true`, requires `X-Statnive-Consent: given` to set the cookie or hash a `user_id`), `consent.respect_gpc` (default `true`, denies on `Sec-GPC: 1`), `consent.respect_dnt` (default `true`, denies on `DNT: 1`). Defaults are SaaS-safe; self-hosted Iran flips `required=false`; operators in jurisdictions without GPC/DNT legal weight may flip respect flags off but should pair with explicit in-product disclosure. Decision context archived in [`docs/privacy/cookie-posture.md`](docs/privacy/cookie-posture.md) for counsel review pre-Phase-11a.
 
 ### Lesson 18
 
