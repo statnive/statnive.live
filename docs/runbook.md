@@ -936,15 +936,41 @@ uncertainty.
 # 1. Netcup Customer Control Panel → VPS → order VPS 2000 G12 iv NUE
 #    hourly. Ubuntu 24.04 LTS image. IPv4 + IPv6 both assigned by
 #    default — no surcharge. Snapshot-at-provision for rollback.
+
 # 2. Wait for the setup email (~5 min); root password + IPv4/IPv6
 #    addresses arrive there. SSH in, set up a non-root user, install
-#    your SSH key, disable root password auth:
+#    your SSH key, populate a recovery key into /root, but DO NOT
+#    disable password auth yet. LEARN.md Lessons 10 + 11 — the cutover
+#    on 2026-04-25 took the lockout path because § B.1 disabled
+#    password auth before key auth was verified working.
 ssh root@94.16.108.78    # current Netcup IPv4 (live as of 2026-04-25)
 adduser --disabled-password --shell /bin/bash ops
 mkdir -p /home/ops/.ssh && chmod 700 /home/ops/.ssh
 # Paste your ~/.ssh/id_ed25519.pub into /home/ops/.ssh/authorized_keys
 chmod 600 /home/ops/.ssh/authorized_keys && chown -R ops:ops /home/ops/.ssh
 usermod -aG sudo ops
+
+# 2a. Recovery fallback — Lesson 11. Copy the SAME ops pubkey into
+#     /root/.ssh/authorized_keys so root SSH stays reachable through
+#     the lockdown step below. We REMOVE this line at the end of step
+#     5 once the SOP is fully green; net invariant: at least one
+#     authenticated path is open at every moment of the transition.
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
+cp /home/ops/.ssh/authorized_keys /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+
+# 2b. *** OPEN A SECOND TERMINAL *** and verify ops key auth works
+#     BEFORE the lockdown — Lesson 10 (the entire cutover SOP can
+#     abort mid-flight; if password auth is already off, the operator
+#     is locked out). The current ssh-as-root session stays open as
+#     a third recovery path until step 2c succeeds.
+#       (in second terminal):
+#         ssh -i ~/.ssh/id_ed25519 ops@94.16.108.78 'sudo whoami'
+#         # must print: root
+#     Only continue with step 2c once the second terminal returned 'root'.
+
+# 2c. Now disable password auth + reload sshd. The second terminal
+#     stays open as the canonical session for the rest of the SOP.
 sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 systemctl reload ssh
 
@@ -982,6 +1008,27 @@ ip -6 addr show eth0 | grep '2a03:4000:51:f0c::1'    # should match
 ping -6 -c2 google.com                                # confirm routing works
 
 # 5. Continue with § Air-gap bundle install from step 1.
+
+# 5b. (After § Air-gap bundle install completes + healthz returns ok)
+#     Drop the recovery fallback that step 2a wrote to /root. Ops
+#     remains reachable; root SSH closes per Lesson 11.
+sudo rm -f /root/.ssh/authorized_keys
+sudo rmdir /root/.ssh 2>/dev/null || true
+```
+
+### Ingest smoke test (post-cutover)
+
+LEARN.md Lesson 15 — the binary's pre-pipeline fast-reject filter drops payloads where the User-Agent is shorter than 16 chars (curl's default `curl/8.7.1` is 10 chars), so manual `curl https://app.statnive.live/api/event` returns 204 with NO row in `events_raw` and the operator wastes 10 minutes assuming the ingest path is broken. Use a real-browser-shaped UA:
+
+```bash
+# Closes Bug #20 — runbook should show the working incantation.
+curl -A 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15' \
+     -i \
+     -X POST https://app.statnive.live/api/event \
+     -H 'Content-Type: application/json' \
+     -d '{"site_id":1,"path":"/runbook-smoke","title":"smoke"}'
+# Expect: HTTP/2 202 + `set-cookie: _statnive=<UUID>` (then verify the row
+# lands in `events_raw` within ~2 seconds via clickhouse-client).
 ```
 
 ### Sign the Netcup DPA + populate the sub-processor register
