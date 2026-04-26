@@ -23,8 +23,18 @@
     return;
   }
 
-  var script = d.currentScript || d.querySelector('script[data-statnive-endpoint]');
-  var endpoint = (script && script.getAttribute('data-statnive-endpoint')) || '/api/event';
+  // Endpoint resolution chain:
+  //   1. explicit data-statnive-endpoint attribute (canonical)
+  //   2. derive from <script src="…/tracker.js"> (when the tracker is
+  //      loaded cross-origin from app.statnive.live but the operator
+  //      forgot the data attribute — closes Bug #18 silent /api/event
+  //      relative-path 404 sink on cross-origin marketing sites)
+  //   3. relative /api/event (works on same-origin self-hosted)
+  var script = d.currentScript || d.querySelector('script[data-statnive-endpoint]') || d.querySelector('script[src*="/tracker.js"]');
+  var attr = script && script.getAttribute('data-statnive-endpoint');
+  var src = script && script.src;
+  var derived = src && src.match(/^(.+?)\/tracker\.js(?:\?.*)?$/);
+  var endpoint = attr || (derived && derived[1] + '/api/event') || '/api/event';
   var userId = '';
   // Cached UTM params — re-parsed on every history change since the
   // query string can shift on SPA navigation. Reused across all events

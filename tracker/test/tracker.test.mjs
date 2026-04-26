@@ -48,8 +48,19 @@ function loadTracker(opts = {}) {
   }
   if (opts.phantom) window._phantom = {};
 
-  if (opts.endpointAttr) {
+  // Three combinations — opts.endpointAttr alone, opts.scriptSrc alone,
+  // or both (the "explicit attr wins over derived src" case).
+  if (opts.endpointAttr && opts.scriptSrc) {
+    document.head.innerHTML =
+      `<script src="${opts.scriptSrc}" data-statnive-endpoint="${opts.endpointAttr}"></script>`;
+  } else if (opts.endpointAttr) {
     document.head.innerHTML = `<script data-statnive-endpoint="${opts.endpointAttr}"></script>`;
+  } else if (opts.scriptSrc) {
+    // Simulates the cross-origin marketing-site case: <script src=
+    // "https://statnive.live/tracker.js"> with no data-statnive-endpoint.
+    // Bug #18 — tracker should derive /api/event from the src origin
+    // instead of falling back to a relative /api/event 404 sink.
+    document.head.innerHTML = `<script src="${opts.scriptSrc}" async defer></script>`;
   }
 
   // Mock sendBeacon so we can inspect the payload.
@@ -170,6 +181,30 @@ describe('happy path', () => {
   it('defaults to /api/event without the attribute', () => {
     const calls = loadTracker();
     expect(calls[0].url).toBe('/api/event');
+  });
+
+  // Bug #18 (Milestone 1 cutover): on cross-origin marketing sites the
+  // tracker is loaded via <script src="https://statnive.live/tracker.js">
+  // with no data-statnive-endpoint. The relative /api/event default 404'd
+  // against the marketing-site origin. Fallback derives endpoint from
+  // script.src so the canonical embed pattern works without operator
+  // ceremony. Closes LEARN.md Lesson 17 preventive measure.
+  it('derives endpoint from script.src when no data-attribute (cross-origin)', () => {
+    const calls = loadTracker({ scriptSrc: 'https://statnive.live/tracker.js' });
+    expect(calls[0].url).toBe('https://statnive.live/api/event');
+  });
+
+  it('derives endpoint from script.src when src has querystring', () => {
+    const calls = loadTracker({ scriptSrc: 'https://statnive.live/tracker.js?v=1' });
+    expect(calls[0].url).toBe('https://statnive.live/api/event');
+  });
+
+  it('explicit data-statnive-endpoint wins over script.src', () => {
+    const calls = loadTracker({
+      scriptSrc: 'https://statnive.live/tracker.js',
+      endpointAttr: '/override/api/event',
+    });
+    expect(calls[0].url).toBe('/override/api/event');
   });
 });
 
