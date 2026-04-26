@@ -74,8 +74,8 @@ identity-gate:
 		else \
 			echo "identity-gate: semgrep not installed, skipping (run 'make tools' to enable)"; exit 0; \
 		fi; \
-	fi
-	@semgrep --quiet --error --config=.claude/skills/blake3-hmac-identity-review/semgrep \
+	fi; \
+	semgrep --quiet --error --config=.claude/skills/blake3-hmac-identity-review/semgrep \
 		internal/ || (echo "FAIL: auth-return-nil-guard regression"; exit 1)
 
 ## privacy-gate: slog-no-raw-pii regression (Phase 7d F3, Privacy Rule 4).
@@ -88,8 +88,8 @@ privacy-gate:
 		else \
 			echo "privacy-gate: semgrep not installed, skipping (run 'make tools' to enable)"; exit 0; \
 		fi; \
-	fi
-	@semgrep --quiet --error --config=.claude/skills/gdpr-code-review/semgrep \
+	fi; \
+	semgrep --quiet --error --config=.claude/skills/gdpr-code-review/semgrep \
 		internal/ cmd/ || (echo "FAIL: slog-no-raw-pii regression"; exit 1)
 
 ## privacy-gate-selftest: assert the rule fires on should-trigger fixtures
