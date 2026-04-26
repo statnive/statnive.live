@@ -51,6 +51,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'web/package-lock.json'
 
+      # `make release` → `lint` → `identity-gate` + `privacy-gate` require
+      # semgrep. Pin the same version as security-gate.yml to keep rule
+      # behaviour identical across the two enforcement paths.
+      - name: Install semgrep
+        run: pip install --no-cache-dir semgrep==1.91.0
+
       - name: Resolve version from tag
         id: tag
         run: |
