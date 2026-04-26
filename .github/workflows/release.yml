@@ -51,11 +51,20 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'web/package-lock.json'
 
-      # `make release` → `lint` → `identity-gate` + `privacy-gate` require
-      # semgrep. Pin the same version as security-gate.yml to keep rule
-      # behaviour identical across the two enforcement paths.
-      - name: Install semgrep
-        run: pip install --no-cache-dir semgrep==1.91.0
+      # `make release` → `lint test test-integration audit airgap-bundle`
+      # invokes golangci-lint (lint), govulncheck + go-licenses (audit), and
+      # semgrep (identity-gate + privacy-gate). Versions mirror
+      # scripts/install-dev-tools.sh exactly — bump there when bumping here.
+      - name: Install dev tools (golangci-lint, govulncheck, go-licenses, semgrep)
+        run: |
+          GOPATH_BIN="$(go env GOPATH)/bin"
+          mkdir -p "$GOPATH_BIN"
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+            | sh -s -- -b "$GOPATH_BIN" v2.5.0
+          GOFLAGS=-mod=mod go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          GOFLAGS=-mod=mod go install github.com/google/go-licenses/v2@3e084b0caf710f7bfead967567539214f598c0a2
+          pip install --no-cache-dir semgrep==1.91.0
+          echo "$GOPATH_BIN" >> "$GITHUB_PATH"
 
       - name: Resolve version from tag
         id: tag
