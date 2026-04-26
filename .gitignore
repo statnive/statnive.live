@@ -4,6 +4,9 @@
 bin/
 *.exe
 /statnive-live
+# `make airgap-bundle` output — tarball + extracted dir + SHA256SUMS
+# + signature. Reproducible release artifacts; never source.
+/build/
 
 # Frontend
 web/dist/

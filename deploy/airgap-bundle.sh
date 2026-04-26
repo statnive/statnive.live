@@ -32,9 +32,12 @@ OUT_TGZ="build/${BUNDLE_NAME}.tar.gz"
 
 echo "airgap-bundle: composing $BUNDLE_DIR"
 rm -rf "$BUNDLE_DIR"
-mkdir -p "$BUNDLE_DIR"/{bin,config,deploy/systemd,deploy/iptables,deploy/backup,docs,third_party}
+mkdir -p "$BUNDLE_DIR"/{bin,config,deploy/systemd,deploy/iptables,deploy/backup,docs,internal/enrich,third_party}
 
 # --- binary + version stamp --------------------------------------------------
+# $BIN is the cross-compiled output (e.g. bin/statnive-live-linux-amd64
+# from `make build-linux`); strip the GOOS/GOARCH suffix at copy-time so
+# the install script + systemd unit see the canonical name `statnive-live`.
 cp "$BIN" "$BUNDLE_DIR/bin/statnive-live"
 chmod 0755 "$BUNDLE_DIR/bin/statnive-live"
 
@@ -81,7 +84,34 @@ cp "$ROOT/deploy/iptables/rules.v6"             "$BUNDLE_DIR/deploy/iptables/"
 cp "$ROOT/deploy/airgap-install.sh"             "$BUNDLE_DIR/deploy/"
 cp "$ROOT/deploy/airgap-update-geoip.sh"        "$BUNDLE_DIR/deploy/"
 cp "$ROOT/deploy/airgap-verify-bundle.sh"       "$BUNDLE_DIR/deploy/"
+# statnive-deploy.sh is the on-box deploy primitive used by the GHA
+# pipeline + manual cutover (step-b § B.4 installs it to /usr/local/bin).
+# Cutover Bug #1 — was missing from the bundle.
+cp "$ROOT/deploy/statnive-deploy.sh"            "$BUNDLE_DIR/deploy/"
 chmod 0755 "$BUNDLE_DIR/deploy/"*.sh
+
+# --- bot detector pattern data ----------------------------------------------
+# Crawler JSON is //go:embed'd into the binary, but operators may want
+# to inspect / refresh the pattern file out-of-band (it's MIT-licensed
+# data from monperrus/crawler-user-agents). Bundle a copy alongside.
+# Cutover Bug #2 — was missing from the bundle.
+#
+# Size guard: <1 KB indicates a stub (the file lives at 3 bytes in dev
+# trees that haven't run `make refresh-bot-patterns`). Embedding a stub
+# silently degrades the bot detector to a fallback of ~60 patterns
+# instead of the full ~700. Fail loudly so the next bundle build can't
+# inherit the same regression.
+JSON_SRC="$ROOT/internal/enrich/crawler-user-agents.json"
+if [ ! -s "$JSON_SRC" ]; then
+	echo "airgap-bundle: $JSON_SRC missing or empty — run 'make refresh-bot-patterns'" >&2
+	exit 1
+fi
+JSON_BYTES="$(stat -f%z "$JSON_SRC" 2>/dev/null || stat -c%s "$JSON_SRC")"
+if [ "$JSON_BYTES" -lt 1024 ]; then
+	echo "airgap-bundle: $JSON_SRC is ${JSON_BYTES} bytes (<1024) — stub detected, run 'make refresh-bot-patterns' before bundling" >&2
+	exit 1
+fi
+cp "$JSON_SRC" "$BUNDLE_DIR/internal/enrich/crawler-user-agents.json"
 
 # backup config example (operator edits encryption key + S3 endpoint)
 if [ -f "$ROOT/deploy/backup/config.yml" ]; then
