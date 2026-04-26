@@ -23,11 +23,24 @@ GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govuln
 all: lint test build
 
 ## build: Compile the statnive-live binary (offline-capable, vendored).
+## Host-platform — for fast laptop iteration. Production releases go
+## through `airgap-bundle` which routes via `build-linux` so a Mac dev
+## still produces a Linux/amd64 tarball (LEARN.md Lesson 1).
 ## Depends on web-build unconditionally so //go:embed all:dist picks up
 ## fresh SPA assets on every compile — a stale or missing dist/ would
 ## either fail to compile or ship outdated SPA bytes.
 build: web-build
 	CGO_ENABLED=0 $(GO) build -mod=vendor -o $(BIN_DIR)/$(BIN_NAME) ./cmd/statnive-live
+
+## build-linux: Cross-compile for linux/amd64 explicitly. Used by
+## airgap-bundle so a Mac developer doesn't ship a darwin/arm64 binary
+## inside a linux-amd64-named tarball (Milestone 1 cutover Bug #3).
+## Output goes to bin/statnive-live-linux-amd64 to avoid clobbering the
+## host-platform `make build` artifact.
+build-linux: web-build
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build -mod=vendor -trimpath \
+		-o $(BIN_DIR)/$(BIN_NAME)-linux-amd64 ./cmd/statnive-live
+	@file $(BIN_DIR)/$(BIN_NAME)-linux-amd64
 
 ## test: Run unit tests with race detector (target <5s wall time)
 test:
@@ -276,23 +289,42 @@ web-airgap-grep: web-build
 ##         build/statnive-live-<VERSION>-linux-amd64-airgap.tar.gz
 ##         build/SHA256SUMS
 ##         build/SHA256SUMS.sig                                 (if SIGNING_KEY set)
-VERSION ?= $(shell git describe --tags --dirty 2>/dev/null || echo dev)
+# VERSION default — git tag if present, else "v0.0.0-dev" (NOT bare "dev"
+# which collides with the v* glob in cutover scripts; LEARN.md Lesson 3).
+# `make airgap-bundle` enforces a stricter regex below (release tags only).
+VERSION ?= $(shell git describe --tags --dirty 2>/dev/null || echo v0.0.0-dev)
 BUNDLE_NAME := statnive-live-$(VERSION)-linux-amd64-airgap
 BUNDLE_DIR  := build/$(BUNDLE_NAME)
 
-airgap-bundle: build
+# VERSION_RELEASE_RE matches v<MAJOR>.<MINOR>.<PATCH> with optional -rcN
+# or -dev suffix. The bundle target enforces this so a dirty/no-tag
+# build can't produce a tarball with a malformed name. Test-only builds
+# can pass VERSION=v0.0.0-dev explicitly.
+VERSION_RELEASE_RE := ^v[0-9]+\.[0-9]+\.[0-9]+(-(rc[0-9]+|dev))?$$
+
+airgap-bundle: build-linux
+	@if ! echo "$(VERSION)" | grep -Eq '$(VERSION_RELEASE_RE)'; then \
+		echo "airgap-bundle: VERSION='$(VERSION)' does not match $(VERSION_RELEASE_RE)"; \
+		echo "  set a release tag (git tag vX.Y.Z) or pass VERSION=vX.Y.Z explicitly"; \
+		exit 1; \
+	fi
 	@bash deploy/airgap-bundle.sh \
 		VERSION="$(VERSION)" \
 		BUNDLE_DIR="$(BUNDLE_DIR)" \
 		BUNDLE_NAME="$(BUNDLE_NAME)" \
-		BIN="$(BIN_DIR)/$(BIN_NAME)" \
+		BIN="$(BIN_DIR)/$(BIN_NAME)-linux-amd64" \
 		ENABLE_VENDOR_TAR="$(ENABLE_VENDOR_TAR)" \
 		SIGNING_KEY="$(SIGNING_KEY)"
+	@$(MAKE) airgap-bundle-verify BUNDLE_DIR="$(BUNDLE_DIR)" BUNDLE_NAME="$(BUNDLE_NAME)"
 
-## airgap-bundle-verify: Re-check SHA256SUMS against the unpacked tree.
-## Run after `make airgap-bundle` to validate the composition before shipping.
+## airgap-bundle-verify: Two checks: (1) SHA256SUMS matches unpacked
+## tree, (2) bundle completeness — every file the install path references
+## actually exists, and bin/statnive-live is ELF amd64 (not Mach-O).
+## Catches Milestone 1 cutover Bugs #1, #2, #3 at build time, not at
+## install time on the VPS (LEARN.md Lesson 2).
 airgap-bundle-verify:
 	@cd build && sha256sum -c SHA256SUMS
+	@bash deploy/airgap-bundle-completeness.sh "$(BUNDLE_DIR)"
 
 ## release: Full release gate — lint + test + integration + audit + airgap-bundle.
 ## Does NOT push; CI is the publishing surface. Local sanity gate only.
