@@ -1,0 +1,61 @@
+STATNIVE PROPRIETARY LICENSE — ALL RIGHTS RESERVED
+
+Copyright (c) 2026 Parhum Khoshbakht. All rights reserved.
+
+This repository ("the Software") is published source-available for the
+sole purposes of public transparency, security review, and academic
+reading. No license, express or implied, is granted to any person or
+entity to use, copy, modify, merge, publish, distribute, sublicense,
+sell, host, run in production, embed in another work, train any model
+on, redistribute, mirror, fork (other than the GitHub-mechanical fork
+button, which by itself confers no further rights), or create
+derivative works of the Software, in whole or in part, in any medium,
+for any purpose, commercial or non-commercial.
+
+The right to read the published source code on github.com is granted
+to the general public. No other right is granted.
+
+Any use beyond reading requires a separate written agreement signed
+by the copyright holder. Requests: parhum@statnive.com.
+
+----------------------------------------------------------------------
+Carve-outs (these are NOT covered by this proprietary license; their
+upstream licenses control):
+
+1. Files under `vendor/**` are third-party Go modules vendored via
+   `go mod vendor`. Each subdirectory contains its own LICENSE
+   (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, or ISC). Those
+   licenses continue to apply to those files.
+
+2. Files under `.claude/skills/**` are third-party Claude Code skills
+   from Anthropic, the community, and other authors. Each subdirectory
+   contains its own LICENSE / LICENSE.source / LICENSE.txt. Those
+   licenses continue to apply to those files.
+
+3. `LICENSE-third-party.md` documents attribution requirements for
+   bundled fonts (SIL Open Font License 1.1) and the optional
+   IP2Location LITE GeoIP database (Creative Commons Attribution-
+   ShareAlike 4.0). Those upstream licenses control those assets.
+
+4. The compiled Go binary `statnive-live` linked from this source
+   incorporates the vendored dependencies in (1) under their MIT /
+   Apache / BSD / ISC terms. Compliance manifests are produced by
+   `go-licenses` at release time and shipped in
+   `releases/<version>/licenses.json`.
+
+Everything else in this repository — including but not limited to the
+Go source under `cmd/`, `internal/`, `tracker/`, the Preact dashboard
+under `web/`, the ClickHouse schema and migrations under
+`clickhouse/`, the deployment scripts under `deploy/` and `scripts/`,
+the configuration templates under `config/`, the documentation under
+`docs/`, the operator runbooks, the CLAUDE.md, the LEARN.md, the
+PLAN.md, and the build system under `Makefile` and `build/` — is
+covered by this Proprietary License and may not be used.
+
+----------------------------------------------------------------------
+Disclaimer of warranty: THE SOFTWARE IS PROVIDED "AS IS", WITHOUT
+WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER
+BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE.
