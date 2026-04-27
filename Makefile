@@ -326,9 +326,14 @@ airgap-bundle-verify:
 	@cd build && sha256sum -c SHA256SUMS
 	@bash deploy/airgap-bundle-completeness.sh "$(BUNDLE_DIR)"
 
-## release: Full release gate — lint + test + integration + audit + airgap-bundle.
+## release: Full release gate — web-build + lint + test + integration + audit + airgap-bundle.
+## web-build runs first so internal/dashboard/spa/dist/ exists before any Go
+## compilation step (lint / test / audit) hits the //go:embed all:dist
+## directive in internal/dashboard/spa/dashboard.go. ci.yml does the same
+## ordering by running `make build` (which depends on web-build) ahead of
+## `make test` — this keeps `make release` self-contained.
 ## Does NOT push; CI is the publishing surface. Local sanity gate only.
-release: lint test test-integration audit airgap-bundle
+release: web-build lint test test-integration audit airgap-bundle
 	@echo "release: $(VERSION) bundle + SHA256SUMS at build/"
 
 ## dev-secret: Generate a random 32-byte master.key for local dev (chmod 0600)
