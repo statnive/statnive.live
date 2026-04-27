@@ -30,8 +30,66 @@ INCOMING_DIR=/opt/statnive-bundles/incoming
 BUNDLES_DIR=/opt/statnive-bundles
 CURRENT_LINK=/opt/statnive-live/current
 PUBKEY=/etc/statnive/release-key.pub
-HEALTHZ_URL="${STATNIVE_HEALTHZ_URL:-http://127.0.0.1:8080/healthz}"
+CONFIG_FILE="${STATNIVE_CONFIG_FILE:-/etc/statnive-live/config.yaml}"
 HEALTHZ_TIMEOUT_S="${STATNIVE_HEALTHZ_TIMEOUT_S:-30}"
+
+# derive_healthz_url derives the probe URL from the runtime config so the
+# probe matches the binary's actual listen address + scheme. The hardcoded
+# http://127.0.0.1:8080 default in earlier versions caused every successful
+# release deploy to be reported as failed when the binary listens on
+# 0.0.0.0:443 with TLS (LEARN.md Lesson 20). Order:
+#   1. STATNIVE_HEALTHZ_URL env var (operator override).
+#   2. server.listen + tls.cert_file from /etc/statnive-live/config.yaml.
+#   3. Fallback to http://127.0.0.1:8080/healthz (matches binary defaults).
+# CURL_OPTS gets `-k` whenever the scheme is https, since the probe targets
+# 127.0.0.1 but the cert is typically issued for the public hostname.
+derive_healthz_url() {
+	if [ -n "${STATNIVE_HEALTHZ_URL:-}" ]; then
+		HEALTHZ_URL="$STATNIVE_HEALTHZ_URL"
+		case "$HEALTHZ_URL" in https://*) CURL_OPTS="-k";; *) CURL_OPTS="";; esac
+		return 0
+	fi
+
+	local listen scheme
+	listen=""
+	scheme="http"
+
+	if [ -r "$CONFIG_FILE" ]; then
+		# server: { listen: "host:port" } — match the FIRST listen: line under server.
+		listen="$(awk '
+			/^server:/        { in_s=1; next }
+			in_s && /^[^[:space:]]/ { in_s=0 }
+			in_s && /^[[:space:]]+listen:/ {
+				sub(/.*listen:[[:space:]]*/, "")
+				sub(/[[:space:]]*#.*/, "")
+				gsub(/^"|"$/, "")
+				gsub(/^'\''|'\''$/, "")
+				gsub(/[[:space:]]+$/, "")
+				print; exit
+			}' "$CONFIG_FILE")"
+		# tls: { cert_file: "..." } — presence flips scheme to https.
+		if grep -qE '^[[:space:]]*cert_file:[[:space:]]*[^[:space:]#]' "$CONFIG_FILE"; then
+			scheme="https"
+		fi
+	fi
+
+	# Bind 0.0.0.0 / :: → probe via 127.0.0.1 / [::1] for loopback.
+	case "$listen" in
+		"0.0.0.0:"*) listen="127.0.0.1:${listen#0.0.0.0:}";;
+		"[::]:"*)    listen="[::1]:${listen#\[::\]:}";;
+		"")          listen="127.0.0.1:8080";;
+	esac
+
+	HEALTHZ_URL="${scheme}://${listen}/healthz"
+
+	if [ "$scheme" = "https" ]; then
+		CURL_OPTS="-k"
+	else
+		CURL_OPTS=""
+	fi
+}
+
+derive_healthz_url
 
 log()  { printf 'statnive-deploy: %s\n' "$*"; }
 fail() { printf 'statnive-deploy: %s\n' "$*" >&2; exit 1; }
@@ -60,7 +118,7 @@ current_version() {
 healthz_wait() {
 	local deadline=$(( $(date +%s) + HEALTHZ_TIMEOUT_S ))
 	while [ "$(date +%s)" -lt "$deadline" ]; do
-		if body="$(curl -fsS "$HEALTHZ_URL" 2>/dev/null)"; then
+		if body="$(curl -fsS $CURL_OPTS "$HEALTHZ_URL" 2>/dev/null)"; then
 			# Accept either {"status":"ok",...} or {"clickhouse":"up",...}.
 			if printf '%s' "$body" | grep -qE '"(status|clickhouse)"\s*:\s*"(ok|up)"'; then
 				log "healthz OK: $body"
@@ -187,7 +245,7 @@ do_versions() {
 }
 
 do_health() {
-	curl -fsS "$HEALTHZ_URL" || fail "healthz unreachable at $HEALTHZ_URL"
+	curl -fsS $CURL_OPTS "$HEALTHZ_URL" || fail "healthz unreachable at $HEALTHZ_URL"
 	echo
 }
 

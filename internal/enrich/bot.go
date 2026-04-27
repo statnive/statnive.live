@@ -67,7 +67,20 @@ func NewBotDetector(logger *slog.Logger) *BotDetector {
 			return b
 		}
 
-		logger.Warn("embedded crawler JSON empty or invalid; using fallback patterns")
+		// Embed unmarshalled but produced zero entries — JSON shape changed.
+		logger.Error("embedded crawler JSON empty or invalid; using fallback patterns",
+			"embed_bytes", len(crawlerJSON), "see", "LEARN.md Lesson 23")
+	} else {
+		// Empty embed happens when the binary was built before
+		// `make refresh-bot-patterns` ran (fresh checkouts) — that path is
+		// intentional graceful degradation. But on a release build the
+		// embed should be ~254 KB / 647 patterns; an empty embed there is
+		// the regression class captured in LEARN.md Lesson 23. Surface the
+		// byte count loudly so operators (and CI's --check-embed-sizes
+		// flag) can catch it without depending on log-grep.
+		logger.Error("embedded crawler JSON is empty; using fallback patterns",
+			"embed_bytes", 0, "expected_min_bytes", crawlerJSONMinBytes,
+			"see", "LEARN.md Lesson 23")
 	}
 
 	for _, p := range fallbackPatterns {
@@ -78,6 +91,22 @@ func NewBotDetector(logger *slog.Logger) *BotDetector {
 
 	return b
 }
+
+// crawlerJSONMinBytes is the size floor for a release-build embed. Below
+// this, the binary either was built before `make refresh-bot-patterns` ran
+// (fresh checkout — fine) or hit the LEARN.md Lesson 23 //go:embed
+// regression (release build — bug). The CLI flag --check-embed-sizes
+// uses this threshold to fail CI loudly without changing runtime behavior.
+const crawlerJSONMinBytes = 100 * 1024
+
+// CrawlerEmbedBytes returns the size of the embedded crawler JSON. Used
+// by `statnive-live --check-embed-sizes` and tests to assert the release
+// build embedded the full upstream pattern set.
+func CrawlerEmbedBytes() int { return len(crawlerJSON) }
+
+// CrawlerEmbedMinBytes returns the size floor used by the --check-embed-sizes
+// CI gate.
+func CrawlerEmbedMinBytes() int { return crawlerJSONMinBytes }
 
 // SetDatacenterCIDRs lets operators plug in an ASN/datacenter prefix list.
 // Lookup is linear — fine for the tiny lists you'd ship by hand. v1.1

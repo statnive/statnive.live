@@ -60,3 +60,24 @@ func TestBotDetector_DatacenterCIDR(t *testing.T) {
 		t.Error("non-datacenter IP should not flag")
 	}
 }
+
+// TestCrawlerEmbedSize asserts the //go:embed of crawler-user-agents.json
+// produced a non-trivial blob. Closes the regression class captured in
+// LEARN.md Lesson 23 — a GHA-built v0.0.1-rc1 binary embedded an empty
+// copy of the JSON despite the file being 254 KB on disk, silently
+// dropping bot detection from 647 patterns to 60 fallback patterns.
+//
+// The runtime path stays graceful (NewBotDetector falls back to the
+// inline list on empty embed); this test is the build-time hard gate.
+// Pairs with `statnive-live --check-embed-sizes` for CI.
+func TestCrawlerEmbedSize(t *testing.T) {
+	t.Parallel()
+
+	got := enrich.CrawlerEmbedBytes()
+	floor := enrich.CrawlerEmbedMinBytes()
+
+	if got < floor {
+		t.Fatalf("crawler-user-agents.json embed is %d bytes; expected >=%d (LEARN.md Lesson 23). "+
+			"Did `make refresh-bot-patterns` run before this build?", got, floor)
+	}
+}

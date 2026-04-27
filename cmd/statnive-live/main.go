@@ -65,10 +65,59 @@ const (
 )
 
 func main() {
+	// CI gate: print embed sizes and exit non-zero if any are below their
+	// release-build floor. Used by `make airgap-bundle-verify` to catch the
+	// LEARN.md Lesson 23 //go:embed regression class without changing the
+	// binary's runtime startup behavior (which deliberately falls back to
+	// inline patterns for fresh checkouts before `make refresh-bot-patterns`).
+	for _, a := range os.Args[1:] {
+		if a == "--check-embed-sizes" || a == "-check-embed-sizes" {
+			os.Exit(checkEmbedSizes())
+		}
+	}
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "statnive-live: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// checkEmbedSizes prints each embed's byte count to stdout and returns
+// 1 if any embed is below its release-build floor, 0 otherwise. Designed
+// to be called from CI right after `make build-linux` to assert the
+// expected upstream JSON / asset blobs actually compiled into the binary.
+func checkEmbedSizes() int {
+	type embed struct {
+		name     string
+		size     int
+		floor    int
+		floorRef string
+	}
+
+	embeds := []embed{
+		{"crawler-user-agents.json", enrich.CrawlerEmbedBytes(), enrich.CrawlerEmbedMinBytes(), "LEARN.md Lesson 23"},
+	}
+
+	exit := 0
+
+	for _, e := range embeds {
+		ok := e.size >= e.floor
+		mark := "OK  "
+
+		if !ok {
+			mark = "FAIL"
+			exit = 1
+		}
+
+		fmt.Printf("%s  %-40s  %8d B  (floor %8d B, %s)\n",
+			mark, e.name, e.size, e.floor, e.floorRef)
+	}
+
+	if exit != 0 {
+		fmt.Fprintln(os.Stderr, "statnive-live --check-embed-sizes: at least one embed below floor; build is broken")
+	}
+
+	return exit
 }
 
 //nolint:gocyclo,funlen // main wires 25+ subsystems linearly; splitting hides the wire order

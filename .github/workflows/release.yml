@@ -23,6 +23,7 @@ on:
 
 permissions:
   contents: write   # gh release create needs this
+  actions:  write   # gh workflow run deploy-saas.yml needs this (LEARN.md Lesson 22)
 
 jobs:
   release:
@@ -143,6 +144,22 @@ jobs:
             "build/${BASE}.tar.gz" \
             "build/SHA256SUMS" \
             "build/SHA256SUMS.sig"
+
+      # GitHub blocks workflow_run chains created via GITHUB_TOKEN to prevent
+      # recursion (LEARN.md Lesson 22). Explicitly dispatch deploy-saas.yml
+      # so the chain auto-fires on every release without manual intervention.
+      # Keeps `on: release: types: [published]` for back-compat with PAT-driven
+      # releases or external automation that uses a non-GITHUB_TOKEN identity.
+      - name: Trigger deploy-saas.yml
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          gh workflow run deploy-saas.yml \
+            --ref "$VERSION" \
+            -f version="$VERSION" \
+            --repo "${{ github.repository }}"
+          echo "Dispatched deploy-saas.yml for $VERSION (LEARN.md Lesson 22)"
 
       - name: Upload bundle as workflow artifact (debug aid, 14d retention)
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4

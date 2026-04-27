@@ -347,6 +347,24 @@ release-fresh:
 	rm -rf bin/ build/ internal/dashboard/spa/dist/ web/dist/
 	$(MAKE) release
 
+## ops-install-release-key: One-time per-VPS prereq for GHA-driven deploys.
+## Pushes deploy/keys/release-signing.pub to /etc/statnive/release-key.pub on
+## the target host so the on-box airgap-verify-bundle.sh can verify the
+## Ed25519 signature produced by release.yml. Idempotent; safe to re-run.
+## Required before the first release.yml run on any new VPS — without it,
+## every deploy fails with "Ed25519 signature mismatch — REJECT" (LEARN.md
+## Lesson 21).
+##
+## Usage:
+##   VPS_HOST=ops@94.16.108.78 make ops-install-release-key
+ops-install-release-key:
+	@if [ -z "$(VPS_HOST)" ]; then \
+		echo "ops-install-release-key: VPS_HOST required (e.g. VPS_HOST=ops@94.16.108.78)"; \
+		exit 1; \
+	fi
+	scp deploy/keys/release-signing.pub "$(VPS_HOST):/tmp/release-key.pub"
+	ssh "$(VPS_HOST)" 'sudo install -d -m 0755 /etc/statnive && sudo install -m 0644 /tmp/release-key.pub /etc/statnive/release-key.pub && rm /tmp/release-key.pub && echo "installed:" && cat /etc/statnive/release-key.pub'
+
 ## dev-secret: Generate a random 32-byte master.key for local dev (chmod 0600)
 dev-secret:
 	@if [ -f config/master.key ]; then \
