@@ -4,7 +4,6 @@
 GO            ?= go
 BIN_DIR       := bin
 BIN_NAME      := statnive-live
-PKG           := $(shell go list -mod=vendor ./... 2>/dev/null | grep -v '/web/node_modules/')
 
 # `make tools` installs golangci-lint / go-licenses / govulncheck / semgrep into
 # $(go env GOPATH)/bin. Resolve those tool paths once here so recipes work even
@@ -44,7 +43,7 @@ build-linux: web-build
 
 ## test: Run unit tests with race detector (target <5s wall time)
 test:
-	$(GO) test -mod=vendor -race -timeout 60s $(PKG)
+	$(GO) test -mod=vendor -race -timeout 60s ./...
 
 ## test-integration: Run integration tests (requires `docker compose up -d clickhouse`).
 ## Depends on web-build so //go:embed all:dist/* in internal/dashboard/spa has
@@ -147,7 +146,7 @@ tenancy-grep:
 
 ## fmt: Auto-format with gofumpt via golangci-lint
 fmt:
-	$(GOLANGCI_LINT) fmt $(PKG)
+	$(GOLANGCI_LINT) fmt ./...
 
 ## vendor-check: Verify go.sum + vendored deps are up to date (CI gate)
 ## --ignore-cr-at-eol so CRLF in upstream README/CHANGELOG (klauspost/cpuid,
@@ -364,7 +363,7 @@ refresh-bot-patterns:
 ## audit: Hardening gate — vendor + tenancy + go vet + hot-path benches + tracker bundle size
 ## Re-run before opening a PR. Slow tests + CH integration excluded.
 audit: vendor-check tenancy-grep tracker-size token-budget bundle-gate brand-grep web-airgap-grep
-	$(GO) vet -mod=vendor $(PKG)
+	$(GO) vet -mod=vendor ./...
 	$(GO) test -mod=vendor -bench=. -benchmem -run='^$$' -benchtime=2s -timeout 5m ./internal/enrich/ ./internal/ingest/
 
 ## token-budget: AI-surface line-count + skill-description caps (CLAUDE.md/PLAN.md/tooling.md/14 SKILL.md)
