@@ -335,6 +335,18 @@ airgap-bundle-verify:
 release: web-build lint test test-integration audit airgap-bundle
 	@echo "release: $(VERSION) bundle + SHA256SUMS at build/"
 
+## release-fresh: Wipe build artifacts and run the full release gate as if
+## on a clean checkout. Run this BEFORE pushing any release tag — it is
+## the only validated predictor of the release.yml outcome (avoids the
+## "make ci-local works locally because dist/ is cached, then release.yml
+## fails on a fresh runner" trap that cost us PRs #64-#73 + this PR).
+##
+## Usage:
+##   SIGNING_KEY=$$HOME/.ssh/statnive-release VERSION=v0.0.1-rc1 make release-fresh
+release-fresh:
+	rm -rf bin/ build/ internal/dashboard/spa/dist/ web/dist/
+	$(MAKE) release
+
 ## dev-secret: Generate a random 32-byte master.key for local dev (chmod 0600)
 dev-secret:
 	@if [ -f config/master.key ]; then \

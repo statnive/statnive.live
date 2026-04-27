@@ -733,6 +733,43 @@ Next slice: **Phase 5 frontend** is unblocked.
 
 ## Phase 8 — Deploy + airgap bundle (operator SOPs)
 
+### Tagging a release (pre-push local validation — MANDATORY)
+
+**Run `make release-fresh` locally end-to-end before pushing any `v*` tag.** It is the only validated predictor of `release.yml`'s outcome on a fresh GHA runner. Skipping this step costs a PR-per-CI-failure cycle (PRs #64 / #66 / #69 / #70 / #71 / #72 / #73 in the v0.0.1-rc1 release-attempt chain are the canonical anti-pattern).
+
+```bash
+cd statnive-live
+git checkout main && git pull --ff-only
+
+# Boot ClickHouse (test-integration depends on it).
+docker compose -f deploy/docker-compose.dev.yml up -d clickhouse
+sleep 10
+
+# Full release-gate dry-run, byte-equivalent to release.yml's `make release` step:
+SIGNING_KEY="$HOME/.ssh/statnive-release" VERSION=v0.0.1-rc1 make release-fresh
+
+# On exit 0, the bundle + signature exist at:
+#   build/statnive-live-${VERSION}-linux-amd64-airgap.tar.gz
+#   build/SHA256SUMS
+#   build/SHA256SUMS.sig
+# Verify they pass the operator-side check:
+./deploy/airgap-verify-bundle.sh \
+  build/statnive-live-${VERSION}-linux-amd64-airgap.tar.gz \
+  deploy/keys/release-signing.pub
+```
+
+`release-fresh` wipes `bin/`, `build/`, `internal/dashboard/spa/dist/`, and `web/dist/` first to simulate a fresh checkout. This catches the parse-time `$(PKG)` race, missing `web/dist/` for `//go:embed`, missing dev tools, doc-cap drift, and any other "works on dev because of cached state" gap.
+
+Only after `make release-fresh` exits 0:
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+# release.yml + deploy-saas.yml fire automatically; monitor via gh run watch
+```
+
+If `make release-fresh` fails, fix the gap on a feature branch, merge, and re-run before tagging. Do **not** push the tag and chase one CI failure at a time.
+
 ### Air-gap bundle install
 
 > ⚠️ **Known issues hit during the Milestone 1 cutover (2026-04-25).** Read [`PLAN.md § Milestone 1 cutover postmortem`](../PLAN.md#milestone-1-cutover-postmortem-2026-04-25) before starting; full bug catalog + lessons there. Until follow-up PR-A merges:
