@@ -32,6 +32,11 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
   - [18 — Don't paste credentials into chat / transcripts](#lesson-18)
 - [G. Pre-release validation](#g-pre-release-validation)
   - [19 — `make release-fresh` locally before any `v*` tag push](#lesson-19)
+- [H. Deploy-time probes & VPS prereqs](#h-deploy-time-probes--vps-prereqs)
+  - [20 — `statnive-deploy` healthz probe must read host:port from config](#lesson-20)
+  - [21 — `/etc/statnive/release-key.pub` is a one-time VPS prereq](#lesson-21)
+  - [22 — `release.yml` cannot auto-fire downstream workflows via `GITHUB_TOKEN`](#lesson-22)
+  - [23 — Embed-size assertion for refreshed JSON to catch silent stale-build regressions](#lesson-23)
 
 ---
 
@@ -251,6 +256,46 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
 2. **Why it broke** — `make ci-local` (the local-CI mirror) does NOT include `airgap-bundle` + signing, and runs against a dev tree where `internal/dashboard/spa/dist/`, `web/dist/`, `bin/`, etc. already exist from prior runs. `release.yml` runs `make release` on a clean ubuntu-latest GHA runner with none of those caches. Every "works on dev because state is warm" gap surfaced one-at-a-time on the runner: parse-time `$(PKG)` race (Makefile evaluates `$(shell go list)` BEFORE `web-build` creates `dist/`), missing dev tools (semgrep / golangci-lint / govulncheck / go-licenses), token-budget caps tighter than current doc actuals, race-detector overhead invalidating the perf-budget assertion, and a self-targeting `mv build/SHA256SUMS.sig build/SHA256SUMS.sig` (no-op on macOS, exit-1 on GNU coreutils Linux).
 3. **The fix we applied** — Added `make release-fresh` Makefile target that wipes `bin/`, `build/`, `internal/dashboard/spa/dist/`, `web/dist/` and then runs `make release`. Documented as the mandatory pre-tag step in `docs/runbook.md` § Phase 8 § Tagging. Same PR also fixed the `airgap-bundle.sh` self-`mv` bug surfaced by running it locally for the first time.
 4. **Preventive measure** — Self-policed via runbook checklist; no automation possible without a server-side pre-receive hook (out of scope for v1). Cost is one local make invocation (~5 min on a warm box, ~10 min cold). Avoided cost is N PRs × CI minutes per release. Net savings positive after the second avoided whack-a-mole loop. **The rule:** if `make release-fresh` exits non-zero locally, do NOT push the tag — fix on a feature branch, merge, re-run `release-fresh`, then tag. Never debug the gate by re-tagging on the runner.
+
+---
+
+## H. Deploy-time probes & VPS prereqs
+
+### Lesson 20
+
+**`statnive-deploy`'s healthz probe must read host:port + scheme from `/etc/statnive-live/config.yaml`, not hardcode `http://127.0.0.1:8080`.**
+
+1. **What we did** — Trusted `deploy-saas.yml`'s "Run on-box deploy" step to honestly report deploy success/failure for v0.0.1-rc1.
+2. **Why it broke** — `/usr/local/bin/statnive-deploy` (built from `deploy/statnive-deploy.sh`) probed `http://127.0.0.1:8080/healthz` with a 30-s timeout. The binary listens on `0.0.0.0:443` with TLS per `server.listen` in `config.yaml`. Probe timed out → script reported "deploy failed" → auto-revert kicked in → revert probe also timed out → "manual intervention required." But the binary was healthy the whole time (verified out-of-band via `curl -ksS https://127.0.0.1/healthz` from the VPS itself: `status=ok`, `clickhouse=up`).
+3. **The fix we applied** — `deploy/statnive-deploy.sh` now derives `HEALTHZ_URL` at runtime: `STATNIVE_HEALTHZ_URL` env wins; otherwise parse `server.listen` (rebinding `0.0.0.0` → `127.0.0.1`) + check `tls.cert_file` to choose `https://` (with `-k` to ignore cert-name mismatch on loopback) vs `http://`. Fallback to `http://127.0.0.1:8080/healthz` when `/etc/statnive-live/config.yaml` is unreadable. 4-scenario coverage: TLS prod / HTTP dev / env override / missing config — all green locally.
+4. **Preventive measure** — Verification §63 (`docs/runbook.md` § Tagging a release / PLAN.md): integration test spins `bin/statnive-live` on a non-default port + scheme and asserts `statnive-deploy` derives the matching probe URL. Catches the bug class on any future config-shape change.
+
+### Lesson 21
+
+**`/etc/statnive/release-key.pub` is a one-time per-VPS prereq for GHA-driven deploys. Add `make ops-install-release-key` + a runbook checklist line; don't trust the comment-block prereq in `deploy-saas.yml`'s header.**
+
+1. **What we did** — Configured GHA secrets (`STATNIVE_RELEASE_PRIVKEY`), pinned the matching pubkey at `deploy/keys/release-signing.pub`, triggered `deploy-saas.yml`. Bundle SCP succeeded; on-box `airgap-verify-bundle.sh` failed with `Ed25519 signature mismatch — REJECT`.
+2. **Why it broke** — The on-box verifier reads `/etc/statnive/release-key.pub`. That file was never created. `deploy-saas.yml`'s top comment lists it as a prereq but no automation enforces it; first GHA-driven deploy on any new VPS hits this.
+3. **The fix we applied** — `scp deploy/keys/release-signing.pub ops@<vps>:/tmp/release-key.pub` + `sudo install -d -m 0755 /etc/statnive && sudo install -m 0644 /tmp/release-key.pub /etc/statnive/release-key.pub`. Bundled into a new `make ops-install-release-key VPS_HOST=...` Makefile target so the SCP + install dance is one command and idempotent.
+4. **Preventive measure** — `docs/runbook.md` § Phase 8 § Tagging now lists `make ops-install-release-key` as a one-time per-VPS step. Future enhancement (out of scope for this PR): `airgap-install.sh`'s post-install summary detects a missing pubkey and prints a reminder.
+
+### Lesson 22
+
+**`release.yml` cannot auto-fire `deploy-saas.yml` via the `release: published` trigger because `GITHUB_TOKEN`-created events don't start downstream workflows. Add an explicit `gh workflow run` step at the end of `release.yml`.**
+
+1. **What we did** — Trusted `deploy-saas.yml`'s `on: release: types: [published]` trigger to fire when `release.yml` published the GitHub Release.
+2. **Why it broke** — GitHub's recursion guard: events created by a workflow using `GITHUB_TOKEN` (e.g. `gh release create`) do NOT trigger other workflows, except `workflow_dispatch` and `repository_dispatch`. Documented at <https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow>.
+3. **The fix we applied** — Manual `gh workflow run deploy-saas.yml -f version=v0.0.1-rc1` after each `release.yml` success was the workaround. The durable fix: a final `gh workflow run deploy-saas.yml --ref ${VERSION} -f version=${VERSION}` step at the end of `release.yml`'s `build + sign + publish` job + `actions: write` permission. The existing `release: published` trigger stays for back-compat with PAT-driven external automation.
+4. **Preventive measure** — Verification §65: the next release tag must auto-fire `deploy-saas.yml` without manual `gh workflow run`. Replaces the manual workflow_dispatch step in the cutover SOP.
+
+### Lesson 23
+
+**`//go:embed` of an updated data file (`internal/enrich/crawler-user-agents.json`) shipped empty in the GHA-built v0.0.1-rc1 binary even though the bundle-completeness gate passed. Add a build-time embed-size assertion that CI can check + escalate the runtime log to ERROR.**
+
+1. **What we did** — `internal/enrich/crawler-user-agents.json` was refreshed in PR-A to ~254 KB / 647 patterns. Local `make release-fresh` produced a binary that loaded 647 patterns. The GHA-built v0.0.1-rc1 binary running on the VPS logged `embedded crawler JSON empty or invalid; using fallback patterns` and runs with the 60-pattern fallback list.
+2. **Why it broke** — Root cause unconfirmed as of this writeup. Two candidates: (a) `//go:embed` resolved at build time on the GHA runner read from a pre-refresh state somewhere in the cache chain (npm cache, Go cache, vendored copy), (b) bundle-completeness's pre-bundle size guard runs *after* the binary is compiled, so a build-time-empty file silently produces an empty embed even when the bundle's own copy of the file is full size. Investigation deferred — the regression is now caught regardless via the build-time check below.
+3. **The fix we applied** — `internal/enrich/bot.go` exports `CrawlerEmbedBytes()` and `CrawlerEmbedMinBytes()` (100 KB floor). New `bin/statnive-live --check-embed-sizes` CLI flag prints all embed sizes + exits 1 if any fall below the floor; CI can call it after `make build-linux`. Runtime path stays graceful (fresh checkouts before `make refresh-bot-patterns` legitimately produce an empty embed) but logs ERROR-level (not WARN) with byte counts + LEARN.md cross-reference so operators can't miss it. Unit test `TestCrawlerEmbedSize` asserts the floor on every `make test`.
+4. **Preventive measure** — Verification §64: CI step in the existing `airgap-bundle-verify` chain runs `bin/statnive-live --check-embed-sizes`. Future builds with stale-embed regressions fail loudly at bundle-verify time, not silently in production. Runtime FATAL was rejected because it would break legitimate fresh-checkout dev builds; the build-time gate is sufficient.
 
 ---
 

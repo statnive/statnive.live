@@ -737,6 +737,8 @@ Next slice: **Phase 5 frontend** is unblocked.
 
 **Run `make release-fresh` locally end-to-end before pushing any `v*` tag.** It is the only validated predictor of `release.yml`'s outcome on a fresh GHA runner. Skipping this step costs a PR-per-CI-failure cycle (PRs #64 / #66 / #69 / #70 / #71 / #72 / #73 in the v0.0.1-rc1 release-attempt chain are the canonical anti-pattern).
 
+**One-time per-VPS prereq:** before the first GHA-driven release on any new box, run `VPS_HOST=ops@<vps> make ops-install-release-key` from your dev box. The on-box `airgap-verify-bundle.sh` reads `/etc/statnive/release-key.pub`; without it every deploy will fail with `Ed25519 signature mismatch — REJECT` (LEARN.md Lesson 21).
+
 ```bash
 cd statnive-live
 git checkout main && git pull --ff-only
