@@ -30,6 +30,8 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
   - [16 — DNT='1' silently zeroes the tracker; test in clean Chrome incognito](#lesson-16)
   - [17 — `_statnive` cookie needs GDPR review for SaaS posture](#lesson-17)
   - [18 — Don't paste credentials into chat / transcripts](#lesson-18)
+- [G. Pre-release validation](#g-pre-release-validation)
+  - [19 — `make release-fresh` locally before any `v*` tag push](#lesson-19)
 
 ---
 
@@ -236,6 +238,19 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
 2. **Why it broke** — Conversation logs persist (Anthropic-side + the operator's local logs + any chat-export artifacts). Exfiltration risk even if you trust the immediate channel — transcript could be referenced later, shared in a postmortem, or scraped by an aggregator.
 3. **The fix we applied** — After verifying admin login worked, operator created a new admin via the SPA, disabled `ops@statnive.live`, commented out the `STATNIVE_BOOTSTRAP_*` envs in the systemd drop-in, restarted statnive-live, `shred -u`'d `/root/statnive-bootstrap-password.txt`. Net cost: ~10 minutes of operator time + one extra dashboard-side rotation.
 4. **Preventive measure** — Cutover docs flag credentials with a DO NOT PASTE warning. `step-b.sh § B.5`'s summary block could refuse to print the password to stdout — write it to `/root/statnive-bootstrap-password.txt` (mode 0400) only and tell the operator "cat that file via SSH; never paste here". Eliminates the most common path to leakage.
+
+---
+
+## G. Pre-release validation
+
+### Lesson 19
+
+**Run `make release-fresh` locally end-to-end before pushing any `v*` tag — it is the only validated predictor of `release.yml`'s outcome.**
+
+1. **What we did** — Pushed `v0.0.1-rc1` six times in one session. Each push triggered `release.yml`, surfaced one new gap, was fixed by a one-line PR, and the tag was deleted + re-pushed. Total cost: 7 PRs (#64 / #66 / #69 / #70 / #71 / #72 / #73 + this one), ~6 release.yml runs, ~30 minutes of CI minutes, ~2 hours of operator + Claude attention.
+2. **Why it broke** — `make ci-local` (the local-CI mirror) does NOT include `airgap-bundle` + signing, and runs against a dev tree where `internal/dashboard/spa/dist/`, `web/dist/`, `bin/`, etc. already exist from prior runs. `release.yml` runs `make release` on a clean ubuntu-latest GHA runner with none of those caches. Every "works on dev because state is warm" gap surfaced one-at-a-time on the runner: parse-time `$(PKG)` race (Makefile evaluates `$(shell go list)` BEFORE `web-build` creates `dist/`), missing dev tools (semgrep / golangci-lint / govulncheck / go-licenses), token-budget caps tighter than current doc actuals, race-detector overhead invalidating the perf-budget assertion, and a self-targeting `mv build/SHA256SUMS.sig build/SHA256SUMS.sig` (no-op on macOS, exit-1 on GNU coreutils Linux).
+3. **The fix we applied** — Added `make release-fresh` Makefile target that wipes `bin/`, `build/`, `internal/dashboard/spa/dist/`, `web/dist/` and then runs `make release`. Documented as the mandatory pre-tag step in `docs/runbook.md` § Phase 8 § Tagging. Same PR also fixed the `airgap-bundle.sh` self-`mv` bug surfaced by running it locally for the first time.
+4. **Preventive measure** — Self-policed via runbook checklist; no automation possible without a server-side pre-receive hook (out of scope for v1). Cost is one local make invocation (~5 min on a warm box, ~10 min cold). Avoided cost is N PRs × CI minutes per release. Net savings positive after the second avoided whack-a-mole loop. **The rule:** if `make release-fresh` exits non-zero locally, do NOT push the tag — fix on a feature branch, merge, re-run `release-fresh`, then tag. Never debug the gate by re-tagging on the runner.
 
 ---
 

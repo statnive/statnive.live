@@ -162,8 +162,11 @@ echo "$TGZ_SHA  ${BUNDLE_NAME}.tar.gz" > build/SHA256SUMS
 # SIGNING_KEY=/path/to/age-decrypted-ed25519-key.
 if [ -n "$SIGNING_KEY" ] && [ -f "$SIGNING_KEY" ]; then
 	echo "airgap-bundle: signing SHA256SUMS with $SIGNING_KEY"
+	# ssh-keygen -Y sign writes the signature to <FILE>.sig directly,
+	# so build/SHA256SUMS.sig already lands at the expected path. A
+	# stray `mv` here would be a self-mv that GNU coreutils rejects
+	# with "are the same file" (exit 1) on Linux runners.
 	ssh-keygen -Y sign -f "$SIGNING_KEY" -n statnive-live-airgap build/SHA256SUMS
-	mv build/SHA256SUMS.sig build/SHA256SUMS.sig
 else
 	echo "airgap-bundle: SIGNING_KEY unset — skipping Ed25519 signature (SHA256-only bundle)"
 fi
