@@ -193,6 +193,9 @@ func TestGoalStep_P99Under200ns(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping perf test under -short")
 	}
+	if raceEnabled {
+		t.Skip("ns/op budget is meaningless under -race detector overhead; covered by `make bench`")
+	}
 
 	fs := newFakeStore()
 	ctx := context.Background()
