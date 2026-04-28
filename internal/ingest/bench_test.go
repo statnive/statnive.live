@@ -47,7 +47,7 @@ func BenchmarkHandler_FullPath(b *testing.B) {
 		Sites:    ingest.StaticSiteResolver{SiteID: 1},
 		Logger:   logger,
 	})
-	handler := ingest.FastRejectMiddleware(nil)(inner)
+	handler := ingest.FastRejectMiddleware(nil, nil)(inner)
 
 	body := `{"hostname":"bench.example.com","pathname":"/","event_type":"pageview","event_name":"pageview"}`
 

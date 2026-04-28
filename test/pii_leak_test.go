@@ -139,7 +139,7 @@ func TestPIILeak_RawUserIDAndIPNeverPersist(t *testing.T) {
 
 	router := chi.NewRouter()
 	router.Group(func(r chi.Router) {
-		r.Use(ingest.FastRejectMiddleware(auditLog))
+		r.Use(ingest.FastRejectMiddleware(auditLog, nil))
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline: pipeline,
 			WAL:      groupSyncer,
