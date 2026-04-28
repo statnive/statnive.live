@@ -1,0 +1,57 @@
+# Phase 7e PII wire-scan pipeline (doc 29 §6.3 + §3.4).
+# Live (<1s) detection at 15K+ EPS via VRL regex match. Halts the gate
+# on rate() > 0 via the prometheus_pushgateway counter scraped by
+# alerts.rules.yml `PIILeakDetected`.
+#
+# Supersedes the one-shot test/pii_leak_test.go for runtime detection;
+# the Go test is kept as in-process defense-in-depth.
+
+[api]
+enabled = true
+address = "0.0.0.0:8686"
+
+[sources.collector_log]
+type = "file"
+include = [
+    "/var/log/statnive-live/audit.jsonl",
+    "/var/log/statnive-live/alerts.jsonl",
+]
+read_from = "end"
+
+[transforms.pii_scan]
+type = "remap"
+inputs = ["collector_log"]
+source = '''
+  msg = string!(.message)
+  has_ipv4  = match(msg, r'(?:^|[^0-9.])(?:25[0-5]|2[0-4][0-9]|[01]?[0-9]{1,2})\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9]{1,2})\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9]{1,2})\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9]{1,2})(?:[^0-9]|$)')
+  has_ipv6  = match(msg, r'(?i)(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{1,4}')
+  has_email = match(msg, r'(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}')
+  has_uid   = match(msg, r'(?i)\"user_id\"\s*:\s*\"[^\"]+\"')
+  .pii_leak = has_ipv4 || has_ipv6 || has_email || has_uid
+'''
+
+[transforms.pii_alerts_only]
+type = "filter"
+inputs = ["pii_scan"]
+condition = '.pii_leak == true'
+
+[sinks.loki_pii]
+type = "loki"
+inputs = ["pii_alerts_only"]
+endpoint = "http://loki:3100"
+encoding.codec = "json"
+labels.job = "pii-leak"
+labels.severity = "critical"
+
+[sinks.prom_pii_counter]
+type = "prometheus_exporter"
+inputs = ["pii_alerts_only"]
+address = "0.0.0.0:9598"
+default_namespace = "statnive"
+
+[sinks.loki_full]
+type = "loki"
+inputs = ["pii_scan"]
+endpoint = "http://loki:3100"
+encoding.codec = "json"
+labels.job = "collector-log"

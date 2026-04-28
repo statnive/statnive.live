@@ -1,0 +1,24 @@
+{
+  "_comment": "Canonical load-test fixture data. Single source of truth for the Persian paths, Iranian UAs, and 1500-visitor cookie pool that drive the k6 load.js, Locust harness, and Go generator. Update once, three load tools follow.",
+  "persianPaths": [
+    "/خانه",
+    "/فیلم",
+    "/سریال",
+    "/تماس",
+    "/درباره-ما",
+    "/ورود",
+    "/ثبت-نام"
+  ],
+  "iranianUserAgents": [
+    "Mozilla/5.0 (Linux; Android 13; SM-A536B) AppleWebKit/537.36 Chrome/120 Mobile",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1 Version/17.2 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1 Version/17.2 Safari/605.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120"
+  ],
+  "visitorPool": {
+    "size": 1500,
+    "format": "v-{8-char zero-padded hex index}",
+    "first": "v-00000000",
+    "last": "v-000005db"
+  }
+}

@@ -238,7 +238,7 @@ Full inventory in [`docs/tooling.md`](docs/tooling.md): 4 original skill collect
 | `internal/enrich/geoip.go` / ip2location-go / SIGHUP wiring / attribution surfaces | [`geoip-pipeline-review`](.claude/skills/geoip-pipeline-review/README.md) |
 | `migrations/*.sql` / `internal/ingest/**` / `internal/query/**` / `prometheus/*.rules.yml` | [`clickhouse-operations-review`](.claude/skills/clickhouse-operations-review/README.md) |
 | `Engine=` or `{{if .Cluster}}` in migrations (advisory runbook) | [`clickhouse-upgrade-playbook`](.claude/skills/clickhouse-upgrade-playbook/README.md) |
-| `test/perf/gate/**` / `test/perf/chaos/**` / `test/perf/generator/**` / `deploy/observability/**` (scheduled Phase 7e) | `load-gate-harness` (to scaffold in Phase 7e; advisory until Phase 10 P1 cutover — HARD GATE thereafter) |
+| `test/perf/gate/**` / `test/perf/chaos/**` / `test/perf/generator/**` / `deploy/observability/**` | [`load-gate-harness`](.claude/skills/load-gate-harness/README.md) (advisory until Phase 10 P1 cutover — HARD GATE thereafter; encodes generator_seq oracle, chaos up/down/status convention, Architecture Rule 5 carve-out, observability image-pin) |
 
 ### Anti-patterns (doc 28 §Anti-patterns) — absolute bans
 

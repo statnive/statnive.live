@@ -1,0 +1,5 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+  grafana:
+    image: grafana/grafana:11.2.0

@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: load-gate
+    folder: 'Load Gate'
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

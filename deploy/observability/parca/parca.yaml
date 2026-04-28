@@ -1,0 +1,18 @@
+object_storage:
+  bucket:
+    type: FILESYSTEM
+    config:
+      directory: /var/lib/parca
+scrape_configs:
+  - job_name: statnive-live
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['REPLACE_WITH_TARGET_COLLECTOR:8080']
+    profiling_config:
+      pprof_config:
+        cpu:
+          enabled: true
+        heap:
+          enabled: true
+        goroutine:
+          enabled: true

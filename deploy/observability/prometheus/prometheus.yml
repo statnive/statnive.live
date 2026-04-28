@@ -1,0 +1,43 @@
+# Phase 7e Prometheus config (doc 29 §3.3).
+# Scrapes the statnive-live binary's existing /metrics endpoint plus
+# generator-fleet node-exporters and the staging ClickHouse Prometheus
+# integration. Alerting rules live in alerts.rules.yml.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    deployment: statnive-load-gate
+    phase: "${LOAD_GATE_PHASE:-P1}"
+
+rule_files:
+  - alerts.rules.yml
+
+scrape_configs:
+  - job_name: statnive-live
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['REPLACE_WITH_TARGET_COLLECTOR:8080']
+        labels:
+          role: collector
+
+  - job_name: clickhouse
+    static_configs:
+      - targets: ['REPLACE_WITH_CH_HOST:9363']
+        labels:
+          role: clickhouse-staging
+
+  - job_name: generator-fleet
+    static_configs:
+      - targets:
+          - 'REPLACE_AT_PHASE_10_AT_VPS_B1_a:9100'
+          - 'REPLACE_AT_PHASE_10_AT_VPS_B1_b:9100'
+          - 'REPLACE_AT_PHASE_10_AT_VPS_B1_c:9100'
+        labels:
+          role: generator
+
+  - job_name: pii-leak
+    static_configs:
+      - targets: ['vector:8686']
+        labels:
+          role: pii-scanner

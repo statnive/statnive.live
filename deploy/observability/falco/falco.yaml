@@ -1,0 +1,42 @@
+# Phase 7e Falco runtime-syscall rules (doc 29 §6.3).
+# Asserts the air-gap contract from CLAUDE.md § Isolation: zero outbound
+# connections except to the observability VLAN (10.99.0.0/16 placeholder).
+
+rules_file:
+  - /etc/falco/falco.local.yaml
+
+http_output:
+  enabled: true
+  url: http://prometheus-pushgateway:9091
+
+stdout_output:
+  enabled: true
+
+json_output: true
+log_level: info
+
+# Inline custom rules — Phase 7e baseline. Scenario-specific extensions
+# load via /etc/falco/rules.d/ at run time.
+custom_rules:
+  - rule: Unexpected outbound connection from statnive-live
+    desc: Binary attempted egress to a non-allowlisted destination.
+    condition: >
+      evt.type=connect and
+      proc.name=statnive-live and
+      not (fd.sip in (10.99.0.0/16, 127.0.0.0/8))
+    output: >
+      Air-gap violation: statnive-live connect to %fd.sip:%fd.sport
+      (proc=%proc.name pid=%proc.pid)
+    priority: CRITICAL
+    tags: [statnive, airgap]
+
+  - rule: Shell execution under statnive service user
+    desc: Service user spawned a shell — RCE indicator.
+    condition: >
+      spawned_process and
+      user.name=statnive and
+      proc.name in (sh, bash, zsh)
+    output: >
+      Shell spawned under statnive user: %proc.cmdline
+    priority: CRITICAL
+    tags: [statnive, rce]
