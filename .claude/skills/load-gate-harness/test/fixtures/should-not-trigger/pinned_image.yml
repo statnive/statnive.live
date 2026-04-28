@@ -1,0 +1,5 @@
+services:
+  prometheus:
+    image: prom/prometheus@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  grafana:
+    image: grafana/grafana@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210

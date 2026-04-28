@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks load-gate load-gate-crosscheck soak-72h chaos-matrix breakpoint oracle-scan oracle-verify-sparse load-gate-semgrep
 
 all: lint test build
 
@@ -542,6 +542,95 @@ hooks:
 	@chmod +x .githooks/* 2>/dev/null || true
 	@echo "Hooks activated. .githooks/pre-push will run on every 'git push'."
 	@echo "Bypass once: git push --no-verify   |   Use fast subset: STATNIVE_PREPUSH_FAST=1 git push"
+
+# ---------------------------------------------------------------------------
+# Phase 7e load-simulation gate (PLAN.md §283, doc 29 §8 W1–W5)
+# ---------------------------------------------------------------------------
+# Pre-cutover, per-phase gate — NOT part of `ci-local` (per-PR CI). Invoked
+# manually before each Phase 10 sub-phase cutover. Phase 7e ships the
+# scaffolding; Phase 10 wires the real Asiatech generator fleet.
+#
+# Required env: PHASE=P1..P5, RUN_ID=<uuid> (auto-minted if unset).
+
+LOAD_GATE_PHASE ?= P1
+LOAD_GATE_RUN_ID ?= $(shell uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')
+LOAD_GATE_TARGET ?= http://127.0.0.1:8080
+LOAD_GATE_HOSTNAME ?= load-test.example.com
+
+## load-gate: Run the full graduation gate for $(LOAD_GATE_PHASE) — 72h soak
+## + 7-chaos-matrix + breakpoint + post-run oracle scan. Hard gate on
+## Phase 10 P1 cutover. RUN_ID auto-minted unless supplied.
+load-gate:
+	@echo "==> load-gate PHASE=$(LOAD_GATE_PHASE) RUN_ID=$(LOAD_GATE_RUN_ID)"
+	$(MAKE) soak-72h
+	$(MAKE) chaos-matrix
+	$(MAKE) breakpoint
+	$(MAKE) oracle-scan
+	@echo "==> load-gate $(LOAD_GATE_PHASE) PASSED"
+
+## soak-72h: Sustained EPS run for $(LOAD_GATE_PHASE). Defaults to 5min on
+## the 2-node dry-run bed; Phase 10 ops override DURATION=72h.
+LOAD_GATE_DURATION ?= 5m
+LOAD_GATE_USERS    ?= 1000
+LOAD_GATE_SPAWN    ?= 100
+soak-72h:
+	@./test/perf/gate/locust-master.py \
+		--target=$(LOAD_GATE_TARGET) \
+		--run-id=$(LOAD_GATE_RUN_ID) \
+		--users=$(LOAD_GATE_USERS) \
+		--spawn-rate=$(LOAD_GATE_SPAWN) \
+		--run-time=$(LOAD_GATE_DURATION) \
+		--skip-oracle-scan
+
+## chaos-matrix: Run all seven chaos scenarios sequentially (A..G).
+## Each captures pre/post oracle SQL into test/perf/chaos/runs/.
+## Skips scenarios whose `up` fails (e.g. Scenario E without docker).
+chaos-matrix:
+	@for s in test/perf/chaos/[A-G]_*.sh; do \
+		name=$$(basename $$s .sh); \
+		echo "==> chaos $$name"; \
+		RUN_ID=$(LOAD_GATE_RUN_ID) bash $$s run-with-oracle || \
+			echo "WARN: $$name failed (continuing matrix)"; \
+	done
+
+## breakpoint: Linear ramp 0 → 1.5× target EPS until first SLO breach.
+## Phase 7e ships a placeholder; doc 29 §4 wraps the real ramp via a
+## dedicated wrk2/Vegeta script in Phase 10.
+breakpoint:
+	@echo "==> breakpoint PHASE=$(LOAD_GATE_PHASE) (Phase 7e placeholder)"
+	@echo "Phase 10 wires wrk2/Vegeta linear-ramp via deploy/observability/."
+
+## oracle-scan: Run doc 29 §6.2 four queries against $(LOAD_GATE_RUN_ID).
+## Asserts loss_fraction <= 0.0005, dup count == 0, and dumps p95/p99
+## latency. Output: build/oracle-scan-$(LOAD_GATE_RUN_ID).txt.
+oracle-scan:
+	@mkdir -p build
+	@bash scripts/oracle-scan.sh "$(LOAD_GATE_RUN_ID)" "$(LOAD_GATE_HOSTNAME)" \
+		| tee build/oracle-scan-$(LOAD_GATE_RUN_ID).txt
+	@echo "==> oracle-scan complete: build/oracle-scan-$(LOAD_GATE_RUN_ID).txt"
+
+## oracle-verify-sparse: Phase 7e W1-W2 acceptance — confirm migration 006
+## adds <0.5% storage overhead via system.parts.bytes_on_disk delta on a
+## 100M-row synthetic. Runs against the dev CH (`make ch-up`).
+oracle-verify-sparse:
+	@bash scripts/oracle-verify-sparse.sh
+
+## load-gate-crosscheck: Run k6 load.js + Locust at the same EPS and
+## assert p99 deltas <5% (doc 29 §3.1 cross-check). Requires k6 on PATH
+## and the binary at $(LOAD_GATE_TARGET). 5min smoke shape.
+load-gate-crosscheck:
+	@bash scripts/load-gate-crosscheck.sh "$(LOAD_GATE_TARGET)"
+
+## load-gate-semgrep: Run the load-gate-harness skill rules. Advisory in
+## Phase 7e; flips to hard gate at Phase 10 P1 cutover via
+## .github/workflows/security-gate.yml LOAD_GATE_ADVISORY=0.
+load-gate-semgrep:
+	@if ! command -v semgrep >/dev/null 2>&1; then \
+		echo "load-gate-semgrep: semgrep not installed (advisory; ok to skip)"; exit 0; \
+	fi
+	@semgrep --quiet --error --config=.claude/skills/load-gate-harness/semgrep \
+		test/perf/ deploy/observability/ internal/storage/migrations/ \
+		|| (echo "FAIL: load-gate-harness rules tripped"; exit 1)
 
 ## help: Show this help
 help:

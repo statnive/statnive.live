@@ -1,0 +1,173 @@
+# Semgrep rules for load-gate-harness skill (Phase 7e).
+# Each rule guards one of the four invariants from doc 29 §6 + CLAUDE.md
+# Architecture Rule 5 carve-out + the operations-level image-pin policy.
+#
+# Run:
+#   semgrep --config=.claude/skills/load-gate-harness/semgrep \
+#           test/perf/ deploy/observability/ internal/storage/migrations/
+#
+# Self-test:
+#   semgrep --test \
+#           --config=.claude/skills/load-gate-harness/semgrep \
+#           .claude/skills/load-gate-harness/test/fixtures/
+
+rules:
+  # Rule 3 (move first because it's the simplest pattern): no Nullable on
+  # the four oracle columns — Architecture Rule 5 carve-out (CLAUDE.md).
+  # Doc 29 §6.1 prescribed Nullable; CLAUDE.md overrides with typed DEFAULT
+  # to preserve sparse serialization at >93.75% defaults.
+  - id: no-nullable-on-oracle-columns
+    message: |
+      Oracle column declared with Nullable(...) — violates CLAUDE.md
+      Architecture Rule 5 carve-out. Test-instrumentation columns must
+      use typed DEFAULT sentinels (UUID zero / UInt64 0 / UInt16 0 /
+      DateTime64(3) 0) so sparse serialization kicks in at >93.75%
+      defaults. See migration 006 for the canonical pattern.
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include:
+        - "internal/storage/migrations/*.sql"
+        - "clickhouse/migrations/*.sql"
+    pattern-either:
+      - pattern-regex: 'test_run_id\s+Nullable\('
+      - pattern-regex: 'generator_node_id\s+Nullable\('
+      - pattern-regex: 'test_generator_seq\s+Nullable\('
+      - pattern-regex: 'send_ts\s+Nullable\('
+
+  # Rule 4: every observability container reference pins a SHA256 digest.
+  # The placeholder zero-byte digest in docker-compose.observability.yml
+  # passes (it's a deliberate signal to operators); :latest fails; bare
+  # tags fail; SHA256 digests pass.
+  - id: observability-image-pin
+    message: |
+      Observability container image is not pinned by SHA256 digest.
+      Every `image:` line under deploy/observability/ must use
+      `image: registry/name@sha256:<64-hex>`. Bare tags (':latest',
+      ':1.2.3') drift over time and break supply-chain integrity.
+      Replace placeholder zero-byte digests at deploy time, but never
+      ship a tag-only reference.
+    severity: ERROR
+    languages: [yaml]
+    paths:
+      include:
+        - "deploy/observability/**/*.yml"
+        - "deploy/observability/**/*.yaml"
+    patterns:
+      - pattern: |
+          image: $IMG
+      - metavariable-regex:
+          metavariable: $IMG
+          regex: '^(?!.*@sha256:[0-9a-f]{64}$).*$'
+
+  # Rule 1: every event emit in the generator carries all four oracle
+  # headers. Pattern matches an http.Request being passed to a Client.Do
+  # call; for each match, asserts that all four Header.Set lines exist
+  # for the four canonical X-Statnive-* names.
+  - id: oracle-fields-required-test-run-id
+    message: |
+      Generator emit is missing X-Statnive-Test-Run-Id header. The four
+      oracle fields (run-id / node-id / seq / send-ts) must ride together
+      so doc 29 §6.2's loss/dup/ordering/latency queries can key on the
+      four-tuple. Without all four, the oracle scan returns wrong
+      numbers.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include:
+        - "test/perf/generator/**"
+    patterns:
+      - pattern: |
+          $REQ, $ERR := http.NewRequestWithContext(...)
+          ...
+          $CLIENT.Do($REQ)
+      - pattern-not: |
+          $REQ, $ERR := http.NewRequestWithContext(...)
+          ...
+          $REQ.Header.Set("X-Statnive-Test-Run-Id", ...)
+          ...
+          $CLIENT.Do($REQ)
+
+  - id: oracle-fields-required-node-id
+    message: |
+      Generator emit is missing X-Statnive-Generator-Node-Id header.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include:
+        - "test/perf/generator/**"
+    patterns:
+      - pattern: |
+          $REQ, $ERR := http.NewRequestWithContext(...)
+          ...
+          $CLIENT.Do($REQ)
+      - pattern-not: |
+          $REQ, $ERR := http.NewRequestWithContext(...)
+          ...
+          $REQ.Header.Set("X-Statnive-Generator-Node-Id", ...)
+          ...
+          $CLIENT.Do($REQ)
+
+  - id: oracle-fields-required-seq
+    message: |
+      Generator emit is missing X-Statnive-Test-Generator-Seq header.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include:
+        - "test/perf/generator/**"
+    patterns:
+      - pattern: |
+          $REQ, $ERR := http.NewRequestWithContext(...)
+          ...
+          $CLIENT.Do($REQ)
+      - pattern-not: |
+          $REQ, $ERR := http.NewRequestWithContext(...)
+          ...
+          $REQ.Header.Set("X-Statnive-Test-Generator-Seq", ...)
+          ...
+          $CLIENT.Do($REQ)
+
+  - id: oracle-fields-required-send-ts
+    message: |
+      Generator emit is missing X-Statnive-Send-Ts header.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include:
+        - "test/perf/generator/**"
+    patterns:
+      - pattern: |
+          $REQ, $ERR := http.NewRequestWithContext(...)
+          ...
+          $CLIENT.Do($REQ)
+      - pattern-not: |
+          $REQ, $ERR := http.NewRequestWithContext(...)
+          ...
+          $REQ.Header.Set("X-Statnive-Send-Ts", ...)
+          ...
+          $CLIENT.Do($REQ)
+
+  # Rule 2: every chaos script under test/perf/chaos/ implements the
+  # three subcommands. The shared lib at test/perf/chaos/_lib.sh handles
+  # dispatch — the rule asserts every script either sources _lib.sh and
+  # calls dispatch, or implements scenario_up + scenario_down +
+  # scenario_status manually.
+  - id: chaos-script-up-down-status
+    message: |
+      Chaos script does not source the shared lib (which provides
+      up/down/status dispatch) and does not implement the three
+      subcommands manually. Every test/perf/chaos/*.sh must support
+      `up`, `down`, `status` (and ideally `run-with-oracle`) so
+      `make chaos-matrix` can drive them in a control loop without
+      script-specific wrappers.
+    severity: ERROR
+    languages: [bash]
+    paths:
+      include:
+        - "test/perf/chaos/*.sh"
+      exclude:
+        - "test/perf/chaos/_lib.sh"
+    patterns:
+      - pattern-not-regex: 'source\s+["\x27]?\$\(dirname\s+"\$0"\)/_lib\.sh'
+      - pattern-not-regex: 'scenario_up\s*\(\s*\)'

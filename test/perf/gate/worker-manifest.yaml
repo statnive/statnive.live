@@ -1,0 +1,27 @@
+# Phase 10 generator-fleet inventory (doc 29 §3.2). Master + 3 FastHttpUser
+# workers + 1 observability sink, each on a separate Asiatech VPS in racks
+# distinct from the target collector. Phase 7e ships placeholders; real IPs
+# fill in at Phase 10 procurement (PLAN.md §417). The Phase 7e dry-run on a
+# 2-node test bed uses --distributed=false, so this file is reference-only
+# until then.
+#
+# generator_node_id is the Locust-side identity that flows into the oracle
+# columns; keep it stable per host so generator restarts don't blur loss
+# accounting (a fresh node-id is assigned only on a fresh VPS).
+master:
+  host: REPLACE_AT_PHASE_10_AT_VPS_G2
+  port: 5557
+
+workers:
+  - host: REPLACE_AT_PHASE_10_AT_VPS_B1_a
+    generator_node_id: 1
+  - host: REPLACE_AT_PHASE_10_AT_VPS_B1_b
+    generator_node_id: 2
+  - host: REPLACE_AT_PHASE_10_AT_VPS_B1_c
+    generator_node_id: 3
+
+observability_sink:
+  host: REPLACE_AT_PHASE_10_AT_VPS_B1_obs
+  prometheus_port: 9090
+  grafana_port: 3000
+  vector_port: 8686

@@ -1,0 +1,44 @@
+# Phase 7e alerts (doc 29 §6 + CLAUDE.md analytics-invariant thresholds).
+# Any firing alert during a 72-h soak or chaos pass halts the gate via
+# the `make oracle-scan` exit-code path.
+
+groups:
+  - name: load-gate-invariants
+    interval: 30s
+    rules:
+      - alert: PIILeakDetected
+        expr: increase(statnive_pii_leak_total[1m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          gate: halt
+        annotations:
+          summary: PII leak detected on the wire (Vector/VRL pipeline)
+          description: |
+            Vector regex matched ipv4/ipv6/email/raw user_id in the
+            stdout slog stream or events_raw write log. Halt the gate.
+
+      - alert: ServerEventLossOverBudget
+        expr: rate(statnive_event_loss_total[5m]) / rate(statnive_event_attempt_total[5m]) > 0.0005
+        for: 2m
+        labels:
+          severity: critical
+          gate: halt
+        annotations:
+          summary: Server-side event loss > 0.05% (CLAUDE.md analytics invariant)
+
+      - alert: WALFsyncP99Slow
+        expr: histogram_quantile(0.99, sum by (le) (rate(statnive_wal_fsync_duration_seconds_bucket[5m]))) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: WAL fsync p99 > 50 ms (degraded disk)
+
+      - alert: ClickHousePartsBacklog
+        expr: clickhouse_async_metrics_active_parts > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: ClickHouse active_parts > 100 (insert merge backlog)

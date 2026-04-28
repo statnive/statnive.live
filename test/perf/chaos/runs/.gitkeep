@@ -1,0 +1,4 @@
+# Placeholder for chaos-scenario oracle-scan output.
+# Each `make chaos-matrix` run drops one or more *.json files here:
+#   {scenario}-{run_id}-{pre|post}.json
+# Files in this directory are ephemeral test artifacts — do not commit them.

@@ -1,0 +1,7 @@
+# Phase 7e graduation-gate Python deps. Pinned for reproducibility on the
+# Asiatech generator fleet (offline wheel install per doc 29 §3.2 sysctl
+# kernel-tune step). All MIT/Apache/BSD — no AGPL transitive (verify with
+# `pip-licenses --format=markdown` before bumping).
+locust==2.31.8
+geventhttpclient==2.3.1
+requests==2.32.3
