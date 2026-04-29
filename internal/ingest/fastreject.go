@@ -4,8 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/metrics"
 )
 
 // FastRejectMiddleware short-circuits prefetch and obvious-bot requests
@@ -17,7 +19,10 @@ import (
 // Order matters: chi.Router.Use(FastRejectMiddleware(...)) BEFORE the
 // rate-limit middleware. Method enforcement (POST-only) happens here too
 // so a `GET /api/event` from a probe doesn't burn a rate-limit slot.
-func FastRejectMiddleware(auditLog *audit.Logger) func(http.Handler) http.Handler {
+//
+// reg may be nil — the underlying counter helpers are nil-safe so test
+// wiring can pass nil without ceremony.
+func FastRejectMiddleware(auditLog *audit.Logger, reg *metrics.Registry) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -35,6 +40,7 @@ func FastRejectMiddleware(auditLog *audit.Logger) func(http.Handler) http.Handle
 					)
 				}
 
+				reg.IncDropped(reasonToMetricLabel(reason))
 				w.WriteHeader(http.StatusNoContent)
 
 				return
@@ -43,6 +49,14 @@ func FastRejectMiddleware(auditLog *audit.Logger) func(http.Handler) http.Handle
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// reasonToMetricLabel maps fastReject's hyphenated reason strings to the
+// underscored metric labels declared in package metrics. Keep the audit
+// labels human-friendly (hyphenated) and the metric labels Prom-friendly
+// (underscored) without forcing one shape on both surfaces.
+func reasonToMetricLabel(reason string) string {
+	return strings.ReplaceAll(reason, "-", "_")
 }
 
 // emptyOrCtx returns the request context if non-nil, else Background.

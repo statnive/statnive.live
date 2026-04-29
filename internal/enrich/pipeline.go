@@ -23,6 +23,7 @@ import (
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/ingest"
+	"github.com/statnive/statnive.live/internal/metrics"
 )
 
 // Deps groups the runtime collaborators the pipeline reads from. All
@@ -38,6 +39,7 @@ type Deps struct {
 	Burst   *ingest.BurstGuard // optional — nil disables the per-visitor cap
 	Goals   GoalMatcher        // optional — nil disables goal marking; prod injects *goals.Snapshot
 	Audit   *audit.Logger      // optional — nil silences burst-drop audit lines
+	Metrics *metrics.Registry  // optional — nil silences burst_dropped counter
 	Logger  *slog.Logger
 }
 
@@ -97,6 +99,8 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 				slog.String("visitor_hash", encodeHashPrefix(visitorHash)),
 			)
 		}
+
+		p.deps.Metrics.IncDropped(metrics.ReasonBurstDropped)
 
 		return ingest.EnrichedEvent{}, false
 	}

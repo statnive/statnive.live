@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/statnive/statnive.live/internal/metrics"
 )
 
 // FillRatioReporter is the subset of WALWriter the back-pressure
@@ -34,6 +36,9 @@ type BackpressureConfig struct {
 	// emitter computes band transitions (0.80 / 0.90 / 0.95) and
 	// writes to /var/log/statnive-live/alerts.jsonl. Nil-safe.
 	OnSample func(ratio float64)
+	// Metrics receives the wal_backpressure counter increment on every
+	// 503 the middleware emits. Optional — nil-safe.
+	Metrics *metrics.Registry
 }
 
 // BackpressureMiddleware returns 503 + Retry-After when the WAL fill
@@ -69,9 +74,12 @@ func BackpressureMiddleware(reporter FillRatioReporter, cfg BackpressureConfig) 
 		onSample:  cfg.OnSample,
 	}
 
+	reg := cfg.Metrics
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if g.degraded() {
+				reg.IncDropped(metrics.ReasonWALBackpressure)
 				w.Header().Set("Retry-After", retryAfter)
 				http.Error(w, "wal back-pressure", http.StatusServiceUnavailable)
 

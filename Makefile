@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 

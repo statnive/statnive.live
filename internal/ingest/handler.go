@@ -16,6 +16,7 @@ import (
 
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/identity"
+	"github.com/statnive/statnive.live/internal/metrics"
 	"github.com/statnive/statnive.live/internal/sites"
 )
 
@@ -86,6 +87,11 @@ type HandlerConfig struct {
 	// server-side belt to that tracker suspenders, ensuring deny holds
 	// even when a tracker variant skips the client check.
 	RespectDNT bool
+	// Metrics bumps Prometheus-text counters at every received / accepted
+	// / dropped point. Optional — nil-safe; production sets it, tests can
+	// pass nil. The funnel breakdown (received - accepted - sum(dropped))
+	// is the canonical diagnostic surface for under-count complaints.
+	Metrics *metrics.Registry
 }
 
 // NewHandler returns the http.Handler wired for POST /api/event.
@@ -107,6 +113,8 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 	// here the request has passed both checks and the rate limiter.
 	ua := r.Header.Get("User-Agent")
 
+	cfg.Metrics.IncReceived()
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
 	defer func() { _ = r.Body.Close() }()
@@ -114,12 +122,14 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 	events, err := parseBody(r.Body)
 	if err != nil {
 		cfg.Logger.Debug("body parse failed", "err", err)
+		cfg.Metrics.IncDropped(parseErrorReason(err))
 		http.Error(w, "bad request", http.StatusBadRequest)
 
 		return
 	}
 
 	if len(events) == 0 {
+		cfg.Metrics.IncDropped(metrics.ReasonEmptyBody)
 		w.WriteHeader(http.StatusNoContent)
 
 		return
@@ -158,6 +168,7 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 			emitAudit(r.Context(), cfg.Audit, audit.EventHostnameUnknown,
 				slog.String("hostname", raw.Hostname),
 			)
+			cfg.Metrics.IncDropped(metrics.ReasonHostnameUnknown)
 			// Drop unknown-hostname events silently with 204 — doc 24 calls out
 			// this is what trackers expect. Bot scrapers will see no signal.
 			w.WriteHeader(http.StatusNoContent)
@@ -184,7 +195,8 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 
 		// Synchronous 6-stage enrichment runs on the handler goroutine.
 		// Burst-dropped events skip the WAL silently — they're a known
-		// rejection class, not a server failure.
+		// rejection class, not a server failure. Pipeline bumps the
+		// burst_dropped counter itself; we don't double-count here.
 		enriched, ok := cfg.Pipeline.Enrich(raw)
 		if !ok {
 			continue
@@ -198,13 +210,29 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 		if _, walErr := cfg.WAL.AppendAndWait(r.Context(), enriched); walErr != nil {
 			cfg.Logger.Warn("wal append-and-wait failed",
 				"err", walErr, "site_id", raw.SiteID)
+			cfg.Metrics.IncDropped(metrics.ReasonWALSyncError)
 			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 
 			return
 		}
+
+		cfg.Metrics.IncAccepted(raw.SiteID)
 	}
 
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// parseErrorReason classifies a parseBody error into a metrics drop label.
+// MaxBytesReader returns *http.MaxBytesError when the body exceeds 8 KB;
+// everything else is treated as a JSON shape problem. Both surface as 400
+// to the client but get distinct counter labels in the funnel.
+func parseErrorReason(err error) string {
+	var mbe *http.MaxBytesError
+	if errors.As(err, &mbe) {
+		return metrics.ReasonPayloadTooLarge
+	}
+
+	return metrics.ReasonJSONInvalid
 }
 
 // fastReject returns a non-empty reason string when the request should be

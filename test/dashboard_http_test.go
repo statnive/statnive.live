@@ -459,7 +459,7 @@ func newDashboardTestServer(t *testing.T, ctx context.Context, bearerToken strin
 
 	cached := storage.NewCachedStore(storage.NewClickhouseQueryStore(store), 256)
 
-	rateLimitMW, err := ratelimit.Middleware(6000, time.Minute, auditLog)
+	rateLimitMW, err := ratelimit.Middleware(6000, time.Minute, ratelimit.Config{Audit: auditLog})
 	if err != nil {
 		t.Fatalf("ratelimit: %v", err)
 	}

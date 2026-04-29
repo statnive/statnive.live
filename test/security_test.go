@@ -205,14 +205,14 @@ func newRateLimitedTestServer(
 
 	go consumer.Run(ctx)
 
-	rateLimitMW, err := ratelimit.Middleware(rps, time.Minute, auditLog)
+	rateLimitMW, err := ratelimit.Middleware(rps, time.Minute, ratelimit.Config{Audit: auditLog})
 	if err != nil {
 		t.Fatalf("ratelimit: %v", err)
 	}
 
 	router := chi.NewRouter()
 	router.Group(func(r chi.Router) {
-		r.Use(ingest.FastRejectMiddleware(auditLog))
+		r.Use(ingest.FastRejectMiddleware(auditLog, nil))
 		r.Use(rateLimitMW)
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline: pipeline,

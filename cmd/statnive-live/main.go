@@ -41,6 +41,7 @@ import (
 	"github.com/statnive/statnive.live/internal/health"
 	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/ingest"
+	"github.com/statnive/statnive.live/internal/metrics"
 	"github.com/statnive/statnive.live/internal/ratelimit"
 	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
@@ -253,6 +254,8 @@ func run() error {
 
 	logger.Info("goals snapshot loaded", "count", goalSnapshot.Size())
 
+	metricsReg := metrics.New()
+
 	pipeline := enrich.NewPipeline(enrich.Deps{
 		Salt:    saltMgr,
 		Bloom:   bloom,
@@ -263,6 +266,7 @@ func run() error {
 		Burst:   burstGuard,
 		Goals:   goalSnapshot,
 		Audit:   auditLog,
+		Metrics: metricsReg,
 		Logger:  logger,
 	})
 
@@ -283,7 +287,11 @@ func run() error {
 
 	cachedStore := storage.NewCachedStore(storage.NewClickhouseQueryStore(store), dashboardCacheCapacity)
 
-	rateLimitMW, err := ratelimit.Middleware(cfg.RateLimit.RequestsPerMinute, time.Minute, auditLog)
+	rateLimitMW, err := ratelimit.Middleware(cfg.RateLimit.RequestsPerMinute, time.Minute, ratelimit.Config{
+		Audit:          auditLog,
+		Metrics:        metricsReg,
+		AllowlistedIPs: cfg.RateLimit.AllowlistedIPs,
+	})
 	if err != nil {
 		return fmt.Errorf("ratelimit: %w", err)
 	}
@@ -352,7 +360,7 @@ func run() error {
 	loginRateLimitMW, err := ratelimit.Middleware(
 		cfg.Auth.LoginRateLimit.Requests,
 		cfg.Auth.LoginRateLimit.Window,
-		auditLog,
+		ratelimit.Config{Audit: auditLog, Metrics: metricsReg},
 	)
 	if err != nil {
 		return fmt.Errorf("login ratelimit: %w", err)
@@ -366,7 +374,7 @@ func run() error {
 	// ClickHouse) but skip fast-reject (operators don't send tracker
 	// prefetches). /healthz stays unconditionally reachable for probes.
 	router.Group(func(r chi.Router) {
-		r.Use(ingest.FastRejectMiddleware(auditLog))
+		r.Use(ingest.FastRejectMiddleware(auditLog, metricsReg))
 		r.Use(rateLimitMW)
 		// Back-pressure gate sits AFTER rate-limit (abusive clients still
 		// hit 429 first) but BEFORE the handler (so a degraded WAL
@@ -374,6 +382,7 @@ func run() error {
 		// 503). wal-durability-review item #6.
 		r.Use(ingest.BackpressureMiddleware(wal, ingest.BackpressureConfig{
 			OnSample: walFillAlertEmitter(alertsSink),
+			Metrics:  metricsReg,
 		}))
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline:        pipeline,
@@ -385,6 +394,7 @@ func run() error {
 			ConsentRequired: cfg.Consent.Required,
 			RespectGPC:      cfg.Consent.RespectGPC,
 			RespectDNT:      cfg.Consent.RespectDNT,
+			Metrics:         metricsReg,
 		}))
 	})
 
@@ -447,6 +457,12 @@ func run() error {
 		WALSyncer: groupSyncer,
 		Start:     time.Now(),
 	}))
+
+	// /metrics — Prometheus-text counters for the /api/event funnel
+	// (received / accepted{site_id} / dropped{reason}). Bearer-auth
+	// gated by STATNIVE_METRICS_TOKEN; empty token returns 404 (default
+	// production posture). Phase 7e deploy/observability scrapes this.
+	router.Method(http.MethodGet, "/metrics", metrics.Handler(metricsReg, cfg.Metrics.Token))
 
 	// /api/about — unauthenticated build + third-party attribution
 	// surface. Required by CLAUDE.md License Rules for IP2Location LITE
@@ -866,6 +882,18 @@ type appConfig struct {
 	}
 	RateLimit struct {
 		RequestsPerMinute int
+		// AllowlistedIPs are exempt from the per-IP rate-limit ladder.
+		// Used for load testing only — set the generator IP here so the
+		// 100 req/s/IP fallback doesn't cap a synthetic ramp. Bypass is
+		// limited to the rate limiter; UA / hostname / payload / WAL
+		// gates still apply.
+		AllowlistedIPs []string
+	}
+	Metrics struct {
+		// Token gates the /metrics endpoint via Authorization: Bearer.
+		// Empty disables the endpoint entirely (404). Set via
+		// STATNIVE_METRICS_TOKEN systemd Environment= drop-in.
+		Token string
 	}
 	Dashboard struct {
 		// BearerToken is the legacy Phase 3b pre-shared secret. Kept
@@ -1075,6 +1103,8 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.Alerts.HostTag = v.GetString("alerts.host_tag")
 
 	cfg.RateLimit.RequestsPerMinute = v.GetInt("ratelimit.requests_per_minute")
+	cfg.RateLimit.AllowlistedIPs = v.GetStringSlice("ratelimit.allowlisted_ips")
+	cfg.Metrics.Token = v.GetString("metrics.token")
 
 	cfg.Dashboard.BearerToken = v.GetString("dashboard.bearer_token")
 	cfg.Dashboard.SPAEnabled = v.GetBool("dashboard.spa_enabled")

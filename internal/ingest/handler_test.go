@@ -173,7 +173,7 @@ func TestHandlerFastRejectGate(t *testing.T) {
 				Now:      func() time.Time { return time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC) },
 				Logger:   slog.New(slog.DiscardHandler),
 			})
-			handler := ingest.FastRejectMiddleware(nil)(inner)
+			handler := ingest.FastRejectMiddleware(nil, nil)(inner)
 
 			req := httptest.NewRequestWithContext(context.Background(), tc.method, "/api/event", strings.NewReader(tc.body))
 			req.Header.Set("User-Agent", tc.ua)
@@ -221,7 +221,7 @@ func mustHandle(t *testing.T, masterSecret []byte, body string) *ingest.RawEvent
 		Now:          func() time.Time { return time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC) },
 		Logger:       slog.New(slog.DiscardHandler),
 	})
-	handler := ingest.FastRejectMiddleware(nil)(inner)
+	handler := ingest.FastRejectMiddleware(nil, nil)(inner)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/event", strings.NewReader(body))
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
@@ -376,7 +376,7 @@ func handleWithConsent(t *testing.T, opts consentOpts, hdrs map[string]string) (
 		Now:             func() time.Time { return time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC) },
 		Logger:          slog.New(slog.DiscardHandler),
 	})
-	handler := ingest.FastRejectMiddleware(nil)(inner)
+	handler := ingest.FastRejectMiddleware(nil, nil)(inner)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/event", strings.NewReader(body))
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")

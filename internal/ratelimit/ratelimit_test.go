@@ -15,7 +15,7 @@ import (
 func TestMiddleware_AllowsUnderLimit(t *testing.T) {
 	t.Parallel()
 
-	mw, err := ratelimit.Middleware(10, time.Minute, nil)
+	mw, err := ratelimit.Middleware(10, time.Minute, ratelimit.Config{})
 	if err != nil {
 		t.Fatalf("middleware: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestMiddleware_AllowsUnderLimit(t *testing.T) {
 func TestMiddleware_Blocks429AfterLimit(t *testing.T) {
 	t.Parallel()
 
-	mw, err := ratelimit.Middleware(3, time.Minute, nil)
+	mw, err := ratelimit.Middleware(3, time.Minute, ratelimit.Config{})
 	if err != nil {
 		t.Fatalf("middleware: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestMiddleware_Blocks429AfterLimit(t *testing.T) {
 func TestMiddleware_KeyByXForwardedFor(t *testing.T) {
 	t.Parallel()
 
-	mw, err := ratelimit.Middleware(2, time.Minute, nil)
+	mw, err := ratelimit.Middleware(2, time.Minute, ratelimit.Config{})
 	if err != nil {
 		t.Fatalf("middleware: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestMiddleware_EmitsAuditEventOn429(t *testing.T) {
 
 	t.Cleanup(func() { _ = auditLog.Close() })
 
-	mw, err := ratelimit.Middleware(1, time.Minute, auditLog)
+	mw, err := ratelimit.Middleware(1, time.Minute, ratelimit.Config{Audit: auditLog})
 	if err != nil {
 		t.Fatalf("middleware: %v", err)
 	}
@@ -146,12 +146,60 @@ func TestMiddleware_EmitsAuditEventOn429(t *testing.T) {
 func TestMiddleware_RejectsInvalidConfig(t *testing.T) {
 	t.Parallel()
 
-	if _, err := ratelimit.Middleware(0, time.Minute, nil); err == nil {
+	if _, err := ratelimit.Middleware(0, time.Minute, ratelimit.Config{}); err == nil {
 		t.Error("expected error for requestsPerWindow=0")
 	}
 
-	if _, err := ratelimit.Middleware(10, 0, nil); err == nil {
+	if _, err := ratelimit.Middleware(10, 0, ratelimit.Config{}); err == nil {
 		t.Error("expected error for window=0")
+	}
+}
+
+func TestMiddleware_AllowlistBypassesLimit(t *testing.T) {
+	t.Parallel()
+
+	mw, err := ratelimit.Middleware(2, time.Minute, ratelimit.Config{
+		AllowlistedIPs: []string{"203.0.113.99"},
+	})
+	if err != nil {
+		t.Fatalf("middleware: %v", err)
+	}
+
+	handler := mw(okHandler())
+
+	statuses := make(map[int]int)
+
+	for range 10 {
+		req := httptest.NewRequest(http.MethodPost, "/api/event", nil)
+		req.Header.Set("X-Forwarded-For", "203.0.113.99")
+
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		statuses[rr.Code]++
+	}
+
+	if statuses[http.StatusOK] != 10 {
+		t.Errorf("allowlisted IP got 200=%d, want 10. statuses=%v", statuses[http.StatusOK], statuses)
+	}
+
+	if statuses[http.StatusTooManyRequests] != 0 {
+		t.Errorf("allowlisted IP got %d 429s, want 0", statuses[http.StatusTooManyRequests])
+	}
+
+	// Sanity: a non-allowlisted IP still hits the limiter.
+	for range 5 {
+		req := httptest.NewRequest(http.MethodPost, "/api/event", nil)
+		req.Header.Set("X-Forwarded-For", "203.0.113.5")
+
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		statuses[rr.Code]++
+	}
+
+	if statuses[http.StatusTooManyRequests] == 0 {
+		t.Errorf("non-allowlisted IP should still hit 429, got statuses=%v", statuses)
 	}
 }
 
