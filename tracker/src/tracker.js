@@ -1,15 +1,8 @@
-// statnive.live tracker — vanilla JS IIFE, ≤1.5 KB minified / ≤750 B gzipped.
+// statnive.live tracker — vanilla JS IIFE, ≤1.5 KB minified / ≤700 B gzipped.
 //
 // Privacy contract:
-//   - Short-circuits BEFORE any observable side effect on navigator.webdriver
-//     and _phantom (anti-automation; not a privacy policy).
-//   - DNT and Sec-GPC are NOT consulted client-side. Browsers attach the
-//     `DNT: 1` / `Sec-GPC: 1` request headers automatically; the server
-//     honors them per the operator's `consent.respect_dnt` /
-//     `consent.respect_gpc` config (default off — opt-in per deployment).
-//     This moves the policy decision from the tracker bundle (one-size-
-//     fits-all, can't be tuned per site) to the binary, where each
-//     operator can configure their stance for their jurisdiction.
+//   - Short-circuits BEFORE any observable side effect on DNT, Sec-GPC,
+//     navigator.webdriver, _phantom (CLAUDE.md Privacy Rule 6 + doc 27 #9).
 //   - No cookies / localStorage / sessionStorage / IndexedDB.
 //   - No fingerprinting (canvas, WebGL, font enum, navigator.plugins,
 //     AudioContext, deviceMemory, hardwareConcurrency).
@@ -22,7 +15,10 @@
 //                                 the raw value before pipeline (Privacy Rule 4).
 (function (w, d) {
   if (w.statnive) return;
-  if (w.navigator.webdriver === true || w._phantom || w.callPhantom) {
+  if (w.navigator.doNotTrack === '1' ||
+      w.navigator.globalPrivacyControl === true ||
+      w.navigator.webdriver === true ||
+      w._phantom || w.callPhantom) {
     w.statnive = { track: function () {}, identify: function () {} };
     return;
   }

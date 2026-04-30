@@ -292,17 +292,15 @@ statnive.identify(uid);               // raw uid; server hashes via SHA-256 + ma
 ### Privacy default-off conditions
 
 The tracker silently disables itself (both `track` + `identify` become
-no-ops) only on **anti-automation** signals:
+no-ops) when **any** of these hold:
 
+- `navigator.doNotTrack === '1'` (DNT)
+- `navigator.globalPrivacyControl === true` (Sec-GPC)
 - `navigator.webdriver === true`
 - `window._phantom` / `window.callPhantom` is set
 
-`DNT: 1` and `Sec-GPC: 1` are **not** consulted client-side anymore.
-Browsers attach those headers automatically; the binary honors them
-server-side only when `consent.respect_dnt: true` / `consent.respect_gpc:
-true` is set in YAML (default false). Operators with EU visitors must
-flip those flags on per their jurisdiction. See LEARN.md Lesson 24 for
-why the client-side short-circuit was removed.
+No banner is required for users who've opted out — the opt-out is
+structural.
 
 ### Verification recipe
 
@@ -321,17 +319,8 @@ why the client-side short-circuit was removed.
    docker exec statnive-clickhouse-dev clickhouse-client \
      -q "SELECT count() FROM statnive.events_raw WHERE hostname='127.0.0.1'"
    ```
-5. **GPC test (server-side):** flip `consent.respect_gpc: true` in
-   YAML, restart the binary, then in a terminal:
-   ```bash
-   curl -X POST http://127.0.0.1:8080/api/event \
-     -H 'Content-Type: text/plain' -H 'Sec-GPC: 1' \
-     -d '{"hostname":"127.0.0.1","pathname":"/","event_name":"pageview"}' -i
-   ```
-   Confirm 202 response, no `Set-Cookie` header, and `user_id_hash` is
-   empty for that event in events_raw (Privacy Rule 9 — identity
-   suppressed but visit counted). Flip back to `false` and repeat —
-   `Set-Cookie: _statnive=...` appears, `user_id_hash` populates.
+5. **GPC test:** in DevTools Console, `navigator.globalPrivacyControl =
+   true`, reload the page, confirm **no** `POST /api/event` fires.
 6. **Custom event:** in Console, `statnive.track('test_event', {plan:
    'pro'}, 99)`. Confirm a row appears with `event_type='custom'`,
    `event_name='test_event'`, `event_value=99`.
@@ -1650,7 +1639,7 @@ After editing: `sudo systemctl daemon-reload && sudo systemctl restart statnive-
 - **`dashboard.spa_enabled` defaults to `false`.** Without `STATNIVE_DASHBOARD_SPA_ENABLED=true`, `/app/*` returns 404 (the SPA mount is gated). The dashboard appears broken; the binary is fine.
 - **The binary expects the `statnive` ClickHouse database to exist before first boot.** Run `sudo clickhouse-client --query 'CREATE DATABASE IF NOT EXISTS statnive'` after CH is up but before starting the binary. Otherwise: `clickhouse ping: code: 81, message: Database statnive does not exist`.
 - **Real-browser-shaped User-Agent (>=16 chars) required for ingest tests.** `curl -X POST .../api/event` with default UA `curl/8.7.1` (10 chars) hits the pre-pipeline fast-reject (CLAUDE.md Architecture Rule 6) and returns 204 without ingesting. Use `curl -A 'Mozilla/5.0 ...'` for any manual smoke check.
-- **DNT/GPC client-side short-circuit removed (LEARN.md Lesson 24).** The tracker no longer consults `navigator.doNotTrack` / `navigator.globalPrivacyControl`; events fire regardless of browser privacy flags. Server-side honor is operator-config driven: set `consent.respect_dnt: true` / `consent.respect_gpc: true` in YAML to suppress identity (cookie + `user_id_hash`) when those headers arrive — the visit still counts anonymously. Default is `false` for both flags; operators with EU visitors **must** flip them on per their jurisdiction.
+- **Operators with DNT enabled in their browser will see `tracker.js` load (200) but no `POST /api/event` ever fire.** The tracker silently disables itself when `navigator.doNotTrack === '1'` per privacy-by-default. Test in Chrome Incognito (default settings) or a clean Firefox Private Window — not your daily browser.
 
 **Final sanity check after a cutover (real-browser variant):**
 

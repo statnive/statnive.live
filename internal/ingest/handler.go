@@ -76,19 +76,16 @@ type HandlerConfig struct {
 	// Rule 5 (SaaS = GDPR applies; Iran = cookies allowed).
 	ConsentRequired bool
 	// RespectGPC honors `Sec-GPC: 1` as a deny signal — see
-	// CLAUDE.md Privacy Rule 9. Default false (count every visit);
-	// operators with EU visitors MUST flip to true. The previous
-	// default-on paired with the tracker's client-side short-circuit
-	// silently dropped Brave / Firefox-strict / Safari traffic from
-	// operator dashboards; the client check has been removed, so this
-	// flag is now the only Sec-GPC enforcement path in the binary.
+	// CLAUDE.md Privacy Rule 9. Default true. Operators may flip to
+	// false in jurisdictions where GPC has no legal weight, but doing
+	// so REGRESSES the SaaS posture and should be paired with a clear
+	// in-product disclosure.
 	RespectGPC bool
 	// RespectDNT honors `DNT: 1` (Do Not Track) as a deny signal.
-	// Default false; same posture as RespectGPC. Tracker JS no longer
-	// short-circuits client-side on DNT='1' (was hiding the bulk of
-	// legitimate Firefox-strict / Safari traffic), so this server-side
-	// flag is the only DNT enforcement path. Operators with EU
-	// visitors flip to true.
+	// Default true. The browser-side tracker JS independently
+	// short-circuits on DNT='1' (LEARN.md Lesson 16) — this flag is the
+	// server-side belt to that tracker suspenders, ensuring deny holds
+	// even when a tracker variant skips the client check.
 	RespectDNT bool
 	// Metrics bumps Prometheus-text counters at every received / accepted
 	// / dropped point. Optional — nil-safe; production sets it, tests can

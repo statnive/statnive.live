@@ -114,11 +114,8 @@ func TestLoadConfig_ExampleParity(t *testing.T) { //nolint:paralleltest // mutat
 		{"auth.bootstrap.username", cfg.Auth.Bootstrap.Username != ""},
 		{"auth.default_site_id", cfg.Auth.DefaultSiteID > 0},
 		{"consent.required", cfg.Consent.Required},
-		// consent.respect_gpc / consent.respect_dnt default false in the
-		// example (operators flip to true for EU posture); the truthy-
-		// only schema-parity check can't represent intentional false
-		// defaults. The handler tests in internal/ingest exercise both
-		// values directly.
+		{"consent.respect_gpc", cfg.Consent.RespectGPC},
+		{"consent.respect_dnt", cfg.Consent.RespectDNT},
 	}
 
 	for _, c := range cases {

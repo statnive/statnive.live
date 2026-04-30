@@ -16,15 +16,9 @@ import (
 // preact-signals-bundle-budget skill. The skill itself fires on every PR;
 // this Go test is the in-process safety net so a bench fails before
 // /simplify rather than after.
-//
-// Budget bumped 700 → 750 gz on PR D (regen after PR-E #59 endpoint-
-// derivation chain landed; that PR shipped without regenerating dist,
-// so the previous 700 gz reading was stale). Doc-comment header
-// expansion (LEARN.md Lesson 24 attribution) is comment-only and
-// stripped at minification — minified size was unaffected.
 const (
 	maxMinifiedBytes = 1500
-	maxGzippedBytes  = 750
+	maxGzippedBytes  = 700
 )
 
 func TestHandler_ServesEmbeddedTracker(t *testing.T) {

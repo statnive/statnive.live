@@ -943,14 +943,12 @@ type appConfig struct {
 		// the SaaS binary; self-hosted Iran tier flips to false.
 		Required bool
 		// RespectGPC honors Sec-GPC: 1 as a deny signal (CLAUDE.md
-		// Privacy Rule 9). Default false; operators with EU visitors
-		// flip to true. Server-side honor only — the tracker no longer
-		// consults navigator.globalPrivacyControl.
+		// Privacy Rule 9). Default true.
 		RespectGPC bool
-		// RespectDNT honors DNT: 1 as a deny signal. Default false;
-		// same posture as RespectGPC. Server-side honor only — the
-		// tracker no longer consults navigator.doNotTrack (LEARN.md
-		// Lesson 24 supersedes Lesson 16).
+		// RespectDNT honors DNT: 1 as a deny signal (LEARN.md Lesson
+		// 16). Default true. Tracker JS short-circuits client-side
+		// independently; this is the server-side belt to that
+		// suspenders.
 		RespectDNT bool
 	}
 }
@@ -1031,19 +1029,15 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("dashboard.bearer_token", "")
 	v.SetDefault("dashboard.spa_enabled", false)
 
-	// Consent posture (CLAUDE.md Privacy Rules 5 + 9).
-	// `consent.required` stays true (SaaS-safe + privacy-by-default).
-	// `consent.respect_gpc` / `consent.respect_dnt` default FALSE so the
-	// binary counts every visit by default; operators with EU visitors
-	// MUST flip them on per their jurisdiction. The previous default-on
-	// hid 70-85% of legitimate traffic from Brave / Firefox-strict /
-	// Safari users on operator dashboards because the tracker also
-	// short-circuited client-side; that client check has been removed
-	// (see tracker/src/tracker.js header), so the operator config is now
-	// the single source of truth for the policy.
+	// Consent posture (CLAUDE.md Privacy Rules 5 + 9). All three
+	// default true (SaaS-safe + privacy-by-default). Iran self-hosted
+	// flips required → false; jurisdictions where GPC/DNT have no
+	// legal weight may flip those respect flags off too — but doing so
+	// regresses the privacy posture and should be paired with a clear
+	// in-product disclosure.
 	v.SetDefault("consent.required", true)
-	v.SetDefault("consent.respect_gpc", false)
-	v.SetDefault("consent.respect_dnt", false)
+	v.SetDefault("consent.respect_gpc", true)
+	v.SetDefault("consent.respect_dnt", true)
 
 	// Auth (Phase 2b). Secure defaults: 14-day cookie, SameSite=Lax,
 	// bcrypt cost 12, 10 login attempts / min / IP, 10 fails / 15 min →

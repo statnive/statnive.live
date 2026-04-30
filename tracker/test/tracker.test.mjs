@@ -96,12 +96,22 @@ beforeEach(() => {
   Object.defineProperty(window.navigator, 'webdriver', { value: false, configurable: true });
 });
 
-describe('anti-automation short-circuit', () => {
-  it('fires nothing when navigator.webdriver=true', () => {
-    const calls = loadTracker({ webdriver: true });
+describe('privacy short-circuit', () => {
+  it('fires nothing when DNT=1', () => {
+    const calls = loadTracker({ dnt: '1' });
     expect(calls).toHaveLength(0);
     expect(typeof window.statnive.track).toBe('function');
     expect(typeof window.statnive.identify).toBe('function');
+  });
+
+  it('fires nothing when Sec-GPC=true', () => {
+    const calls = loadTracker({ gpc: true });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('fires nothing when navigator.webdriver=true', () => {
+    const calls = loadTracker({ webdriver: true });
+    expect(calls).toHaveLength(0);
   });
 
   it('fires nothing when window._phantom is set', () => {
@@ -109,35 +119,11 @@ describe('anti-automation short-circuit', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('subsequent track() calls are no-ops after webdriver short-circuit', () => {
-    const calls = loadTracker({ webdriver: true });
+  it('subsequent track() calls are no-ops after short-circuit', () => {
+    const calls = loadTracker({ gpc: true });
     window.statnive.track('would-not-fire');
     window.statnive.identify('user-x');
     expect(calls).toHaveLength(0);
-  });
-});
-
-// DNT / Sec-GPC are NOT consulted client-side anymore — browsers attach
-// the headers automatically and the server honors them per
-// consent.respect_dnt / consent.respect_gpc (default off). The tracker
-// must still POST so the server can apply per-deployment policy, count
-// the visit, and (when respect=on) suppress identity per Privacy Rule 9.
-describe('DNT / Sec-GPC fire POST (server decides)', () => {
-  it('fires a pageview when DNT=1', () => {
-    const calls = loadTracker({ dnt: '1' });
-    expect(calls).toHaveLength(1);
-    expect(calls[0].url).toBe('/api/event');
-  });
-
-  it('fires a pageview when Sec-GPC=true', () => {
-    const calls = loadTracker({ gpc: true });
-    expect(calls).toHaveLength(1);
-    expect(calls[0].url).toBe('/api/event');
-  });
-
-  it('fires a pageview when both DNT=1 and Sec-GPC=true', () => {
-    const calls = loadTracker({ dnt: '1', gpc: true });
-    expect(calls).toHaveLength(1);
   });
 });
 
