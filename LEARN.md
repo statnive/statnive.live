@@ -37,6 +37,9 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
   - [21 — `/etc/statnive/release-key.pub` is a one-time VPS prereq](#lesson-21)
   - [22 — `release.yml` cannot auto-fire downstream workflows via `GITHUB_TOKEN`](#lesson-22)
   - [23 — Embed-size assertion for refreshed JSON to catch silent stale-build regressions](#lesson-23)
+- [I. Privacy posture](#i-privacy-posture)
+  - [24 — Don't make a privacy-policy decision in the tracker bundle](#lesson-24)
+  - [25 — `statnive-deploy` healthz probe budget at 30 s is too tight for Netcup cold start](#lesson-25)
 
 ---
 
@@ -308,6 +311,15 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
 2. **Why it broke** — Privacy-by-default in the tracker is the wrong layer. The tracker bundle is one-size-fits-all (every operator gets the same JS), can't read per-site config, and runs *before* the POST so the server can't even count the visit anonymously. CLAUDE.md Privacy Rule 6 ("DNT + GPC respected by default on SaaS") was correct *as a posture*, but enforcing it client-side conflated two distinct concerns: should we count the visit (server can decide per-site), and should we hash identity (server already does via `consent.respect_gpc` / `consent.respect_dnt`).
 3. **The fix we applied** — Removed the DNT/GPC checks from `tracker/src/tracker.js` (kept `webdriver` / `_phantom` — those are anti-automation, not privacy policy). The browser still attaches `DNT: 1` / `Sec-GPC: 1` headers automatically; the binary's existing `consent.respect_*` config flags are now the only enforcement path. Defaults flipped from `true` → `false` so every visit is counted by default; operators with EU visitors flip them on per their jurisdiction. Updated CLAUDE.md Privacy Rule 6, `docs/rules/privacy-detail.md` Rule 6 detail, and inverted the `tracker.test.mjs` privacy-short-circuit specs to assert POST fires under `DNT: 1` / `Sec-GPC: 1`.
 4. **Preventive measure** — Two-layer defense. (a) Vitest spec at `tracker/test/tracker.test.mjs` § "DNT / Sec-GPC fire POST (server decides)" pins the new posture — any future "let's add a quick client-side check" reverts will fail this spec. (b) Operator-facing acceptance check in `docs/runbook.md` adds "scrape `/metrics`, confirm `received_total` matches WP-analytics visit count for the same window" — this is the diagnostic that surfaced the bug in the first place; institutionalize it. Per-site server toggles (`statnive.sites.respect_gpc UInt8 DEFAULT 0` + admin UI) are the v1.1 follow-up so multi-tenant operators can serve EU + non-EU customers from the same binary without re-editing config (deferred PR D2).
+
+### Lesson 25
+
+**`statnive-deploy` healthz probe budget at 30 s is too tight for the Netcup VPS 2000 G12 cold-start path. Auto-revert fires on a clean deploy, leaving production on the previous symlink. Bump to 90 s; operators on faster boxes can override via env.**
+
+1. **What we did** — Tag-pushed `v0.0.1-rc2`, watched `release.yml` build + sign + publish + fire `deploy-saas.yml`. The on-box `statnive-deploy deploy "v0.0.1-rc2"` step ran, atomic-symlink-swapped to the new bundle, restarted `statnive-live.service`, and waited on `/healthz`. After 30 s the probe timed out and `statnive-deploy` auto-reverted: symlink rolled back to the previous bundle (which happened to be `v0.0.0-dev` from a manual install), the new bundle stayed unpacked but inactive. Operator only noticed because `/metrics` (newly added in PR #77) returned 404 against production.
+2. **Why it broke** — Netcup VPS 2000 G12 NUE D1 takes ~35-50 s on cold start to (a) bind TLS via the manual PEM files (Phase 2a wiring), (b) replay any pending events from the WAL, (c) connect to ClickHouse + run pending migrations, (d) load the GeoIP DB into memory. The 30 s healthz probe was sized for the dev laptop, not for the 8c/16GB shared-tenant VPS. Verified by running the binary by hand on the VPS — it came up clean, just past the 30 s deadline.
+3. **The fix we applied** — Manually swung the symlink (`/opt/statnive-live/current` → `v0.0.1-rc2`) + `install -m 0755`d the new binary, restarted `statnive-live.service`, confirmed `/api/about` returned the new git_sha, confirmed `/metrics` returned the four counter blocks. Production then ran rc2 content despite the failed deploy.
+4. **Preventive measure** — Bumped `HEALTHZ_TIMEOUT_S` default from 30 → 90 in `deploy/statnive-deploy.sh`. Operators on faster boxes (Hetzner AX42, Asiatech P5) can override via the `STATNIVE_HEALTHZ_TIMEOUT_S` env var to keep the probe tight. The next tag-push (`v0.0.1-rc3`, shipping PR D + this fix) is the validation — if rc3 deploys cleanly without manual intervention, the bump is right-sized; if it still flags, raise to 120 s and add a deploy-saas-only `wait-for-binary` step that polls `/api/about` for `git_sha` match instead of the binary 200/timeout.
 
 ---
 
