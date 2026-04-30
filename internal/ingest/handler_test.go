@@ -411,9 +411,14 @@ func handleWithConsent(t *testing.T, opts consentOpts, hdrs map[string]string) (
 	return hadCookie, last
 }
 
-// saasDefaults returns the production SaaS posture (all three flags
-// true) so each test case sets only the consentRequired axis it cares
-// about.
+// saasDefaults returns the EU-strict posture (all three flags true).
+// Was the binary's default until the under-count diagnosis showed the
+// tracker's matching client-side short-circuit was hiding 70-85% of
+// legitimate traffic; the binary now defaults respect_gpc and
+// respect_dnt to false (count every visit), and operators with EU
+// visitors flip them on per their jurisdiction. This helper still
+// represents the opted-in posture so each test case can set only the
+// consentRequired axis it cares about.
 func saasDefaults() consentOpts {
 	return consentOpts{consentRequired: true, respectGPC: true, respectDNT: true}
 }
@@ -527,8 +532,9 @@ func TestHandler_RespectGPCUnchecked_GPCIgnored(t *testing.T) {
 	}
 }
 
-// DNT: 1 denies under SaaS defaults (RespectDNT=true). LEARN.md
-// Lesson 16 — server-side belt to tracker JS short-circuit.
+// DNT: 1 denies under EU-strict opt-in (RespectDNT=true). LEARN.md
+// Lesson 16. Tracker JS no longer short-circuits client-side, so this
+// is the only DNT enforcement path in the binary.
 func TestHandler_DNTDenies(t *testing.T) {
 	t.Parallel()
 
