@@ -40,6 +40,7 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
 - [I. Privacy posture](#i-privacy-posture)
   - [24 — Don't make a privacy-policy decision in the tracker bundle](#lesson-24)
   - [25 — `statnive-deploy` healthz probe budget at 30 s is too tight for Netcup cold start](#lesson-25)
+  - [26 — `statnive-deploy` healthz URL must honor systemd env, not just YAML](#lesson-26)
 
 ---
 
@@ -311,6 +312,15 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
 2. **Why it broke** — Privacy-by-default in the tracker is the wrong layer. The tracker bundle is one-size-fits-all (every operator gets the same JS), can't read per-site config, and runs *before* the POST so the server can't even count the visit anonymously. CLAUDE.md Privacy Rule 6 ("DNT + GPC respected by default on SaaS") was correct *as a posture*, but enforcing it client-side conflated two distinct concerns: should we count the visit (server can decide per-site), and should we hash identity (server already does via `consent.respect_gpc` / `consent.respect_dnt`).
 3. **The fix we applied** — Removed the DNT/GPC checks from `tracker/src/tracker.js` (kept `webdriver` / `_phantom` — those are anti-automation, not privacy policy). The browser still attaches `DNT: 1` / `Sec-GPC: 1` headers automatically; the binary's existing `consent.respect_*` config flags are now the only enforcement path. Defaults flipped from `true` → `false` so every visit is counted by default; operators with EU visitors flip them on per their jurisdiction. Updated CLAUDE.md Privacy Rule 6, `docs/rules/privacy-detail.md` Rule 6 detail, and inverted the `tracker.test.mjs` privacy-short-circuit specs to assert POST fires under `DNT: 1` / `Sec-GPC: 1`.
 4. **Preventive measure** — Two-layer defense. (a) Vitest spec at `tracker/test/tracker.test.mjs` § "DNT / Sec-GPC fire POST (server decides)" pins the new posture — any future "let's add a quick client-side check" reverts will fail this spec. (b) Operator-facing acceptance check in `docs/runbook.md` adds "scrape `/metrics`, confirm `received_total` matches WP-analytics visit count for the same window" — this is the diagnostic that surfaced the bug in the first place; institutionalize it. Per-site server toggles (`statnive.sites.respect_gpc UInt8 DEFAULT 0` + admin UI) are the v1.1 follow-up so multi-tenant operators can serve EU + non-EU customers from the same binary without re-editing config (deferred PR D2).
+
+### Lesson 26
+
+**`statnive-deploy` healthz probe URL was derived only from `/etc/statnive-live/config.yaml`, ignoring the systemd unit's `STATNIVE_*` env overrides — viper's AutomaticEnv wins over YAML at runtime, so the probe was hitting the wrong port and TLS scheme on every deploy.**
+
+1. **What we did** — Tag-pushed `v0.0.1-rc3` (PR #78 + PR #79). Both `release.yml` and the GHA-triggered `deploy-saas.yml` ran. The on-box `statnive-deploy deploy v0.0.1-rc3` step swapped the symlink, restarted the service, then the new 90 s healthz probe (per Lesson 25) STILL timed out. Auto-revert fired, symlink rolled back to `v0.0.1-rc2`.
+2. **Why it broke** — `derive_healthz_url` parsed `/etc/statnive-live/config.yaml` looking for `server.listen` + `tls.cert_file`. The shipped example file uses `server.addr` (LEARN.md Lesson 4 schema-drift survivor) so the awk parser found no match and fell through to the default `127.0.0.1:8080`. Then `cert_file:` matched the TLS branch, so the probe URL became `https://127.0.0.1:8080/healthz` — a port nothing was listening on. Meanwhile the binary read `STATNIVE_SERVER_LISTEN=0.0.0.0:443` from the systemd EnvironmentFile and bound to `:443`. The probe timed out for 90 s because no process answers `:8080` on the box. Operator confirmed by manually swinging the symlink + restarting the service: `/healthz` came back in 4 seconds on the right port.
+3. **The fix we applied** — `derive_healthz_url` now also reads `STATNIVE_SERVER_LISTEN` / `STATNIVE_TLS_CERT_FILE` from the inherited env first, then from `/etc/systemd/system/statnive-live.service.d/env.conf` if not set in the running shell, before falling back to the YAML parse. The lookup order is now: env-var override (`STATNIVE_HEALTHZ_URL`) → systemd unit env → YAML → hardcoded fallback. Probe URL on this Netcup VPS now correctly resolves to `https://127.0.0.1:443/healthz`.
+4. **Preventive measure** — Two layers. (a) The systemd-env reading in the script so future deploys on Netcup-class boxes (where YAML is mostly cosmetic and env wins) probe the right URL automatically. (b) Operator-facing acceptance: after any deploy, `gh run view <id> --log-failed | grep "healthz timed out"` should find nothing — if it does, the script's URL derivation has drifted again.
 
 ### Lesson 25
 
