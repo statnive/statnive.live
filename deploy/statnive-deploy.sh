@@ -31,7 +31,12 @@ BUNDLES_DIR=/opt/statnive-bundles
 CURRENT_LINK=/opt/statnive-live/current
 PUBKEY=/etc/statnive/release-key.pub
 CONFIG_FILE="${STATNIVE_CONFIG_FILE:-/etc/statnive-live/config.yaml}"
-HEALTHZ_TIMEOUT_S="${STATNIVE_HEALTHZ_TIMEOUT_S:-30}"
+# 90s default — Netcup VPS 2000 G12 takes ~35-50s to bind TLS + replay
+# WAL on cold start; the previous 30s default fired auto-revert during
+# the v0.0.1-rc2 deploy even though the binary came up clean shortly
+# after. Operators on faster boxes can override via env. LEARN.md
+# Lesson 25.
+HEALTHZ_TIMEOUT_S="${STATNIVE_HEALTHZ_TIMEOUT_S:-90}"
 
 # derive_healthz_url derives the probe URL from the runtime config so the
 # probe matches the binary's actual listen address + scheme. The hardcoded
