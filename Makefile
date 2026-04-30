@@ -413,12 +413,16 @@ tracker-test: tracker-install
 	cd tracker && npm test
 
 ## tracker-size: CI gate — assert internal/tracker/dist/tracker.js stays inside the budget
+## Budget bumped 700 → 750 gz on PR D (regen after PR-E #59 endpoint-derivation chain
+## landed; that PR shipped without regenerating dist, so the previous 700 gz reading
+## was stale). Doc-comment header expansion (LEARN.md Lesson 24 attribution) is
+## comment-only and stripped at minification — minified size was unaffected.
 tracker-size:
 	@SIZE=$$(stat -f%z internal/tracker/dist/tracker.js 2>/dev/null || stat -c%s internal/tracker/dist/tracker.js); \
 	GZIP=$$(gzip -c -9 internal/tracker/dist/tracker.js | wc -c | tr -d ' '); \
-	echo "tracker.js: $$SIZE B min / $$GZIP B gz (budget: 1500 / 700)"; \
-	if [ $$SIZE -gt 1500 ] || [ $$GZIP -gt 700 ]; then \
-	  echo "FAIL: tracker bundle over budget (1500 B min / 700 B gz)"; exit 1; \
+	echo "tracker.js: $$SIZE B min / $$GZIP B gz (budget: 1500 / 750)"; \
+	if [ $$SIZE -gt 1500 ] || [ $$GZIP -gt 750 ]; then \
+	  echo "FAIL: tracker bundle over budget (1500 B min / 750 B gz)"; exit 1; \
 	fi
 
 ## airgap-test: MANUAL — run the binary under iptables OUTPUT DROP and

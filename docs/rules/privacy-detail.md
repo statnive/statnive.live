@@ -26,9 +26,19 @@ SaaS (hosted outside Iran, serving EU visitors): GDPR applies. Customer DPA requ
 
 Both code paths ship in the same binary. The distinction is a runtime config flag (`tenant.saas_mode: true|false`) that toggles the consent gate and the DSAR endpoints.
 
-## Rule 6 — DNT + GPC respected by default on SaaS
+## Rule 6 — DNT + GPC default off — operator opt-in per deployment
 
-SaaS tier: `Sec-GPC: 1` OR `DNT: 1` OR `Sec-GPC: 1` → short-circuit before hash computation (see Rule 9). Self-hosted: operator decides via `privacy.respect_dnt_gpc` config key; default `true` for safety.
+**Posture (April 2026 update).** The previous default-on (`consent.respect_gpc: true`, `consent.respect_dnt: true`) shipped paired with a tracker.js client-side short-circuit on `navigator.doNotTrack === '1'` / `navigator.globalPrivacyControl === true`. Production diagnosis on `wp-slimstat.com` (88% under-count vs WP Analytics over 3 days) showed the client-side check was silently dropping 70-85% of legitimate Brave / Firefox-strict / iOS Safari / Chrome-with-extension visitors *before* the POST to `/api/event` ever fired. Operators saw their dashboards flatlined for the very visitor segments most committed to privacy.
+
+**New posture.** The tracker no longer consults `navigator.doNotTrack` or `navigator.globalPrivacyControl`. The browser still attaches `DNT: 1` / `Sec-GPC: 1` request headers automatically; the binary honors them only when the operator has flipped `consent.respect_gpc` / `consent.respect_dnt` to true in their YAML config. Defaults are now **false** — every visit is counted.
+
+**EU compliance.** Operators with EU visitors **must** flip both flags to `true` to remain GDPR-compliant. The default flip is an operator-policy decision; the legal liability sits with the site operator, not statnive-live. SaaS DPA template (`docs/dpa-draft.md`) calls this out explicitly.
+
+**Iran self-hosted.** Zero GDPR exposure (data stays on customer's box, no EU data-subject in scope per Privacy Rule 5). Defaults stay false.
+
+**v1.1 follow-up.** Per-site server toggles (`statnive.sites.respect_gpc UInt8 DEFAULT 0` + admin UI) replace the global flags so multi-tenant operators can serve EU + non-EU customers from the same binary without re-editing config. Tracked as deferred PR D2.
+
+**The Privacy Rule 9 guarantee still holds.** When the operator has opted in and the visitor's browser sends `Sec-GPC: 1` / `DNT: 1`, the consent-decline short-circuit runs **before** hash computation (`internal/ingest/handler.go:147`). Identity (cookie + `user_id_hash`) is suppressed; the event still ingests anonymously so the operator can count the visit.
 
 ## Rule 7 — First-party tracker via `go:embed`
 
