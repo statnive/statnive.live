@@ -2,7 +2,7 @@
 
 First-party JavaScript tracker that fires pageviews + custom events at
 `/api/event` on the analytics host. Vanilla JS, IIFE, **≤ 1.5 KB minified
-/ ≤ 700 B gzipped**.
+/ ≤ 750 B gzipped**.
 
 ## Public API
 
@@ -22,13 +22,20 @@ statnive.identify(uid);               // raw uid; server hashes to SHA-256
 
 ## Privacy contract (silently disables itself when…)
 
-- `navigator.doNotTrack === '1'` (DNT)
-- `navigator.globalPrivacyControl === true` (Sec-GPC)
 - `navigator.webdriver === true` (Selenium / Playwright / headless Chrome)
 - `window._phantom` / `window.callPhantom` (PhantomJS)
 
-When disabled, both `track()` and `identify()` become no-ops. Your code
-never throws; user opt-out is structural, not a banner.
+These are anti-automation guards, not privacy policy. When triggered,
+both `track()` and `identify()` become no-ops; your code never throws.
+
+**`DNT: 1` and `Sec-GPC: 1` are NOT honored client-side.** Browsers attach
+those headers automatically on every request; the binary honors them
+server-side only when the operator has set `consent.respect_dnt: true` /
+`consent.respect_gpc: true` in their YAML config (default false). The
+previous client-side short-circuit was hiding 70-85% of legitimate Brave
+/ Firefox-strict / Safari traffic from operator dashboards (see LEARN.md
+Lesson 24); the policy decision now lives in the binary where each
+operator can configure it for their jurisdiction.
 
 ## What it does NOT do
 
