@@ -44,8 +44,11 @@ HEALTHZ_TIMEOUT_S="${STATNIVE_HEALTHZ_TIMEOUT_S:-90}"
 # release deploy to be reported as failed when the binary listens on
 # 0.0.0.0:443 with TLS (LEARN.md Lesson 20). Order:
 #   1. STATNIVE_HEALTHZ_URL env var (operator override).
-#   2. server.listen + tls.cert_file from /etc/statnive-live/config.yaml.
-#   3. Fallback to http://127.0.0.1:8080/healthz (matches binary defaults).
+#   2. systemd unit env (STATNIVE_SERVER_LISTEN / STATNIVE_TLS_CERT_FILE)
+#      — viper's AutomaticEnv treats these as wins-over-YAML, so the
+#      probe must match. LEARN.md Lesson 26.
+#   3. server.listen + tls.cert_file from /etc/statnive-live/config.yaml.
+#   4. Fallback to http://127.0.0.1:8080/healthz (matches binary defaults).
 # CURL_OPTS gets `-k` whenever the scheme is https, since the probe targets
 # 127.0.0.1 but the cert is typically issued for the public hostname.
 derive_healthz_url() {
@@ -55,11 +58,42 @@ derive_healthz_url() {
 		return 0
 	fi
 
-	local listen scheme
+	local listen scheme env_listen env_cert
 	listen=""
 	scheme="http"
 
-	if [ -r "$CONFIG_FILE" ]; then
+	# Source systemd EnvironmentFile / drop-ins so STATNIVE_SERVER_LISTEN +
+	# STATNIVE_TLS_CERT_FILE are visible. Viper's AutomaticEnv makes these
+	# override config.yaml at runtime; the probe must match what the
+	# binary actually bound, not what the YAML says.
+	env_listen="${STATNIVE_SERVER_LISTEN:-}"
+	env_cert="${STATNIVE_TLS_CERT_FILE:-}"
+
+	if [ -z "$env_listen" ] && [ -r /etc/systemd/system/statnive-live.service.d/env.conf ]; then
+		env_listen="$(awk -F'=' '/^Environment=.*STATNIVE_SERVER_LISTEN=/ {
+			gsub(/^Environment="?STATNIVE_SERVER_LISTEN=/, "")
+			gsub(/"$/, "")
+			print; exit
+		}' /etc/systemd/system/statnive-live.service.d/env.conf)"
+	fi
+
+	if [ -z "$env_cert" ] && [ -r /etc/systemd/system/statnive-live.service.d/env.conf ]; then
+		env_cert="$(awk -F'=' '/^Environment=.*STATNIVE_TLS_CERT_FILE=/ {
+			gsub(/^Environment="?STATNIVE_TLS_CERT_FILE=/, "")
+			gsub(/"$/, "")
+			print; exit
+		}' /etc/systemd/system/statnive-live.service.d/env.conf)"
+	fi
+
+	if [ -n "$env_listen" ]; then
+		listen="$env_listen"
+	fi
+
+	if [ -n "$env_cert" ]; then
+		scheme="https"
+	fi
+
+	if [ -z "$listen" ] && [ -r "$CONFIG_FILE" ]; then
 		# server: { listen: "host:port" } — match the FIRST listen: line under server.
 		listen="$(awk '
 			/^server:/        { in_s=1; next }
@@ -72,6 +106,9 @@ derive_healthz_url() {
 				gsub(/[[:space:]]+$/, "")
 				print; exit
 			}' "$CONFIG_FILE")"
+	fi
+
+	if [ -z "$env_cert" ] && [ -r "$CONFIG_FILE" ]; then
 		# tls: { cert_file: "..." } — presence flips scheme to https.
 		if grep -qE '^[[:space:]]*cert_file:[[:space:]]*[^[:space:]#]' "$CONFIG_FILE"; then
 			scheme="https"
