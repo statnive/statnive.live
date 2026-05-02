@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/statnive/statnive.live/internal/ingest"
+	"github.com/statnive/statnive.live/internal/sites"
 )
 
 // fakePipeline records every Enrich call so the test can assert the
@@ -366,13 +367,18 @@ func handleWithConsent(t *testing.T, opts consentOpts, hdrs map[string]string) (
 	fake := &fakePipeline{}
 	wal := &fakeWAL{}
 	inner := ingest.NewHandler(ingest.HandlerConfig{
-		Pipeline:        fake,
-		WAL:             wal,
-		Sites:           ingest.StaticSiteResolver{SiteID: 1},
+		Pipeline: fake,
+		WAL:      wal,
+		Sites: ingest.StaticSiteResolver{
+			SiteID: 1,
+			Policy: sites.SitePolicy{
+				RespectDNT: opts.respectDNT,
+				RespectGPC: opts.respectGPC,
+				TrackBots:  true,
+			},
+		},
 		MasterSecret:    masterSecret,
 		ConsentRequired: opts.consentRequired,
-		RespectGPC:      opts.respectGPC,
-		RespectDNT:      opts.respectDNT,
 		Now:             func() time.Time { return time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC) },
 		Logger:          slog.New(slog.DiscardHandler),
 	})

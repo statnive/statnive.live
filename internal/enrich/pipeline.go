@@ -120,6 +120,24 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 		isBot = true
 	}
 
+	// Per-site track_bots gate (migration 006). Default true keeps
+	// today's behavior — bots flow through with is_bot=1 so the
+	// dashboard can surface them separately. Operators that don't
+	// want bot rows in events_raw at all flip to false, and bots
+	// drop here with metrics.ReasonBotDropped.
+	if isBot && !raw.TrackBots {
+		if p.deps.Audit != nil {
+			p.deps.Audit.Event(context.Background(), audit.EventBotDropped,
+				slog.Uint64("site_id", uint64(raw.SiteID)),
+				slog.String("hostname", raw.Hostname),
+			)
+		}
+
+		p.deps.Metrics.IncDropped(metrics.ReasonBotDropped)
+
+		return ingest.EnrichedEvent{}, false
+	}
+
 	// Stage 6 — Channel attribution.
 	channel := p.deps.Channel.Classify(raw.Referrer, raw.UTMSource, raw.UTMMedium, raw.UTMCampaign, "")
 

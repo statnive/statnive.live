@@ -43,6 +43,7 @@ const (
 	ReasonRateLimited     = "rate_limited"
 	ReasonWALBackpressure = "wal_backpressure"
 	ReasonBurstDropped    = "burst_dropped"
+	ReasonBotDropped      = "bot_dropped" // statnive.sites.track_bots=0
 	ReasonWALSyncError    = "wal_sync_error"
 )
 

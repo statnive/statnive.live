@@ -28,24 +28,30 @@ func NewSites(deps Deps) *Sites {
 }
 
 type siteAdminResponse struct {
-	SiteID    uint32 `json:"site_id"`
-	Hostname  string `json:"hostname"`
-	Slug      string `json:"slug"`
-	Plan      string `json:"plan"`
-	Enabled   bool   `json:"enabled"`
-	TZ        string `json:"tz"`
-	CreatedAt int64  `json:"created_at"`
+	SiteID     uint32 `json:"site_id"`
+	Hostname   string `json:"hostname"`
+	Slug       string `json:"slug"`
+	Plan       string `json:"plan"`
+	Enabled    bool   `json:"enabled"`
+	TZ         string `json:"tz"`
+	CreatedAt  int64  `json:"created_at"`
+	RespectDNT bool   `json:"respect_dnt"`
+	RespectGPC bool   `json:"respect_gpc"`
+	TrackBots  bool   `json:"track_bots"`
 }
 
 func toSiteResponse(s sites.SiteAdmin) siteAdminResponse {
 	return siteAdminResponse{
-		SiteID:    s.ID,
-		Hostname:  s.Hostname,
-		Slug:      s.Slug,
-		Plan:      s.Plan,
-		Enabled:   s.Enabled,
-		TZ:        s.TZ,
-		CreatedAt: s.CreatedAt,
+		SiteID:     s.ID,
+		Hostname:   s.Hostname,
+		Slug:       s.Slug,
+		Plan:       s.Plan,
+		Enabled:    s.Enabled,
+		TZ:         s.TZ,
+		CreatedAt:  s.CreatedAt,
+		RespectDNT: s.RespectDNT,
+		RespectGPC: s.RespectGPC,
+		TrackBots:  s.TrackBots,
 	}
 }
 
@@ -161,14 +167,22 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toSiteResponse(*created))
 }
 
-// updateSiteRequest — Phase 6 supports enable/disable only. Slug + tz
-// + plan mutations land when operator demand justifies them.
+// updateSiteRequest — Phase 6 supports enable/disable. PR D2 adds the
+// per-site privacy + bot policy (CLAUDE.md Privacy Rule 6 + migration
+// 006). Pointer fields so the handler can distinguish "field omitted"
+// (no change) from "field set false" (set it). Slug + tz + plan
+// mutations still land when operator demand justifies them.
 type updateSiteRequest struct {
-	Enabled bool `json:"enabled"`
+	Enabled    *bool `json:"enabled,omitempty"`
+	RespectDNT *bool `json:"respect_dnt,omitempty"`
+	RespectGPC *bool `json:"respect_gpc,omitempty"`
+	TrackBots  *bool `json:"track_bots,omitempty"`
 }
 
-// Update handles PATCH /api/admin/sites/{id}. Payload must be {enabled:
-// bool}; anything else fails the F4 unknown-field guard.
+// Update handles PATCH /api/admin/sites/{id}. Payload may include any
+// combination of {enabled, respect_dnt, respect_gpc, track_bots};
+// anything else fails the F4 unknown-field guard. Empty payloads
+// short-circuit with the existing site projection (idempotent no-op).
 func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {
@@ -185,23 +199,66 @@ func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req updateSiteRequest
-	if err := httpjson.DecodeAllowed(r, &req, []string{"enabled"}); err != nil {
+	if err := httpjson.DecodeAllowed(r, &req, []string{
+		"enabled", "respect_dnt", "respect_gpc", "track_bots",
+	}); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 
 		return
 	}
 
-	if err := h.deps.Sites.UpdateSiteEnabled(r.Context(), siteID, req.Enabled); err != nil {
-		if errors.Is(err, sites.ErrUnknownHostname) {
-			http.Error(w, "not found", http.StatusNotFound)
+	// Read-modify-write the policy fields only when at least one is
+	// present. Avoids accidentally zeroing the columns on a payload
+	// that only flips `enabled`.
+	if req.RespectDNT != nil || req.RespectGPC != nil || req.TrackBots != nil {
+		current, lookupErr := h.deps.Sites.LookupSiteByID(r.Context(), siteID)
+		if lookupErr != nil {
+			if errors.Is(lookupErr, sites.ErrUnknownHostname) {
+				http.Error(w, "not found", http.StatusNotFound)
+
+				return
+			}
+
+			h.deps.emitDashboardError(r, "lookup_for_update", lookupErr)
+			http.Error(w, "internal error", http.StatusInternalServerError)
 
 			return
 		}
 
-		h.deps.emitDashboardError(r, "update_site", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		policy := current.SitePolicy
+		if req.RespectDNT != nil {
+			policy.RespectDNT = *req.RespectDNT
+		}
 
-		return
+		if req.RespectGPC != nil {
+			policy.RespectGPC = *req.RespectGPC
+		}
+
+		if req.TrackBots != nil {
+			policy.TrackBots = *req.TrackBots
+		}
+
+		if err := h.deps.Sites.UpdateSitePolicy(r.Context(), siteID, policy); err != nil {
+			h.deps.emitDashboardError(r, "update_site_policy", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+
+			return
+		}
+	}
+
+	if req.Enabled != nil {
+		if err := h.deps.Sites.UpdateSiteEnabled(r.Context(), siteID, *req.Enabled); err != nil {
+			if errors.Is(err, sites.ErrUnknownHostname) {
+				http.Error(w, "not found", http.StatusNotFound)
+
+				return
+			}
+
+			h.deps.emitDashboardError(r, "update_site", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+
+			return
+		}
 	}
 
 	// Re-read for response parity with Create.
