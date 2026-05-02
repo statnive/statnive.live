@@ -80,6 +80,8 @@ func NewPipeline(deps Deps) *Pipeline {
 // burst guard rejects the event (caller drops it without sending to
 // WAL). Order MUST stay identity → burst → bloom → geo → ua → bot →
 // channel (CLAUDE.md Architecture Rule 6).
+//
+//nolint:gocyclo // PR D2 added the track_bots gate (extra branch + audit + metrics) which bumped cyclomatic complexity from 14 to 15. The 6-stage order is load-bearing per Architecture Rule 6 and pinned by integration tests; splitting stages into helpers would obscure the rule.
 func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 	// Stage 1 — identity (BLAKE3 keyed by today's salt).
 	saltToday := p.deps.Salt.CurrentSalt(raw.SiteID)
