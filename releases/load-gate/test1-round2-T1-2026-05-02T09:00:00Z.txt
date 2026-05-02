@@ -1,0 +1,44 @@
+Test 1 Round 2 — T1 snapshot
+Captured: 2026-05-02T09:00:00Z
+Window since T0 (2026-04-30T12:13:28Z): ~41 hours
+
+/api/about:
+{"version":"v0.0.1-rc3+dirty","git_sha":"de34c35","go_version":"go1.25.9","attributions":[{"name":"IP2Location LITE DB23","license":"CC-BY-SA-4.0","url":"https://lite.ip2location.com","text":"This site or product includes IP2Location LITE data available from https://lite.ip2location.com."},{"name":"crawler-user-agents","license":"MIT","url":"https://github.com/monperrus/crawler-user-agents","text":"Bot-detection patterns from monperrus/crawler-user-agents (MIT)."},{"name":"lukechampine/blake3","license":"CC0-1.0","url":"https://github.com/lukechampine/blake3","text":"BLAKE3 hashing via lukechampine/blake3 (CC0-1.0)."}]}
+
+
+/metrics (via SSH from Netcup loopback):
+# HELP statnive_event_received_total Events received at /api/event before any reject gate.
+# TYPE statnive_event_received_total counter
+statnive_event_received_total 71
+# HELP statnive_event_accepted_total Events accepted and durable in WAL, partitioned by site_id.
+# TYPE statnive_event_accepted_total counter
+statnive_event_accepted_total{site_id="1"} 9
+statnive_event_accepted_total{site_id="2"} 2
+statnive_event_accepted_total{site_id="3"} 1
+statnive_event_accepted_total{site_id="5"} 4
+# HELP statnive_event_dropped_total Events dropped before reaching WAL, partitioned by drop reason.
+# TYPE statnive_event_dropped_total counter
+statnive_event_dropped_total{reason="hostname_unknown"} 55
+
+ClickHouse events_raw breakdown:
+   ┌─site_id─┬─events─┬─────────first_event─┬──────────last_event─┐
+1. │       1 │    128 │ 2026-04-25 11:07:33 │ 2026-05-01 10:08:54 │
+2. │       2 │     52 │ 2026-04-25 11:36:20 │ 2026-05-01 08:49:20 │
+3. │       3 │     28 │ 2026-04-25 11:36:47 │ 2026-04-30 12:22:06 │
+4. │       5 │     35 │ 2026-04-25 13:06:01 │ 2026-05-01 18:58:46 │
+   └─────────┴────────┴─────────────────────┴─────────────────────┘
+
+Dropped hostnames (audit log):
+     64 localhost
+     16 statnive-fr.pages.dev
+     14 statnive-zh.pages.dev
+     13 statnive-jp.pages.dev
+     12 ja.statnive.com
+     11 zh.statnive.com
+      7 feat-pricing-tabs-traffic-sl.statnive-website.pages.dev
+      4 statnive-de.pages.dev
+      4 21392517.statnive-website.pages.dev
+      3 www.statnive.de
+      3 afb7c308.statnive-website.pages.dev
+      1 www.fr.statnive.com
+      1 0fc3757b.statnive-website.pages.dev
