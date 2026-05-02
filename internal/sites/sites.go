@@ -109,8 +109,8 @@ func (r *Registry) LookupSitePolicy(ctx context.Context, hostname string) (uint3
 	}
 
 	var (
-		siteID                              uint32
-		respectDNT, respectGPC, trackBots   uint8
+		siteID                            uint32
+		respectDNT, respectGPC, trackBots uint8
 	)
 
 	row := r.conn.QueryRow(ctx,
@@ -367,7 +367,7 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 
 	for rows.Next() {
 		var (
-			sa                                SiteAdmin
+			sa                                         SiteAdmin
 			enabled, respectDNT, respectGPC, trackBots uint8
 		)
 
