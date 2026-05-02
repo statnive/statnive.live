@@ -207,55 +207,15 @@ func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read-modify-write the policy fields only when at least one is
-	// present. Avoids accidentally zeroing the columns on a payload
-	// that only flips `enabled`.
-	if req.RespectDNT != nil || req.RespectGPC != nil || req.TrackBots != nil {
-		current, lookupErr := h.deps.Sites.LookupSiteByID(r.Context(), siteID)
-		if lookupErr != nil {
-			if errors.Is(lookupErr, sites.ErrUnknownHostname) {
-				http.Error(w, "not found", http.StatusNotFound)
+	if status := h.applyPolicyPatch(r, siteID, req); status != 0 {
+		http.Error(w, http.StatusText(status), status)
 
-				return
-			}
-
-			h.deps.emitDashboardError(r, "lookup_for_update", lookupErr)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-
-			return
-		}
-
-		policy := current.SitePolicy
-		if req.RespectDNT != nil {
-			policy.RespectDNT = *req.RespectDNT
-		}
-
-		if req.RespectGPC != nil {
-			policy.RespectGPC = *req.RespectGPC
-		}
-
-		if req.TrackBots != nil {
-			policy.TrackBots = *req.TrackBots
-		}
-
-		if err := h.deps.Sites.UpdateSitePolicy(r.Context(), siteID, policy); err != nil {
-			h.deps.emitDashboardError(r, "update_site_policy", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-
-			return
-		}
+		return
 	}
 
 	if req.Enabled != nil {
-		if err := h.deps.Sites.UpdateSiteEnabled(r.Context(), siteID, *req.Enabled); err != nil {
-			if errors.Is(err, sites.ErrUnknownHostname) {
-				http.Error(w, "not found", http.StatusNotFound)
-
-				return
-			}
-
-			h.deps.emitDashboardError(r, "update_site", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
+		if status := h.applyEnabledPatch(r, siteID, *req.Enabled); status != 0 {
+			http.Error(w, http.StatusText(status), status)
 
 			return
 		}
@@ -280,6 +240,67 @@ func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "not found", http.StatusNotFound)
+}
+
+// applyPolicyPatch read-modify-writes the per-site DNT/GPC/track_bots
+// policy when at least one of those fields is present in req. Returns
+// 0 on success / no-op (no policy fields), or an HTTP status code on
+// failure (404 for unknown site, 500 otherwise). Splits the
+// ListAdmin-free read + UpdateSitePolicy write out of Update so the
+// caller stays under the gocyclo threshold.
+func (h *Sites) applyPolicyPatch(r *http.Request, siteID uint32, req updateSiteRequest) int {
+	if req.RespectDNT == nil && req.RespectGPC == nil && req.TrackBots == nil {
+		return 0
+	}
+
+	current, lookupErr := h.deps.Sites.LookupSiteByID(r.Context(), siteID)
+	if lookupErr != nil {
+		if errors.Is(lookupErr, sites.ErrUnknownHostname) {
+			return http.StatusNotFound
+		}
+
+		h.deps.emitDashboardError(r, "lookup_for_update", lookupErr)
+
+		return http.StatusInternalServerError
+	}
+
+	policy := current.SitePolicy
+	if req.RespectDNT != nil {
+		policy.RespectDNT = *req.RespectDNT
+	}
+
+	if req.RespectGPC != nil {
+		policy.RespectGPC = *req.RespectGPC
+	}
+
+	if req.TrackBots != nil {
+		policy.TrackBots = *req.TrackBots
+	}
+
+	if err := h.deps.Sites.UpdateSitePolicy(r.Context(), siteID, policy); err != nil {
+		h.deps.emitDashboardError(r, "update_site_policy", err)
+
+		return http.StatusInternalServerError
+	}
+
+	return 0
+}
+
+// applyEnabledPatch flips the enabled flag and maps the registry error
+// to an HTTP status code. Mirror of applyPolicyPatch's shape so
+// Update() composes them linearly.
+func (h *Sites) applyEnabledPatch(r *http.Request, siteID uint32, enabled bool) int {
+	if err := h.deps.Sites.UpdateSiteEnabled(r.Context(), siteID, enabled); err != nil {
+		if errors.Is(err, sites.ErrUnknownHostname) {
+			return http.StatusNotFound
+		}
+
+		h.deps.emitDashboardError(r, "update_site", err)
+
+		return http.StatusInternalServerError
+	}
+
+	return 0
 }
 
 func (h *Sites) emitSiteEvent(

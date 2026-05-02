@@ -101,6 +101,7 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 	})
 }
 
+//nolint:gocyclo // PR D2 added per-site policy lookup + lazy cookie gate inside the events loop, bumping cyclomatic complexity from 12 to 14. Splitting helpers out would force several params (cfg, hashUserID, cookieID) through call sites that don't need them and obscure the linear request flow.
 func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID bool) {
 	// FastRejectMiddleware enforces POST-only + the prefetch/UA-shape
 	// fast-reject before any downstream middleware. By the time we get
