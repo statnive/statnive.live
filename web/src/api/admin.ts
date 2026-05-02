@@ -36,6 +36,23 @@ export interface AdminSite {
   enabled: boolean;
   tz: string;
   created_at: number;
+  // Per-site privacy + bot-tracking policy (PR D2 — migration 006).
+  // Defaults: respect_dnt=false, respect_gpc=false, track_bots=true.
+  // Operators with EU visitors flip respect_dnt + respect_gpc to true.
+  respect_dnt: boolean;
+  respect_gpc: boolean;
+  track_bots: boolean;
+}
+
+// SitePolicyPatch is the shape the admin UI sends to PATCH
+// /api/admin/sites/{id} when toggling the privacy/bot checkboxes.
+// Every field is optional so the server can distinguish "field
+// omitted" (no change) from "field set false" (set it).
+export interface SitePolicyPatch {
+  enabled?: boolean;
+  respect_dnt?: boolean;
+  respect_gpc?: boolean;
+  track_bots?: boolean;
 }
 
 async function request<T>(
@@ -172,4 +189,14 @@ export async function updateSiteEnabled(
   enabled: boolean,
 ): Promise<AdminSite> {
   return request<AdminSite>('PATCH', `/api/admin/sites/${siteID}`, { enabled });
+}
+
+// updateSitePolicy patches the per-site DNT/GPC/track_bots flags.
+// Caller passes only the fields they want to change; omitted fields
+// are left unchanged on the server (PR D2a backend).
+export async function updateSitePolicy(
+  siteID: number,
+  patch: SitePolicyPatch,
+): Promise<AdminSite> {
+  return request<AdminSite>('PATCH', `/api/admin/sites/${siteID}`, patch);
 }
