@@ -392,8 +392,6 @@ func run() error {
 			Audit:           auditLog,
 			Logger:          logger,
 			ConsentRequired: cfg.Consent.Required,
-			RespectGPC:      cfg.Consent.RespectGPC,
-			RespectDNT:      cfg.Consent.RespectDNT,
 			Metrics:         metricsReg,
 		}))
 	})
@@ -942,16 +940,9 @@ type appConfig struct {
 		// an explicit X-Statnive-Consent: given header. Default true on
 		// the SaaS binary; self-hosted Iran tier flips to false.
 		Required bool
-		// RespectGPC honors Sec-GPC: 1 as a deny signal (CLAUDE.md
-		// Privacy Rule 9). Default false; operators with EU visitors
-		// flip to true. Server-side honor only — the tracker no longer
-		// consults navigator.globalPrivacyControl.
-		RespectGPC bool
-		// RespectDNT honors DNT: 1 as a deny signal. Default false;
-		// same posture as RespectGPC. Server-side honor only — the
-		// tracker no longer consults navigator.doNotTrack (LEARN.md
-		// Lesson 24 supersedes Lesson 16).
-		RespectDNT bool
+		// Note: respect_gpc + respect_dnt are now per-site columns in
+		// statnive.sites (migration 006), not global cfg flags. The
+		// admin UI at /admin/sites toggles them per tenant. PR D2.
 	}
 }
 
@@ -1032,18 +1023,12 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("dashboard.spa_enabled", false)
 
 	// Consent posture (CLAUDE.md Privacy Rules 5 + 9).
-	// `consent.required` stays true (SaaS-safe + privacy-by-default).
-	// `consent.respect_gpc` / `consent.respect_dnt` default FALSE so the
-	// binary counts every visit by default; operators with EU visitors
-	// MUST flip them on per their jurisdiction. The previous default-on
-	// hid 70-85% of legitimate traffic from Brave / Firefox-strict /
-	// Safari users on operator dashboards because the tracker also
-	// short-circuited client-side; that client check has been removed
-	// (see tracker/src/tracker.js header), so the operator config is now
-	// the single source of truth for the policy.
+	// `consent.required` stays a global flag (cookie + identity gate is
+	// jurisdiction-wide, not per-site). The respect_gpc + respect_dnt
+	// flags moved to per-site columns in statnive.sites (migration 006,
+	// PR D2) so multi-tenant operators can serve EU + non-EU customers
+	// from the same binary without re-editing config.
 	v.SetDefault("consent.required", true)
-	v.SetDefault("consent.respect_gpc", false)
-	v.SetDefault("consent.respect_dnt", false)
 
 	// Auth (Phase 2b). Secure defaults: 14-day cookie, SameSite=Lax,
 	// bcrypt cost 12, 10 login attempts / min / IP, 10 fails / 15 min →
@@ -1116,8 +1101,6 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.Dashboard.SPAEnabled = v.GetBool("dashboard.spa_enabled")
 
 	cfg.Consent.Required = v.GetBool("consent.required")
-	cfg.Consent.RespectGPC = v.GetBool("consent.respect_gpc")
-	cfg.Consent.RespectDNT = v.GetBool("consent.respect_dnt")
 
 	cfg.Auth.Session.TTL = v.GetDuration("auth.session.ttl")
 	cfg.Auth.Session.CookieName = v.GetString("auth.session.cookie_name")

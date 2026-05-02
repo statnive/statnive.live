@@ -34,6 +34,7 @@ const (
 	EventHostnameUnknown EventName = "ingest.hostname_unknown"
 	EventFastReject      EventName = "ingest.fast_reject"
 	EventBurstDropped    EventName = "ingest.burst_dropped"
+	EventBotDropped      EventName = "ingest.bot_dropped" // statnive.sites.track_bots=0
 )
 
 // WAL durability events. Emitted by internal/ingest/wal.go +

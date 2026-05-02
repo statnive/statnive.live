@@ -42,6 +42,11 @@ type RawEvent struct {
 	IP         string    `json:"-"` // dropped before EnrichedEvent — Privacy Rule 1.
 	UserAgent  string    `json:"-"`
 	SiteID     uint32    `json:"-"`
+	// TrackBots mirrors statnive.sites.track_bots for this hostname.
+	// When false the pipeline drops bot events instead of flagging
+	// is_bot=1 (default true preserves the post-PR-#78 behavior). Set
+	// by the handler from the per-site policy lookup.
+	TrackBots bool `json:"-"`
 }
 
 // EnrichedEvent is the row written to ClickHouse.

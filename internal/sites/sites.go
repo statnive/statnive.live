@@ -42,10 +42,27 @@ type Site struct {
 	TZ       string `json:"tz"`
 }
 
+// SitePolicy is the per-site privacy + bot-tracking posture, written
+// to statnive.sites by migration 006. Replaces the global
+// cfg.consent.respect_* / cfg.consent.track_bots flags so multi-tenant
+// operators can serve EU + non-EU customers from the same binary.
+//
+// Defaults (operator unset): RespectDNT=false, RespectGPC=false,
+// TrackBots=true — preserves the post-PR-#78 SaaS posture (count every
+// visit, suppress identity only on operator-flipped opt-in).
+type SitePolicy struct {
+	RespectDNT bool `json:"respect_dnt"`
+	RespectGPC bool `json:"respect_gpc"`
+	TrackBots  bool `json:"track_bots"`
+}
+
 // SiteAdmin is the richer projection returned to /api/admin/sites. Adds
-// slug + plan + created_at on top of Site for the Admin UI.
+// slug + plan + created_at + per-site privacy/bot policy on top of Site
+// for the Admin UI. The policy fields drive the three Site Settings
+// checkboxes (CLAUDE.md Privacy Rule 6 + migration 006).
 type SiteAdmin struct {
 	Site
+	SitePolicy
 
 	Slug      string `json:"slug"`
 	Plan      string `json:"plan"`
@@ -65,31 +82,60 @@ func New(conn driver.Conn) *Registry {
 }
 
 // LookupSiteIDByHostname returns the site_id for a given hostname, or
-// ErrUnknownHostname if none is registered / enabled.
+// ErrUnknownHostname if none is registered / enabled. Kept for callers
+// that don't yet need the per-site policy (admin paths, tests). The
+// hot ingest path uses LookupSitePolicy instead.
 func (r *Registry) LookupSiteIDByHostname(ctx context.Context, hostname string) (uint32, error) {
+	siteID, _, err := r.LookupSitePolicy(ctx, hostname)
+
+	return siteID, err
+}
+
+// LookupSitePolicy returns the site_id AND the per-site privacy +
+// bot-tracking policy in a single round-trip. The hot ingest path
+// (internal/ingest/handler.go) calls this so the consent gate +
+// burst-vs-bot decision happen against per-site flags rather than the
+// (now-removed) global cfg.consent.respect_* surface.
+//
+// Returns ErrUnknownHostname if no enabled row matches. Sites without
+// migration 006 columns yet (very old deployments mid-upgrade) get the
+// default policy (count every visit, no DNT/GPC suppression, bots
+// flagged-not-dropped).
+func (r *Registry) LookupSitePolicy(ctx context.Context, hostname string) (uint32, SitePolicy, error) {
+	var policy SitePolicy
+
 	if hostname == "" {
-		return 0, ErrUnknownHostname
+		return 0, policy, ErrUnknownHostname
 	}
 
-	var siteID uint32
+	var (
+		siteID                              uint32
+		respectDNT, respectGPC, trackBots   uint8
+	)
 
 	row := r.conn.QueryRow(ctx,
-		`SELECT site_id FROM statnive.sites WHERE hostname = ? AND enabled = 1 LIMIT 1`,
+		`SELECT site_id, respect_dnt, respect_gpc, track_bots
+		 FROM statnive.sites
+		 WHERE hostname = ? AND enabled = 1 LIMIT 1`,
 		hostname,
 	)
 
-	if err := row.Scan(&siteID); err != nil {
+	if err := row.Scan(&siteID, &respectDNT, &respectGPC, &trackBots); err != nil {
 		// ClickHouse driver returns a generic error on no-rows; treat any
 		// scan failure as ErrUnknownHostname. The handler then 204s the
 		// event silently. Real connection failures bubble through ping/health.
-		return 0, ErrUnknownHostname
+		return 0, policy, ErrUnknownHostname
 	}
 
 	if siteID == 0 {
-		return 0, ErrUnknownHostname
+		return 0, policy, ErrUnknownHostname
 	}
 
-	return siteID, nil
+	policy.RespectDNT = respectDNT != 0
+	policy.RespectGPC = respectGPC != 0
+	policy.TrackBots = trackBots != 0
+
+	return siteID, policy, nil
 }
 
 // ValidateHostname runs the same cheap shape checks the /api/event
@@ -174,6 +220,51 @@ func (r *Registry) CreateSite(ctx context.Context, hostname, slug, tz string) (u
 	return siteID, nil
 }
 
+// UpdateSitePolicy mutates the per-site privacy + bot flags
+// (statnive.sites.respect_dnt / respect_gpc / track_bots — migration
+// 006). Uses synchronous ALTER UPDATE so the change is visible to the
+// next LookupSitePolicy call. ErrUnknownHostname semantics for
+// non-existent site_id.
+func (r *Registry) UpdateSitePolicy(ctx context.Context, siteID uint32, policy SitePolicy) error {
+	if siteID == 0 {
+		return ErrUnknownHostname
+	}
+
+	var exists uint64
+
+	if err := r.conn.QueryRow(ctx,
+		`SELECT count() FROM statnive.sites WHERE site_id = ?`,
+		siteID,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("sites existence: %w", err)
+	}
+
+	if exists == 0 {
+		return ErrUnknownHostname
+	}
+
+	if err := r.conn.Exec(ctx,
+		`ALTER TABLE statnive.sites
+		 UPDATE respect_dnt = ?, respect_gpc = ?, track_bots = ?
+		 WHERE site_id = ?
+		 SETTINGS mutations_sync = 2`,
+		boolU8(policy.RespectDNT), boolU8(policy.RespectGPC), boolU8(policy.TrackBots),
+		siteID,
+	); err != nil {
+		return fmt.Errorf("sites update policy: %w", err)
+	}
+
+	return nil
+}
+
+func boolU8(b bool) uint8 {
+	if b {
+		return 1
+	}
+
+	return 0
+}
+
 // UpdateSiteEnabled toggles the enabled flag for an existing row. Uses a
 // synchronous ALTER UPDATE mutation so the change is visible to the next
 // LookupSiteIDByHostname call. Returns ErrUnknownHostname semantics
@@ -211,14 +302,59 @@ func (r *Registry) UpdateSiteEnabled(ctx context.Context, siteID uint32, enabled
 	return nil
 }
 
+// LookupSiteByID returns a single SiteAdmin row keyed by site_id, the
+// efficient single-row complement to ListAdmin used by admin PATCH
+// flows that need to read-modify-write a specific site without
+// scanning the whole table. Returns ErrUnknownHostname (semantic
+// site-not-found) when site_id doesn't exist.
+func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin, error) {
+	if siteID == 0 {
+		return SiteAdmin{}, ErrUnknownHostname
+	}
+
+	var (
+		sa                                         SiteAdmin
+		enabled, respectDNT, respectGPC, trackBots uint8
+	)
+
+	row := r.conn.QueryRow(ctx,
+		`SELECT site_id, hostname, slug, plan, enabled, tz,
+		        toInt64(toUnixTimestamp(created_at)),
+		        respect_dnt, respect_gpc, track_bots
+		 FROM statnive.sites WHERE site_id = ? LIMIT 1`,
+		siteID,
+	)
+
+	if err := row.Scan(
+		&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.CreatedAt,
+		&respectDNT, &respectGPC, &trackBots,
+	); err != nil {
+		return SiteAdmin{}, ErrUnknownHostname
+	}
+
+	if sa.ID == 0 {
+		return SiteAdmin{}, ErrUnknownHostname
+	}
+
+	sa.Enabled = enabled != 0
+	sa.RespectDNT = respectDNT != 0
+	sa.RespectGPC = respectGPC != 0
+	sa.TrackBots = trackBots != 0
+
+	return sa, nil
+}
+
 // ListAdmin returns every site with the richer SiteAdmin projection —
-// adds slug, plan, created_at on top of List() for /api/admin/sites.
+// adds slug, plan, created_at, and the per-site privacy + bot policy
+// (migration 006) on top of List() for /api/admin/sites.
 func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 	// statnive.sites is plain MergeTree — FINAL is rejected. Duplicate
 	// rows can only appear if migration 001 changes engines; the
 	// integration test pins that invariant.
 	rows, err := r.conn.Query(ctx,
-		`SELECT site_id, hostname, slug, plan, enabled, tz, toInt64(toUnixTimestamp(created_at))
+		`SELECT site_id, hostname, slug, plan, enabled, tz,
+		        toInt64(toUnixTimestamp(created_at)),
+		        respect_dnt, respect_gpc, track_bots
 		 FROM statnive.sites ORDER BY site_id ASC`,
 	)
 	if err != nil {
@@ -231,17 +367,21 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 
 	for rows.Next() {
 		var (
-			sa      SiteAdmin
-			enabled uint8
+			sa                                SiteAdmin
+			enabled, respectDNT, respectGPC, trackBots uint8
 		)
 
 		if scanErr := rows.Scan(
 			&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.CreatedAt,
+			&respectDNT, &respectGPC, &trackBots,
 		); scanErr != nil {
 			return nil, fmt.Errorf("sites scan admin: %w", scanErr)
 		}
 
 		sa.Enabled = enabled != 0
+		sa.RespectDNT = respectDNT != 0
+		sa.RespectGPC = respectGPC != 0
+		sa.TrackBots = trackBots != 0
 
 		out = append(out, sa)
 	}

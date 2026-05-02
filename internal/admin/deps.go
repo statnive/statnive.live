@@ -24,6 +24,8 @@ import (
 type SitesStore interface {
 	CreateSite(ctx context.Context, hostname, slug, tz string) (uint32, error)
 	UpdateSiteEnabled(ctx context.Context, siteID uint32, enabled bool) error
+	UpdateSitePolicy(ctx context.Context, siteID uint32, policy sites.SitePolicy) error
+	LookupSiteByID(ctx context.Context, siteID uint32) (sites.SiteAdmin, error)
 	ListAdmin(ctx context.Context) ([]sites.SiteAdmin, error)
 }
 

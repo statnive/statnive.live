@@ -375,6 +375,32 @@ func (f *fakeSitesStore) UpdateSiteEnabled(_ context.Context, siteID uint32, ena
 	return nil
 }
 
+func (f *fakeSitesStore) UpdateSitePolicy(_ context.Context, siteID uint32, policy sites.SitePolicy) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	s, ok := f.byID[siteID]
+	if !ok {
+		return sites.ErrUnknownHostname
+	}
+
+	s.SitePolicy = policy
+
+	return nil
+}
+
+func (f *fakeSitesStore) LookupSiteByID(_ context.Context, siteID uint32) (sites.SiteAdmin, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	s, ok := f.byID[siteID]
+	if !ok {
+		return sites.SiteAdmin{}, sites.ErrUnknownHostname
+	}
+
+	return *s, nil
+}
+
 func (f *fakeSitesStore) ListAdmin(_ context.Context) ([]sites.SiteAdmin, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

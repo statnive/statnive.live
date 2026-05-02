@@ -47,8 +47,14 @@ const (
 
 // SiteResolver is the subset of sites.Registry that the handler needs.
 // Defined here so the handler test can inject a fake.
+//
+// LookupSitePolicy returns the site_id + per-site privacy posture in a
+// single round-trip — the hot ingest path requires both to gate consent
+// and bot tracking per-tenant (migration 006 + LEARN.md Lesson 24
+// follow-up). LookupSiteIDByHostname is kept for non-ingest callers.
 type SiteResolver interface {
 	LookupSiteIDByHostname(ctx context.Context, hostname string) (uint32, error)
+	LookupSitePolicy(ctx context.Context, hostname string) (uint32, sites.SitePolicy, error)
 }
 
 // HandlerConfig groups the dependencies + tunables.
@@ -75,21 +81,6 @@ type HandlerConfig struct {
 	// Iran tiers (no GDPR) flip to false. Maps to CLAUDE.md Privacy
 	// Rule 5 (SaaS = GDPR applies; Iran = cookies allowed).
 	ConsentRequired bool
-	// RespectGPC honors `Sec-GPC: 1` as a deny signal — see
-	// CLAUDE.md Privacy Rule 9. Default false (count every visit);
-	// operators with EU visitors MUST flip to true. The previous
-	// default-on paired with the tracker's client-side short-circuit
-	// silently dropped Brave / Firefox-strict / Safari traffic from
-	// operator dashboards; the client check has been removed, so this
-	// flag is now the only Sec-GPC enforcement path in the binary.
-	RespectGPC bool
-	// RespectDNT honors `DNT: 1` (Do Not Track) as a deny signal.
-	// Default false; same posture as RespectGPC. Tracker JS no longer
-	// short-circuits client-side on DNT='1' (was hiding the bulk of
-	// legitimate Firefox-strict / Safari traffic), so this server-side
-	// flag is the only DNT enforcement path. Operators with EU
-	// visitors flip to true.
-	RespectDNT bool
 	// Metrics bumps Prometheus-text counters at every received / accepted
 	// / dropped point. Optional — nil-safe; production sets it, tests can
 	// pass nil. The funnel breakdown (received - accepted - sum(dropped))
@@ -141,19 +132,12 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 	now := cfg.Now().UTC()
 	ip := ClientIP(r)
 
-	// Consent gate (Privacy Rules 5 + 9). Order: respected deny signals
-	// (Sec-GPC, DNT) first, then ConsentRequired check. Each deny
-	// signal is independently configurable — operators flip the
-	// respect flag off only if they have legal cover in the relevant
-	// jurisdiction. The event still ingests anonymously when denied;
-	// only the cookie + user_id hash get suppressed.
-	allowIdentity := !consentDenied(r, cfg.RespectGPC, cfg.RespectDNT) &&
-		(!cfg.ConsentRequired || consentGiven(r))
-
+	// Cookie is set lazily — the per-site consent gate (Privacy Rules 5 +
+	// 9) runs INSIDE the events loop because each event's hostname
+	// resolves to its own site_id + policy. We mint the cookie at most
+	// once per request and only after the first event whose policy
+	// allows identity.
 	var cookieID string
-	if allowIdentity {
-		cookieID = readOrSetCookieID(w, r)
-	}
 
 	for i := range events {
 		raw := &events[i]
@@ -163,9 +147,8 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 		raw.TSUTC = now
 		raw.UserAgent = ua
 		raw.IP = ip
-		raw.CookieID = cookieID
 
-		siteID, sErr := cfg.Sites.LookupSiteIDByHostname(r.Context(), strings.ToLower(raw.Hostname))
+		siteID, policy, sErr := cfg.Sites.LookupSitePolicy(r.Context(), strings.ToLower(raw.Hostname))
 		if sErr != nil {
 			cfg.Logger.Debug("unknown hostname", "hostname", raw.Hostname)
 			emitAudit(r.Context(), cfg.Audit, audit.EventHostnameUnknown,
@@ -180,6 +163,20 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 		}
 
 		raw.SiteID = siteID
+
+		// Per-site consent gate. Sec-GPC / DNT short-circuit per
+		// statnive.sites.respect_gpc / respect_dnt (default 0 — opt-in
+		// per CLAUDE.md Privacy Rule 6). When the operator's site is
+		// EU-strict (respect_gpc=1) and the visitor sends Sec-GPC: 1,
+		// identity is suppressed but the visit still ingests anonymously.
+		allowIdentity := !consentDenied(r, policy) &&
+			(!cfg.ConsentRequired || consentGiven(r))
+
+		if allowIdentity && cookieID == "" {
+			cookieID = readOrSetCookieID(w, r)
+		}
+
+		raw.CookieID = cookieID
 
 		// Hash user_id with the per-tenant key material, then wipe the
 		// raw value before it can reach the pipeline / WAL / batch
@@ -196,10 +193,18 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 
 		raw.UserID = ""
 
+		// Per-site bot policy. Default track_bots=true keeps today's
+		// behavior (bots are flagged is_bot=1 + ingest). When the
+		// operator flips to false, the pipeline drops bot events with
+		// metrics.ReasonBotDropped — useful for sites that don't want
+		// bot traffic in their HLL state at all.
+		raw.TrackBots = policy.TrackBots
+
 		// Synchronous 6-stage enrichment runs on the handler goroutine.
 		// Burst-dropped events skip the WAL silently — they're a known
 		// rejection class, not a server failure. Pipeline bumps the
-		// burst_dropped counter itself; we don't double-count here.
+		// burst_dropped (or bot_dropped) counter itself; we don't
+		// double-count here.
 		enriched, ok := cfg.Pipeline.Enrich(raw)
 		if !ok {
 			continue
@@ -365,15 +370,16 @@ func ClientIP(r *http.Request) string {
 
 // consentDenied reports whether the visitor's browser is signaling
 // "do not process for personalization" through any of the deny
-// signals the operator has configured to respect. Privacy Rule 9
-// (Sec-GPC) and LEARN.md Lesson 16 (DNT) are both wired here so the
-// operator config is the single source of truth.
-func consentDenied(r *http.Request, respectGPC, respectDNT bool) bool {
-	if respectGPC && r.Header.Get("Sec-GPC") == "1" {
+// signals the per-site policy has flipped on. Privacy Rule 9 (Sec-GPC)
+// and LEARN.md Lesson 16 (DNT) both wired through statnive.sites
+// columns so a multi-tenant operator can serve EU + non-EU customers
+// from the same binary without re-editing config.
+func consentDenied(r *http.Request, policy sites.SitePolicy) bool {
+	if policy.RespectGPC && r.Header.Get("Sec-GPC") == "1" {
 		return true
 	}
 
-	if respectDNT && r.Header.Get("DNT") == "1" {
+	if policy.RespectDNT && r.Header.Get("DNT") == "1" {
 		return true
 	}
 
@@ -415,9 +421,11 @@ func readOrSetCookieID(w http.ResponseWriter, r *http.Request) string {
 
 // StaticSiteResolver is a convenience resolver for callers without a
 // configured sites.Registry — short-circuits to a fixed site_id during
-// local dev.
+// local dev. Returns the zero-value SitePolicy (default-off DNT/GPC,
+// track_bots=true), which matches the post-PR-#78 SaaS posture.
 type StaticSiteResolver struct {
 	SiteID uint32
+	Policy sites.SitePolicy
 }
 
 // LookupSiteIDByHostname satisfies SiteResolver.
@@ -427,6 +435,18 @@ func (s StaticSiteResolver) LookupSiteIDByHostname(_ context.Context, hostname s
 	}
 
 	return s.SiteID, nil
+}
+
+// LookupSitePolicy satisfies SiteResolver. Returns the resolver's
+// preset Policy or the zero value (RespectDNT=false, RespectGPC=false,
+// TrackBots=false). Callers that want the production default of
+// TrackBots=true should set it explicitly on the resolver.
+func (s StaticSiteResolver) LookupSitePolicy(_ context.Context, hostname string) (uint32, sites.SitePolicy, error) {
+	if hostname == "" {
+		return 0, sites.SitePolicy{}, sites.ErrUnknownHostname
+	}
+
+	return s.SiteID, s.Policy, nil
 }
 
 // emitAudit is a nil-safe wrapper so the handler test can pass Audit:nil
