@@ -66,23 +66,31 @@ derive_healthz_url() {
 	# STATNIVE_TLS_CERT_FILE are visible. Viper's AutomaticEnv makes these
 	# override config.yaml at runtime; the probe must match what the
 	# binary actually bound, not what the YAML says.
+	#
+	# Scan EVERY *.conf drop-in (not just env.conf) — operators commonly
+	# split paths/secrets/metrics across multiple files (paths.conf,
+	# env.conf, metrics.conf on the Netcup VPS as of 2026-05-02). systemd
+	# concatenates them in lexical order; the deploy probe must do the same.
+	# LEARN.md Lesson 26 follow-up.
 	env_listen="${STATNIVE_SERVER_LISTEN:-}"
 	env_cert="${STATNIVE_TLS_CERT_FILE:-}"
 
-	if [ -z "$env_listen" ] && [ -r /etc/systemd/system/statnive-live.service.d/env.conf ]; then
+	local dropin_dir=/etc/systemd/system/statnive-live.service.d
+
+	if [ -z "$env_listen" ] && [ -d "$dropin_dir" ]; then
 		env_listen="$(awk -F'=' '/^Environment=.*STATNIVE_SERVER_LISTEN=/ {
 			gsub(/^Environment="?STATNIVE_SERVER_LISTEN=/, "")
 			gsub(/"$/, "")
 			print; exit
-		}' /etc/systemd/system/statnive-live.service.d/env.conf)"
+		}' "$dropin_dir"/*.conf 2>/dev/null)"
 	fi
 
-	if [ -z "$env_cert" ] && [ -r /etc/systemd/system/statnive-live.service.d/env.conf ]; then
+	if [ -z "$env_cert" ] && [ -d "$dropin_dir" ]; then
 		env_cert="$(awk -F'=' '/^Environment=.*STATNIVE_TLS_CERT_FILE=/ {
 			gsub(/^Environment="?STATNIVE_TLS_CERT_FILE=/, "")
 			gsub(/"$/, "")
 			print; exit
-		}' /etc/systemd/system/statnive-live.service.d/env.conf)"
+		}' "$dropin_dir"/*.conf 2>/dev/null)"
 	fi
 
 	if [ -n "$env_listen" ]; then
