@@ -1,0 +1,23 @@
+Test 1 Round 2 — T0 snapshot
+Captured: 2026-04-30T12:13:28Z
+Production binary: rc3 (PR #78 + #79 + #80 baked in)
+Site mapping (per Test 1 Round 1 SSH lookup):
+  site_id=1 → statnive.com
+  site_id=2 → statnive.de
+  site_id=3 → fr.statnive.com
+  site_id=4 → televika.com
+  site_id=5 → wp-slimstat.com  ← BUG-SOURCE CUSTOMER
+
+/api/about:
+{"version":"v0.0.1-rc3+dirty","git_sha":"de34c35","go_version":"go1.25.9","attributions":[{"name":"IP2Location LITE DB23","license":"CC-BY-SA-4.0","url":"https://lite.ip2location.com","text":"This site or product includes IP2Location LITE data available from https://lite.ip2location.com."},{"name":"crawler-user-agents","license":"MIT","url":"https://github.com/monperrus/crawler-user-agents","text":"Bot-detection patterns from monperrus/crawler-user-agents (MIT)."},{"name":"lukechampine/blake3","license":"CC0-1.0","url":"https://github.com/lukechampine/blake3","text":"BLAKE3 hashing via lukechampine/blake3 (CC0-1.0)."}]}
+
+
+/metrics (via SSH from Netcup loopback):
+# HELP statnive_event_received_total Events received at /api/event before any reject gate.
+# TYPE statnive_event_received_total counter
+statnive_event_received_total 0
+# HELP statnive_event_accepted_total Events accepted and durable in WAL, partitioned by site_id.
+# TYPE statnive_event_accepted_total counter
+# HELP statnive_event_dropped_total Events dropped before reaching WAL, partitioned by drop reason.
+# TYPE statnive_event_dropped_total counter
+
