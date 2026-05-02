@@ -10,9 +10,11 @@ import {
   listSites,
   createSite,
   updateSiteEnabled,
+  updateSitePolicy,
   type AdminUser,
   type AdminGoal,
   type AdminSite,
+  type SitePolicyPatch,
 } from '../api/admin';
 import './Admin.css';
 
@@ -368,6 +370,15 @@ function SitesTab() {
     }
   }
 
+  async function onPatchPolicy(siteID: number, patch: SitePolicyPatch) {
+    try {
+      await updateSitePolicy(siteID, patch);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   return (
     <div class="statnive-admin-sites">
       <NewSiteForm onCreated={refresh} onError={setErr} />
@@ -386,6 +397,9 @@ function SitesTab() {
               <th>Slug</th>
               <th>Plan</th>
               <th>Status</th>
+              <th title="Honor Sec-GPC: 1 (suppresses identity for visitors who send the header). EU operators must enable.">GPC</th>
+              <th title="Honor DNT: 1 (suppresses identity for visitors who send the header). EU operators must enable.">DNT</th>
+              <th title="Track bots (default on; off drops bot events at the pipeline).">Bots</th>
               <th>Tracker snippet</th>
               <th></th>
             </tr>
@@ -397,6 +411,9 @@ function SitesTab() {
                 <td><code>{s.slug}</code></td>
                 <td>{s.plan}</td>
                 <td>{s.enabled ? 'active' : 'disabled'}</td>
+                <PolicyCell site={s} field="respect_gpc" label="respect Sec-GPC" onPatch={onPatchPolicy} />
+                <PolicyCell site={s} field="respect_dnt" label="respect DNT"     onPatch={onPatchPolicy} />
+                <PolicyCell site={s} field="track_bots"  label="track bots"      onPatch={onPatchPolicy} />
                 <td><TrackerSnippet /></td>
                 <td>
                   <button type="button" onClick={() => void onToggleEnabled(s)}>
@@ -408,7 +425,45 @@ function SitesTab() {
           </tbody>
         </table>
       )}
+
+      <p class="statnive-admin-help">
+        <strong>GPC / DNT:</strong> default off — every visit counted, identity hashed normally.
+        Operators with EU visitors <strong>must</strong> enable both flags per site to honor
+        the visitor's privacy signal under GDPR Art. 4(2).{' '}
+        <strong>Bots:</strong> default on — bot events flow through with{' '}
+        <code>is_bot=1</code> so the dashboard can split human from bot traffic. Flip off to
+        drop bots at the pipeline (no rows in <code>events_raw</code>).
+      </p>
     </div>
+  );
+}
+
+// PolicyCell renders one of the three policy checkboxes (GPC / DNT /
+// track_bots) inside the Sites table. Pulled out to keep each cell
+// declaration in the table to one line — the three cells differ only
+// in the field name + label.
+function PolicyCell({
+  site,
+  field,
+  label,
+  onPatch,
+}: {
+  site: AdminSite;
+  field: 'respect_gpc' | 'respect_dnt' | 'track_bots';
+  label: string;
+  onPatch: (siteID: number, patch: SitePolicyPatch) => void | Promise<void>;
+}) {
+  return (
+    <td>
+      <input
+        type="checkbox"
+        aria-label={`${label} for ${site.hostname}`}
+        checked={site[field]}
+        onChange={(e) => void onPatch(site.site_id, {
+          [field]: (e.target as HTMLInputElement).checked,
+        })}
+      />
+    </td>
   );
 }
 
