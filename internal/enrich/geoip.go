@@ -234,9 +234,18 @@ func probeDB(db *ip2location.DB) error {
 	return nil
 }
 
+// ip2locationUnavailableSentinel mirrors the unexported `not_supported`
+// constant in vendor/github.com/ip2location/ip2location-go/v9/ip2location.go.
+// LITE BINs (e.g. DB11) emit this verbatim for fields they don't carry
+// (ISP, Mobilebrand). Comparing against the full string keeps the match
+// anchored — if a future library bump reworded the message we'd start
+// seeing junk in events_raw.isp instead of silently over-matching.
+const ip2locationUnavailableSentinel = "This parameter is unavailable for selected data file. Please upgrade the data file."
+
+// cleanGeoField returns "" for IP2Location's two missing-value sentinels.
 func cleanGeoField(s string) string {
 	s = strings.TrimSpace(s)
-	if s == "-" {
+	if s == "-" || s == ip2locationUnavailableSentinel {
 		return ""
 	}
 
