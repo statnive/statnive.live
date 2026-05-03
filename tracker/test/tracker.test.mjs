@@ -10,12 +10,15 @@ const SRC = readFileSync(resolve(__dirname, '../src/tracker.js'), 'utf8');
 const ORIG_PUSH = window.history.pushState.bind(window.history);
 const ORIG_REPLACE = window.history.replaceState.bind(window.history);
 
-// popstate listeners accumulate across IIFE evaluations; track them so
-// we can detach before re-running the IIFE.
+// popstate + pagehide listeners accumulate across IIFE evaluations; track
+// them so we can detach before re-running the IIFE and so tests can
+// dispatch the pagehide listener directly.
 const popstateListeners = new Set();
+const pagehideListeners = new Set();
 const origAdd = window.addEventListener.bind(window);
 window.addEventListener = function (type, fn, opts) {
   if (type === 'popstate') popstateListeners.add(fn);
+  if (type === 'pagehide') pagehideListeners.add(fn);
 
   return origAdd(type, fn, opts);
 };
@@ -29,9 +32,11 @@ function loadTracker(opts = {}) {
   window.history.pushState = ORIG_PUSH;
   window.history.replaceState = ORIG_REPLACE;
 
-  // Detach any popstate listener the IIFE registered in a prior test.
+  // Detach popstate + pagehide listeners the IIFE registered earlier.
   for (const fn of popstateListeners) window.removeEventListener('popstate', fn);
+  for (const fn of pagehideListeners) window.removeEventListener('pagehide', fn);
   popstateListeners.clear();
+  pagehideListeners.clear();
 
   // Clear any <script> from a previous endpointAttr test.
   document.head.innerHTML = '';
@@ -219,6 +224,57 @@ describe('happy path', () => {
       endpointAttr: '/override/api/event',
     });
     expect(calls[0].url).toBe('/override/api/event');
+  });
+});
+
+describe('pagehide backstop', () => {
+  function firePagehide() {
+    for (const fn of pagehideListeners) fn();
+  }
+
+  it('registers a pagehide handler for the unload backstop', () => {
+    loadTracker();
+    expect(pagehideListeners.size).toBeGreaterThan(0);
+  });
+
+  it('does not double-fire when the inline pageview already ran', () => {
+    const calls = loadTracker();
+    expect(calls).toHaveLength(1); // initial pageview
+    firePagehide();
+    expect(calls).toHaveLength(1); // pagehide is a no-op
+  });
+
+  it('SPA navigation + pagehide does not double-count', () => {
+    const calls = loadTracker();
+    window.history.pushState({}, '', '/route-a');
+    expect(calls).toHaveLength(2);
+    firePagehide();
+    expect(calls).toHaveLength(2);
+  });
+
+  it('replaceState + pagehide does not double-count', () => {
+    const calls = loadTracker();
+    window.history.replaceState({}, '', '/replaced');
+    expect(calls).toHaveLength(2);
+    firePagehide();
+    expect(calls).toHaveLength(2);
+  });
+
+  it('custom track() bypasses the sentinel and pagehide stays a no-op', () => {
+    const calls = loadTracker();
+    window.statnive.track('signup', { plan: 'pro' }, 99);
+    expect(calls).toHaveLength(2);
+    firePagehide();
+    expect(calls).toHaveLength(2);
+  });
+
+  it('SPA route reset lets a fresh pageview fire on the next nav', () => {
+    const calls = loadTracker();
+    window.history.pushState({}, '', '/a');
+    window.history.pushState({}, '', '/b');
+    expect(calls).toHaveLength(3); // initial + /a + /b
+    firePagehide();
+    expect(calls).toHaveLength(3);
   });
 });
 

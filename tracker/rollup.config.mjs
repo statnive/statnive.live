@@ -9,6 +9,10 @@ export default {
     file: '../internal/tracker/dist/tracker.js',
     format: 'iife',
     sourcemap: false,
+    // Drops the rollup-emitted "use strict" wrapper directive (~14 bytes
+    // pre-gzip). The IIFE has no eval / no globals / no `this` reliance,
+    // so non-strict has no observable behavior change here.
+    strict: false,
   },
   plugins: [
     terser({
