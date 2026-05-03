@@ -39,6 +39,7 @@
   var src = script && script.src;
   var derived = src && src.match(/^(.+?)\/tracker\.js(?:\?.*)?$/);
   var endpoint = attr || (derived && derived[1] + '/api/event') || '/api/event';
+  var pv = 'pageview';
   var userId = '';
   // Cached UTM params — re-parsed on every history change since the
   // query string can shift on SPA navigation. Reused across all events
@@ -56,7 +57,7 @@
       utm_campaign: q.get('utm_campaign') || '',
       utm_content: q.get('utm_content') || '',
       utm_term: q.get('utm_term') || '',
-      event_type: name === 'pageview' ? 'pageview' : 'custom',
+      event_type: name === pv ? pv : 'custom',
       event_name: name,
       event_value: value || 0,
       user_id: userId,
@@ -74,14 +75,20 @@
     }
   }
 
-  function refresh() { q = new URLSearchParams(w.location.search); pageview(); }
-  function pageview() { send('pageview'); }
+  // Sentinel makes the pagehide backstop idempotent with the inline
+  // pageview() call, and refresh() resets it so SPA route changes fire.
+  var pageviewed = false;
+  function refresh() { q = new URLSearchParams(w.location.search); pageviewed = false; pageview(); }
+  function pageview() { if (pageviewed) return; pageviewed = true; send(pv); }
 
   var pushState = w.history.pushState;
   var replaceState = w.history.replaceState;
   w.history.pushState = function () { pushState.apply(this, arguments); refresh(); };
   w.history.replaceState = function () { replaceState.apply(this, arguments); refresh(); };
   w.addEventListener('popstate', refresh);
+  // Backstop for async/defer trackers losing the inline pageview() to a
+  // fast bouncer who unloads before our script finishes evaluating.
+  w.addEventListener('pagehide', pageview);
 
   w.statnive = {
     track: function (name, props, value) { send(name, props, value); },
