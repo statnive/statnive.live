@@ -8,6 +8,8 @@ import (
 )
 
 func TestHandler_GETReturnsLanding(t *testing.T) {
+	t.Parallel()
+
 	if len(indexHTML) == 0 {
 		t.Fatal("embedded index.html is empty")
 	}
@@ -18,9 +20,11 @@ func TestHandler_GETReturnsLanding(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200", rr.Code)
 	}
+
 	if got := rr.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
 		t.Errorf("Content-Type: got %q", got)
 	}
+
 	body := rr.Body.String()
 	for _, want := range []string{
 		`id="mlb2-40784054"`,
@@ -35,6 +39,8 @@ func TestHandler_GETReturnsLanding(t *testing.T) {
 }
 
 func TestHandler_HEADReturns200(t *testing.T) {
+	t.Parallel()
+
 	rr := httptest.NewRecorder()
 	Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodHead, "/", nil))
 
@@ -47,14 +53,19 @@ func TestHandler_HEADReturns200(t *testing.T) {
 }
 
 func TestHandler_DisallowedMethodsReturn405(t *testing.T) {
+	t.Parallel()
+
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions} {
 		t.Run(method, func(t *testing.T) {
+			t.Parallel()
+
 			rr := httptest.NewRecorder()
 			Handler().ServeHTTP(rr, httptest.NewRequest(method, "/", nil))
 
 			if rr.Code != http.StatusMethodNotAllowed {
 				t.Errorf("status: got %d, want 405", rr.Code)
 			}
+
 			if got := rr.Header().Get("Allow"); got != "GET, HEAD" {
 				t.Errorf("Allow: got %q, want %q", got, "GET, HEAD")
 			}
@@ -63,6 +74,8 @@ func TestHandler_DisallowedMethodsReturn405(t *testing.T) {
 }
 
 func TestHandler_SetsSecurityHeaders(t *testing.T) {
+	t.Parallel()
+
 	rr := httptest.NewRecorder()
 	Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
 
@@ -83,9 +96,11 @@ func TestHandler_SetsSecurityHeaders(t *testing.T) {
 	if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Errorf("X-Content-Type-Options: got %q", got)
 	}
+
 	if got := rr.Header().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
 		t.Errorf("Referrer-Policy: got %q", got)
 	}
+
 	if got := rr.Header().Get("Cache-Control"); got != "public, max-age=300, must-revalidate" {
 		t.Errorf("Cache-Control: got %q", got)
 	}
