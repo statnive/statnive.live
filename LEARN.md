@@ -41,6 +41,10 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
   - [24 — Don't make a privacy-policy decision in the tracker bundle](#lesson-24)
   - [25 — `statnive-deploy` healthz probe budget at 30 s is too tight for Netcup cold start](#lesson-25)
   - [26 — `statnive-deploy` healthz URL must honor systemd env, not just YAML](#lesson-26)
+  - [27 — `/metrics received_total` only counts what reaches the binary; view-source the customer's HTML before chasing server-side drops](#lesson-27)
+  - [28 — Default `scp` to Netcup is ~16 KB/s; always use `-C` for files >10 MB](#lesson-28)
+  - [29 — `airgap-update-geoip.sh` rejects `/tmp` source; same-fs as `/etc` required, use `/var/tmp`](#lesson-29)
+  - [30 — IP2Location LITE BINs emit an 80-char "parameter unavailable" sentinel for fields they don't carry](#lesson-30)
 
 ---
 
@@ -330,6 +334,42 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
 2. **Why it broke** — Netcup VPS 2000 G12 NUE D1 takes ~35-50 s on cold start to (a) bind TLS via the manual PEM files (Phase 2a wiring), (b) replay any pending events from the WAL, (c) connect to ClickHouse + run pending migrations, (d) load the GeoIP DB into memory. The 30 s healthz probe was sized for the dev laptop, not for the 8c/16GB shared-tenant VPS. Verified by running the binary by hand on the VPS — it came up clean, just past the 30 s deadline.
 3. **The fix we applied** — Manually swung the symlink (`/opt/statnive-live/current` → `v0.0.1-rc2`) + `install -m 0755`d the new binary, restarted `statnive-live.service`, confirmed `/api/about` returned the new git_sha, confirmed `/metrics` returned the four counter blocks. Production then ran rc2 content despite the failed deploy.
 4. **Preventive measure** — Bumped `HEALTHZ_TIMEOUT_S` default from 30 → 90 in `deploy/statnive-deploy.sh`. Operators on faster boxes (Hetzner AX42, Asiatech P5) can override via the `STATNIVE_HEALTHZ_TIMEOUT_S` env var to keep the probe tight. The next tag-push (`v0.0.1-rc3`, shipping PR D + this fix) is the validation — if rc3 deploys cleanly without manual intervention, the bump is right-sized; if it still flags, raise to 120 s and add a deploy-saas-only `wait-for-binary` step that polls `/api/about` for `git_sha` match instead of the binary 200/timeout.
+
+### Lesson 27
+
+**`/metrics received_total` only counts events that reach the binary; sendBeacon / TLS / network / browser-block failures upstream are *invisible* server-side. When a customer reports under-count, view-source the customer's HTML before chasing server-side drops.**
+
+1. **What we did** — Customer wp-slimstat.com reported pageview under-count vs GA4. We snapshotted `/metrics` (received_total, accepted{site_id=5}, dropped{reason=...}) and tried to reason about where the loss happened from those numbers alone. First diagnosis hypothesized a TLS-SAN mismatch on the apex `statnive.live`; the proposed fix plan was approved.
+2. **Why it broke** — The first hypothesis was wrong. Re-running the same TLS probe a few minutes later returned 204 cleanly: the original "TLS hang" was a transient network blip, not a config issue. Meanwhile the cert already covered all three SAN names (`app.statnive.live`, `demo.statnive.live`, `statnive.live`, valid through Jul 2026). The actual root cause was a tracker-side `async defer` race losing Safari/Chrome fast-bouncers — entirely *upstream* of the binary's counter, so `received_total` could never have surfaced it. We learned this only after view-sourcing wp-slimstat.com's HTML and observing the `<script>` tag attributes + capture-by-browser breakdown in `events_raw` (Firefox 46% vs Chrome 7% vs Safari 2%).
+3. **The fix we applied** — PR #87 added a `pagehide` backstop + `pageviewed` sentinel to `tracker/src/tracker.js` so any tracker that DID load fires the pageview before unload. Bundle stayed inside the 1500 B / 750 B gz budget (1466 / 744 final). 6 new Vitest cases pin the contract.
+4. **Preventive measure** — Diagnostic discipline: when the customer-reported under-count gap exceeds 50%, the procedure is (a) view-source the customer's HTML and confirm the tracker tag's `src` + `data-statnive-endpoint`, (b) load the customer's site in a real Safari/Chrome session with DevTools open and watch the Network tab for the beacon, (c) ONLY THEN look at server-side `/metrics`. Codified in `docs/runbook.md` § "Customer under-count diagnostic" as a 3-step bullet list before the existing `/metrics` snapshot procedure.
+
+### Lesson 28
+
+**Default `scp` to Netcup VPS 2000 G12 NUE D1 runs at ~16 KB/s; `scp -C` runs at ~3 MB/s on the same path. Use `-C` for any file >10 MB; encode in operator runbook.**
+
+1. **What we did** — `scp /tmp/IP2LOCATION-LITE-DB23.BIN ops@94.16.108.78:/tmp/IP2LOCATION-LITE-DB23.BIN` (95 MB BIN file). After 13 minutes, only 13 MB had transferred (~16 KB/s). Killed the transfer, re-ran with `scp -C` and the same 95 MB finished in ~30 seconds.
+2. **Why it broke** — Netcup's host-to-customer-VPS network path appears to throttle non-compressed bulk SCP. The IP2Location BIN compresses well (b-tree-like structure with repeating IP ranges + city names), so SSH zlib compression turns the bottleneck into a non-issue. Same effect on any bulk asset transfer to that box.
+3. **The fix we applied** — Re-run with `scp -C -o Compression=yes`. Operator-only fix; no code change.
+4. **Preventive measure** — `docs/runbook.md` § "Operator transfers" updated with: "**ALWAYS use `scp -C` to the Netcup SaaS box.** Default is too slow to be usable for files >10 MB." Future bundle distributions (e.g. updated GeoIP DB monthly) inherit this rule.
+
+### Lesson 29
+
+**`airgap-update-geoip.sh` rejects `/tmp` source on Netcup because the atomic-mv guard requires same-filesystem as `/etc/`. Use `/var/tmp` as the staging path.**
+
+1. **What we did** — SCP'd the new IP2Location BIN to `/tmp/IP2LOCATION-LITE-DB23.BIN`, ran `sudo /opt/statnive-bundles/.../deploy/airgap-update-geoip.sh /tmp/IP2LOCATION-LITE-DB23.BIN`. Script exited 1 with `update-geoip: new BIN is on a different filesystem than /etc/statnive-live/geoip — \`mv\` would not be atomic`.
+2. **Why it broke** — The script intentionally enforces same-filesystem source so `mv` is atomic — a partial-file race during swap would have statnive-live read a half-written BIN and OOM / mis-resolve. On the Netcup VPS 2000 G12 NUE D1, `/tmp` is on a tmpfs separate from `/` (where `/etc` lives), so the source-must-share-fs check fails. The script's error message is helpful but the runbook didn't tell the operator where the right staging path is.
+3. **The fix we applied** — `mv /tmp/IP2LOCATION-LITE-DB23.BIN /var/tmp/IP2LOCATION-LITE-DB23.BIN` (same-fs as `/etc`), re-ran the script, swap + SIGHUP succeeded.
+4. **Preventive measure** — `docs/runbook.md` § "Refresh GeoIP DB" updated to direct operators to SCP into `/var/tmp/` (not `/tmp/`). Future enhancement (out of scope this PR): the script could detect the cross-fs case and offer to `cp` the file to `/var/tmp/` itself before moving — the safety guarantee survives because the `cp` happens before the atomic step.
+
+### Lesson 30
+
+**IP2Location LITE BINs (DB1/3/5/9/11) emit a verbatim 80-char "This parameter is unavailable for selected data file. Please upgrade the data file." string for fields not in the BIN — *not* `"-"`. Without filtering, that string lands in `events_raw.isp` / `events_raw.carrier` for every event.**
+
+1. **What we did** — Installed IP2LOCATION-LITE-DB11.BIN on production (DB23 is the paid commercial tier; LITE only goes up to DB11 which omits ISP + Mobilebrand). Confirmed `country_code` / `province` / `city` populate correctly. Did NOT initially filter the LITE-tier "missing field" sentinel — `cleanGeoField` only stripped the standard `"-"` IP2Location no-record marker. Result: every event wrote the 80-char message into `events_raw.isp` and `events_raw.carrier`.
+2. **Why it broke** — The upstream `ip2location-go/v9` library emits the "This parameter is unavailable..." string from an unexported `not_supported` constant at `vendor/github.com/ip2location/ip2location-go/v9/ip2location.go:219`. It's the library's signal "this BIN tier doesn't carry this field" but it looks nothing like the standard `"-"` no-record marker. Our `cleanGeoField` had no awareness of this LITE-vs-commercial split and let the sentinel pass through.
+3. **The fix we applied** — PR #88 (`fix(enrich): filter IP2Location LITE 'parameter unavailable' sentinel`) — `cleanGeoField` now full-equality-matches against a named const `ip2locationUnavailableSentinel` mirroring the upstream constant. Anchored equality (vs `HasPrefix`) is intentional: a future library reword surfaces as junk in `events_raw` (loud failure, easy to grep), not silent over-match. 8 table-driven test cases in `internal/enrich/cleangeo_internal_test.go` including a regression for "This Mobile Co" passing through unchanged.
+4. **Preventive measure** — Whenever bumping `ip2location-go` library version: re-verify the sentinel string at `vendor/github.com/ip2location/ip2location-go/v9/ip2location.go:219` against the const in `internal/enrich/geoip.go`. If the library has reworded the message, the existing tests will pass (they test our const) but production data will hold the new wording — which is how we want it to fail (loud, in-data, grep-findable).
 
 ---
 
