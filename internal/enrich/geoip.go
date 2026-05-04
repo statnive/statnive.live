@@ -23,9 +23,15 @@ type GeoResult struct {
 	Carrier     string
 }
 
+// unknownCountryCode is the FixedString(2)-fitting sentinel for any GeoIP
+// lookup that didn't yield a clean ISO-3166 alpha-2 code. The literal "--"
+// lives in the schema; promoting it to a const guards the column against a
+// future typo silently breaking inserts.
+const unknownCountryCode = "--"
+
 // defaultGeo is what we return for empty / private / loopback IPs and for
 // any lookup against the no-op enricher (when no DB BIN is configured).
-var defaultGeo = GeoResult{CountryCode: "--"}
+var defaultGeo = GeoResult{CountryCode: unknownCountryCode}
 
 // reloadGraceDrain is the sleep between swapping the atomic.Pointer and
 // closing the old handle — the upstream library uses *os.File.ReadAt
@@ -125,11 +131,9 @@ func (g *ip2locationGeoIP) Lookup(ip string) GeoResult {
 
 	g.lookups.Add(1)
 
-	cc := strings.ToUpper(strings.TrimSpace(rec.Country_short))
-	if cc == "" || cc == "-" {
+	cc, ok := cleanCountryCode(rec.Country_short)
+	if !ok {
 		g.missCtry.Add(1)
-
-		cc = "--"
 	}
 
 	return GeoResult{
@@ -213,8 +217,7 @@ func probeDB(db *ip2location.DB) error {
 		return fmt.Errorf("probe 8.8.8.8: %w", err)
 	}
 
-	us := strings.ToUpper(strings.TrimSpace(usRec.Country_short))
-	if us == "" || us == "-" || us == "--" {
+	if _, ok := cleanCountryCode(usRec.Country_short); !ok {
 		return errors.New("probe 8.8.8.8: country resolved to empty/--; BIN looks corrupt")
 	}
 
@@ -250,4 +253,29 @@ func cleanGeoField(s string) string {
 	}
 
 	return s
+}
+
+// cleanCountryCode normalizes the IP2Location Country_short field into the
+// shape events_raw.country_code (FixedString(2)) actually accepts. Anything
+// that isn't a clean 2-char ISO-3166 alpha-2 — empty, single dash, the LITE
+// not-supported sentinel (84 chars), or any other oversize string we've
+// observed leaking through (the production journal showed a 33-char value
+// crashing every batch insert) — collapses to "--". Returns ok=true only
+// when the input was a valid 2-char code.
+func cleanCountryCode(s string) (string, bool) {
+	cc := strings.ToUpper(strings.TrimSpace(s))
+	if len(cc) != 2 || cc == unknownCountryCode {
+		return unknownCountryCode, false
+	}
+
+	// ISO-3166 alpha-2 is ASCII A-Z only; reject accented Unicode letters
+	// (which would slip past unicode.IsLetter and still fit FixedString(2)
+	// as 2-byte UTF-8) so the column stores only valid ISO codes.
+	for i := range len(cc) {
+		if cc[i] < 'A' || cc[i] > 'Z' {
+			return unknownCountryCode, false
+		}
+	}
+
+	return cc, true
 }

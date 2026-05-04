@@ -1,0 +1,12 @@
+# Fast-probe before snapshot
+# at 2026-05-04T08:01:38Z UTC
+# host: ops@94.16.108.78
+
+## /healthz
+{"clickhouse":"up","last_insert":"2026-05-04T07:50:46Z","rows_inserted":3,"status":"ok","uptime_sec":2087,"wal_fill_ratio":0.0016738439910113812,"wal_fsync_p99_ms":3.42}
+
+
+## /metrics (counters only)
+statnive_event_accepted_total{site_id="2"} 1
+statnive_event_accepted_total{site_id="5"} 6
+statnive_event_received_total 7
