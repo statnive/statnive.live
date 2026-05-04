@@ -43,3 +43,4 @@ coverage.html
 *.prof
 
 # vendor/ is INTENTIONALLY tracked (offline build invariant — PLAN.md verification 18)
+releases/load-gate/*-k6.log

@@ -183,6 +183,14 @@ bench:
 load-test:
 	k6 run test/perf/load.js
 
+## fast-probe: Phase 7e capacity-probe ramp (50→500 EPS over ~75 min)
+## against $STATNIVE_URL. Default points at production app.statnive.live.
+## Hostname load-test.example.com is unseeded → events land in
+## dropped_total{reason=hostname_unknown}, no customer-data pollution.
+## Plan: ~/.claude/plans/phase-7e-load-gate-scaffolding-wise-puppy.md
+fast-probe:
+	STATNIVE_URL=$${STATNIVE_URL:-https://app.statnive.live} k6 run test/perf/fast-probe.js
+
 ## crash-test: Subprocess kill -9 + WAL replay. Requires Docker + the
 ## docker-compose ClickHouse running.
 crash-test:
