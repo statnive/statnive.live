@@ -102,12 +102,25 @@ func (r *Registry) LookupSiteIDByHostname(ctx context.Context, hostname string) 
 // default policy (count every visit, no DNT/GPC suppression, bots
 // flagged-not-dropped).
 func (r *Registry) LookupSitePolicy(ctx context.Context, hostname string) (uint32, SitePolicy, error) {
-	var policy SitePolicy
-
-	if hostname == "" {
-		return 0, policy, ErrUnknownHostname
+	host := NormalizeHostname(hostname)
+	if host == "" {
+		return 0, SitePolicy{}, ErrUnknownHostname
 	}
 
+	siteID, policy, err := r.lookupExactPolicy(ctx, host)
+	// Retry once with the leading "www." stripped so a customer who
+	// registers televika.com is still resolved when the tracker payload
+	// reports www.televika.com (CF-fronted bare→www redirects are common).
+	// Try the literal first so an explicitly-seeded "www.foo.com" row
+	// still wins over its bare counterpart.
+	if errors.Is(err, ErrUnknownHostname) && strings.HasPrefix(host, "www.") {
+		siteID, policy, err = r.lookupExactPolicy(ctx, strings.TrimPrefix(host, "www."))
+	}
+
+	return siteID, policy, err
+}
+
+func (r *Registry) lookupExactPolicy(ctx context.Context, host string) (uint32, SitePolicy, error) {
 	var (
 		siteID                            uint32
 		respectDNT, respectGPC, trackBots uint8
@@ -117,25 +130,62 @@ func (r *Registry) LookupSitePolicy(ctx context.Context, hostname string) (uint3
 		`SELECT site_id, respect_dnt, respect_gpc, track_bots
 		 FROM statnive.sites
 		 WHERE hostname = ? AND enabled = 1 LIMIT 1`,
-		hostname,
+		host,
 	)
 
 	if err := row.Scan(&siteID, &respectDNT, &respectGPC, &trackBots); err != nil {
 		// ClickHouse driver returns a generic error on no-rows; treat any
 		// scan failure as ErrUnknownHostname. The handler then 204s the
 		// event silently. Real connection failures bubble through ping/health.
-		return 0, policy, ErrUnknownHostname
+		return 0, SitePolicy{}, ErrUnknownHostname
 	}
 
 	if siteID == 0 {
-		return 0, policy, ErrUnknownHostname
+		return 0, SitePolicy{}, ErrUnknownHostname
 	}
 
-	policy.RespectDNT = respectDNT != 0
-	policy.RespectGPC = respectGPC != 0
-	policy.TrackBots = trackBots != 0
+	return siteID, SitePolicy{
+		RespectDNT: respectDNT != 0,
+		RespectGPC: respectGPC != 0,
+		TrackBots:  trackBots != 0,
+	}, nil
+}
 
-	return siteID, policy, nil
+// NormalizeHostname coerces a tracker-supplied hostname into the registry
+// shape (lowercase, no scheme, no path/port). Tracker payloads occasionally
+// leak "https://", trailing slashes, or :port suffixes from misconfigured
+// integrations; without normalization those events drop silently as
+// hostname_unknown. Mirrors `extractHostLower` in internal/enrich/channel.go;
+// kept separate to avoid an inverted layering dependency (sites → enrich).
+func NormalizeHostname(raw string) string {
+	h := strings.TrimSpace(raw)
+
+	if i := strings.Index(h, "://"); i >= 0 {
+		h = h[i+3:]
+	} else {
+		h = strings.TrimPrefix(h, "//")
+	}
+
+	if cut := strings.IndexAny(h, "/?#"); cut >= 0 {
+		h = h[:cut]
+	}
+
+	// userinfo@ leaks from misconfigured trackers passing href instead of hostname.
+	if at := strings.LastIndexByte(h, '@'); at >= 0 {
+		h = h[at+1:]
+	}
+
+	// IPv6 literal: keep the address between the brackets and drop the :port.
+	// Bare colons in non-bracketed input mean :port (FQDNs never contain ':').
+	if rb := strings.IndexByte(h, ']'); rb >= 0 {
+		if lb := strings.IndexByte(h, '['); lb >= 0 && lb < rb {
+			h = h[lb+1 : rb]
+		}
+	} else if c := strings.LastIndexByte(h, ':'); c >= 0 {
+		h = h[:c]
+	}
+
+	return strings.ToLower(h)
 }
 
 // ValidateHostname runs the same cheap shape checks the /api/event

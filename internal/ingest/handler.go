@@ -149,7 +149,7 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 		raw.UserAgent = ua
 		raw.IP = ip
 
-		siteID, policy, sErr := cfg.Sites.LookupSitePolicy(r.Context(), strings.ToLower(raw.Hostname))
+		siteID, policy, sErr := cfg.Sites.LookupSitePolicy(r.Context(), raw.Hostname)
 		if sErr != nil {
 			cfg.Logger.Debug("unknown hostname", "hostname", raw.Hostname)
 			emitAudit(r.Context(), cfg.Audit, audit.EventHostnameUnknown,
