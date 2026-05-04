@@ -54,6 +54,7 @@ Violations fail CI. No budget-overrides without an approved PLAN.md v1.1 update.
 3. No cookies read/written by the tracker itself (cookies are set server-side on first visit; the tracker transmits via header only).
 4. Graceful degradation: skip cleanly on Brave / Firefox tracking-protection without errors.
 5. No third-party requests.
+6. **Public-API global MUST be `window.statniveLive`** (or another name unique to the SaaS product). **NEVER** `window.statnive` — that namespace is owned by the unrelated WP plugin product on `wordpress.org/plugins/statnive`, which installs a queue-stub function at `window.statnive` and our IIFE used to bail silently on it. Co-installing both products on one page is a supported configuration; this rule keeps it that way. See [LEARN.md Lesson 31](../../../LEARN.md#lesson-31).
 
 ## Should trigger (reject)
 
