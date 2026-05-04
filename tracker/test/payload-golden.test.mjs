@@ -30,6 +30,7 @@ window.addEventListener = function (type, fn, opts) {
 };
 
 function loadTrackerCapture() {
+  delete window.statniveLive;
   delete window.statnive;
   window.history.pushState = ORIG_PUSH;
   window.history.replaceState = ORIG_REPLACE;
@@ -77,14 +78,14 @@ describe('tracker payload golden (regression contract)', () => {
 
     // Custom event with props + value.
     calls = loadTrackerCapture();
-    window.statnive.track('signup', { plan: 'pro', source: 'header' }, 99);
+    window.statniveLive.track('signup', { plan: 'pro', source: 'header' }, 99);
     expect(calls).toHaveLength(2);
     fired.push({ name: 'event-custom', body: JSON.parse(await blobText(calls[1].blob)) });
 
     // identify() then track() — the user_id field must carry the raw value.
     calls = loadTrackerCapture();
-    window.statnive.identify('user_phase7b2_42');
-    window.statnive.track('purchase', { sku: 'sku-001' }, 199.5);
+    window.statniveLive.identify('user_phase7b2_42');
+    window.statniveLive.track('purchase', { sku: 'sku-001' }, 199.5);
     expect(calls).toHaveLength(2);
     fired.push({ name: 'event-identified', body: JSON.parse(await blobText(calls[1].blob)) });
 
