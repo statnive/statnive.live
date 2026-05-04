@@ -1,0 +1,92 @@
+package landing
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func TestHandler_GETReturnsLanding(t *testing.T) {
+	if len(indexHTML) == 0 {
+		t.Fatal("embedded index.html is empty")
+	}
+
+	rr := httptest.NewRecorder()
+	Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+	if got := rr.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Errorf("Content-Type: got %q", got)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`id="mlb2-40784054"`,
+		`https://assets.mailerlite.com/jsonp/2315266/forms/186527796353303722/subscribe`,
+		`name="fields[email]"`,
+		`/app/`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q", want)
+		}
+	}
+}
+
+func TestHandler_HEADReturns200(t *testing.T) {
+	rr := httptest.NewRecorder()
+	Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodHead, "/", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+	// httptest.ResponseRecorder does not strip HEAD bodies the way the
+	// real net/http server does, so we don't assert body length here —
+	// stdlib enforces it at the transport layer in production.
+}
+
+func TestHandler_DisallowedMethodsReturn405(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions} {
+		t.Run(method, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			Handler().ServeHTTP(rr, httptest.NewRequest(method, "/", nil))
+
+			if rr.Code != http.StatusMethodNotAllowed {
+				t.Errorf("status: got %d, want 405", rr.Code)
+			}
+			if got := rr.Header().Get("Allow"); got != "GET, HEAD" {
+				t.Errorf("Allow: got %q, want %q", got, "GET, HEAD")
+			}
+		})
+	}
+}
+
+func TestHandler_SetsSecurityHeaders(t *testing.T) {
+	rr := httptest.NewRecorder()
+	Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	csp := rr.Header().Get("Content-Security-Policy")
+	for _, want := range []string{
+		"default-src 'self'",
+		"https://groot.mailerlite.com",
+		"https://assets.mailerlite.com",
+		"https://assets.mlcdn.com",
+		"frame-ancestors 'none'",
+		"form-action https://assets.mailerlite.com",
+	} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP missing %q\nfull: %s", want, csp)
+		}
+	}
+
+	if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options: got %q", got)
+	}
+	if got := rr.Header().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+		t.Errorf("Referrer-Policy: got %q", got)
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "public, max-age=300, must-revalidate" {
+		t.Errorf("Cache-Control: got %q", got)
+	}
+}
