@@ -7,7 +7,7 @@ First-party JavaScript tracker that fires pageviews + custom events at
 ## Public API
 
 ```html
-<script src="https://your-statnive-host/tracker.js" defer></script>
+<script src="https://your-statnive-host/tracker.js" data-statnive-endpoint="https://your-statnive-host/api/event" async defer></script>
 ```
 
 That's the entire install. After load, `window.statniveLive` exposes:
