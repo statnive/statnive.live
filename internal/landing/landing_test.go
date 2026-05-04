@@ -27,9 +27,10 @@ func TestHandler_GETReturnsLanding(t *testing.T) {
 
 	body := rr.Body.String()
 	for _, want := range []string{
-		`id="mlb2-40784054"`,
-		`https://assets.mailerlite.com/jsonp/2315266/forms/186527796353303722/subscribe`,
-		`name="fields[email]"`,
+		`data-form="GBS1Qd"`,
+		`https://assets.mailerlite.com/js/universal.js`,
+		`ml('account'`,
+		`'2315266'`,
 		`/app/`,
 	} {
 		if !strings.Contains(body, want) {
