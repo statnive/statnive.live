@@ -17,6 +17,10 @@ permissions:
   contents: read
 
 env:
+  # Forward-compat with GitHub's June 2026 forced Node-24 default — opts
+  # every JavaScript action into the Node 24 runtime now. Drop when all
+  # referenced action SHAs ship native node24-pinned action.yml manifests.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   # Docker Hub tag format — Altinity drops the leading `v` for images.
   # The GitHub release at v2.5.20 is the same build; runbook.md uses the
   # GitHub `v*` form for the tarball download path.

@@ -472,8 +472,11 @@ function TrackerSnippet() {
   // event's site_id from the hostname in the payload (set by the
   // tracker JS from window.location.hostname at emit time). So a single
   // origin-relative snippet works for every site on this installation.
+  // The data-statnive-endpoint attribute is explicit (not derived from
+  // script.src) so customers reading the snippet can see exactly where
+  // their beacons go without having to read tracker.js source.
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
-  const snippet = `<script src="${origin}/tracker.js" async defer></script>`;
+  const snippet = `<script src="${origin}/tracker.js" data-statnive-endpoint="${origin}/api/event" async defer></script>`;
   return <pre class="statnive-admin-snippet"><code>{snippet}</code></pre>;
 }
 

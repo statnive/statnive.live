@@ -9,6 +9,15 @@ on:
 permissions:
   contents: read
 
+# Forward-compat with GitHub's June 2026 forced Node-24 default — opts every
+# JavaScript action (checkout, setup-go, setup-node, upload-artifact, cache)
+# into the Node 24 runtime now instead of waiting for the auto-flip. Drop
+# this block when all referenced action SHAs ship native node24-pinned
+# action.yml manifests. Reversible escape hatch: replace value with
+# ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build-test-lint:
     name: build + test + lint

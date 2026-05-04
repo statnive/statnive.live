@@ -17,6 +17,12 @@ on:
 permissions:
   contents: read
 
+# Forward-compat with GitHub's June 2026 forced Node-24 default — opts every
+# JavaScript action into the Node 24 runtime now. Drop when all referenced
+# action SHAs ship native node24-pinned action.yml manifests.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   wal-killtest-full:
     name: WAL durability — kill-9 50-iter hard gate

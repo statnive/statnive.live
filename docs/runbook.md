@@ -273,7 +273,7 @@ inline.
 Paste once into the host page's `<head>` (or before `</body>`):
 
 ```html
-<script src="https://your-statnive-host/tracker.js" defer></script>
+<script src="https://your-statnive-host/tracker.js" data-statnive-endpoint="https://your-statnive-host/api/event" async defer></script>
 ```
 
 The tracker is served first-party from the analytics binary itself
