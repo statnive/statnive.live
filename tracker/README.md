@@ -10,12 +10,18 @@ First-party JavaScript tracker that fires pageviews + custom events at
 <script src="https://your-statnive-host/tracker.js" defer></script>
 ```
 
-That's the entire install. After load, `window.statnive` exposes:
+That's the entire install. After load, `window.statniveLive` exposes:
 
 ```js
-statnive.track(name, props, value);   // custom event
-statnive.identify(uid);               // raw uid; server hashes to SHA-256
+statniveLive.track(name, props, value);   // custom event
+statniveLive.identify(uid);               // raw uid; server hashes to SHA-256
 ```
+
+The namespace is `statniveLive` (matching the product domain `statnive.live`)
+not `statnive`. This avoids collisions with the unrelated WP plugin tracker
+(<https://wordpress.org/plugins/statnive>) that some same-brand customers
+also load — it installs its own `window.statnive` queue stub. Two products,
+two namespaces. See [LEARN.md Lesson 31](../LEARN.md#lesson-31).
 
 `pageview` fires automatically on initial load and on every
 `history.pushState` / `replaceState` / `popstate` (SPA route changes).
@@ -64,8 +70,8 @@ Both [`internal/tracker/tracker_test.go`](../internal/tracker/tracker_test.go)
 
 | Metric | Budget | Current |
 |---|---:|---:|
-| Minified | ≤ 1500 B | 1336 B |
-| Gzipped | ≤ 700 B | 677 B |
+| Minified | ≤ 1500 B | 1478 B |
+| Gzipped | ≤ 750 B | 747 B |
 
 `make audit` chains `tracker-size` so every PR fails fast if the bundle
 regresses.

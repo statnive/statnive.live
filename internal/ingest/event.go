@@ -28,7 +28,7 @@ type RawEvent struct {
 	Props         map[string]string `json:"props"`
 
 	// UserID is the raw, customer-supplied identifier sent by the tracker
-	// via statnive.identify(). The handler hashes it via
+	// via statniveLive.identify(). The handler hashes it via
 	// identity.HexUserIDHash and clears this field before the pipeline
 	// sees the event — Privacy Rule 4 (raw user_id never logged, never
 	// written to disk, never echoed to the wire). Mirrors the IP

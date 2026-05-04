@@ -15,15 +15,18 @@
 //     AudioContext, deviceMemory, hardwareConcurrency).
 //   - sendBeacon + fetch keepalive only — no XMLHttpRequest.
 //
-// Public surface (window.statnive):
+// Public surface (window.statniveLive — namespaced to the product domain
+// statnive.live so the SaaS tracker cannot collide with the unrelated WP
+// plugin tracker that some same-brand customers also load at window.statnive
+// as a queue stub):
 //   .track(name, props, value)  — custom event; pageview is fired automatically.
 //   .identify(uid)              — store raw uid; sent in user_id field; server
 //                                 hashes via identity.HexUserIDHash and clears
 //                                 the raw value before pipeline (Privacy Rule 4).
 (function (w, d) {
-  if (w.statnive) return;
+  if (w.statniveLive) return;
   if (w.navigator.webdriver === true || w._phantom || w.callPhantom) {
-    w.statnive = { track: function () {}, identify: function () {} };
+    w.statniveLive = { track: function () {}, identify: function () {} };
     return;
   }
 
@@ -90,7 +93,7 @@
   // fast bouncer who unloads before our script finishes evaluating.
   w.addEventListener('pagehide', pageview);
 
-  w.statnive = {
+  w.statniveLive = {
     track: function (name, props, value) { send(name, props, value); },
     identify: function (uid) { userId = String(uid || ''); },
   };

@@ -282,9 +282,14 @@ The tracker is served first-party from the analytics binary itself
 ### Public API
 
 ```js
-statnive.track(name, props, value);   // custom event; props is an object, value is a number
-statnive.identify(uid);               // raw uid; server hashes via SHA-256 + master_secret
+statniveLive.track(name, props, value);   // custom event; props is an object, value is a number
+statniveLive.identify(uid);               // raw uid; server hashes via SHA-256 + master_secret
 ```
+
+The global is `statniveLive` (matches product domain `statnive.live`), not
+`statnive` — that namespace is owned by the unrelated WP-plugin product;
+co-installing both on one page is a supported configuration (LEARN.md
+Lesson 31).
 
 `pageview` fires automatically on initial load and on every
 `history.pushState` / `replaceState` / `popstate` (SPA route changes).
@@ -332,11 +337,11 @@ why the client-side short-circuit was removed.
    empty for that event in events_raw (Privacy Rule 9 — identity
    suppressed but visit counted). Flip back to `false` and repeat —
    `Set-Cookie: _statnive=...` appears, `user_id_hash` populates.
-6. **Custom event:** in Console, `statnive.track('test_event', {plan:
+6. **Custom event:** in Console, `statniveLive.track('test_event', {plan:
    'pro'}, 99)`. Confirm a row appears with `event_type='custom'`,
    `event_name='test_event'`, `event_value=99`.
-7. **identify() round-trip:** `statnive.identify('user_a83f');
-   statnive.track('purchase', {}, 100);` then
+7. **identify() round-trip:** `statniveLive.identify('user_a83f');
+   statniveLive.track('purchase', {}, 100);` then
    ```sql
    SELECT user_id_hash FROM statnive.events_raw
    WHERE event_name='purchase' ORDER BY time DESC LIMIT 1
@@ -660,7 +665,7 @@ concern.
 Admin → Goals tab → fill form → "Create goal".
 
 - **Event name (exact match)** — the literal `event_name` your tracker
-  sends via `statnive.track('purchase', {...})`. v1 ships exact-match
+  sends via `statniveLive.track('purchase', {...})`. v1 ships exact-match
   only (`event_name_equals`). Path-based matching (`path_prefix`,
   `path_regex`) lands in v1.1 — the Enum8 column extends without a
   migration.

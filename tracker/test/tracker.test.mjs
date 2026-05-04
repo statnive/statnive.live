@@ -24,7 +24,12 @@ window.addEventListener = function (type, fn, opts) {
 };
 
 function loadTracker(opts = {}) {
-  delete window.statnive;
+  delete window.statniveLive;
+  if (opts.preExistingStatnive !== undefined) {
+    window.statnive = opts.preExistingStatnive;
+  } else {
+    delete window.statnive;
+  }
   delete window._phantom;
   delete window.callPhantom;
 
@@ -105,8 +110,8 @@ describe('anti-automation short-circuit', () => {
   it('fires nothing when navigator.webdriver=true', () => {
     const calls = loadTracker({ webdriver: true });
     expect(calls).toHaveLength(0);
-    expect(typeof window.statnive.track).toBe('function');
-    expect(typeof window.statnive.identify).toBe('function');
+    expect(typeof window.statniveLive.track).toBe('function');
+    expect(typeof window.statniveLive.identify).toBe('function');
   });
 
   it('fires nothing when window._phantom is set', () => {
@@ -116,9 +121,29 @@ describe('anti-automation short-circuit', () => {
 
   it('subsequent track() calls are no-ops after webdriver short-circuit', () => {
     const calls = loadTracker({ webdriver: true });
-    window.statnive.track('would-not-fire');
-    window.statnive.identify('user-x');
+    window.statniveLive.track('would-not-fire');
+    window.statniveLive.identify('user-x');
     expect(calls).toHaveLength(0);
+  });
+});
+
+// Regression for the wp-slimstat.com 2026-05-04 zero-beacon bug: the
+// WP plugin (a separate same-brand product) sets `window.statnive` as a
+// queue-stub function before our SaaS tracker arrives. A pre-rename
+// guard `if (w.statnive) return;` made the SaaS tracker bail silently
+// — tracker.js HTTP 200 in DevTools, zero /api/event POSTs ever fired.
+// Renaming the public surface to `window.statniveLive` removes the
+// collision; this test pins the new behavior.
+describe('wp-plugin global collision', () => {
+  it('fires a pageview even when window.statnive is already a foreign queue stub', () => {
+    const stub = function () { (stub.q = stub.q || []).push(arguments); };
+    const calls = loadTracker({ preExistingStatnive: stub });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/event');
+    expect(typeof window.statniveLive.track).toBe('function');
+    // The foreign stub on window.statnive must remain untouched so the
+    // co-existing WP plugin keeps working.
+    expect(window.statnive).toBe(stub);
   });
 });
 
@@ -160,7 +185,7 @@ describe('happy path', () => {
 
   it('track() emits a custom event with props + value', async () => {
     const calls = loadTracker();
-    window.statnive.track('signup', { plan: 'pro' }, 99);
+    window.statniveLive.track('signup', { plan: 'pro' }, 99);
     expect(calls).toHaveLength(2);
     const body = JSON.parse(await blobText(calls[1].body));
     expect(body.event_type).toBe('custom');
@@ -262,7 +287,7 @@ describe('pagehide backstop', () => {
 
   it('custom track() bypasses the sentinel and pagehide stays a no-op', () => {
     const calls = loadTracker();
-    window.statnive.track('signup', { plan: 'pro' }, 99);
+    window.statniveLive.track('signup', { plan: 'pro' }, 99);
     expect(calls).toHaveLength(2);
     firePagehide();
     expect(calls).toHaveLength(2);
@@ -281,8 +306,8 @@ describe('pagehide backstop', () => {
 describe('identify (user_id)', () => {
   it('passes raw uid through to subsequent payloads', async () => {
     const calls = loadTracker();
-    window.statnive.identify('user_a83f');
-    window.statnive.track('purchase', {}, 100);
+    window.statniveLive.identify('user_a83f');
+    window.statniveLive.track('purchase', {}, 100);
     expect(calls).toHaveLength(2);
     const body = JSON.parse(await blobText(calls[1].body));
     expect(body.user_id).toBe('user_a83f');
@@ -290,10 +315,10 @@ describe('identify (user_id)', () => {
 
   it('identify(null) clears the previous uid', async () => {
     const calls = loadTracker();
-    window.statnive.identify('user_a83f');
-    window.statnive.track('a', {}, 0);
-    window.statnive.identify(null);
-    window.statnive.track('b', {}, 0);
+    window.statniveLive.identify('user_a83f');
+    window.statniveLive.track('a', {}, 0);
+    window.statniveLive.identify(null);
+    window.statniveLive.track('b', {}, 0);
     const bodyA = JSON.parse(await blobText(calls[1].body));
     const bodyB = JSON.parse(await blobText(calls[2].body));
     expect(bodyA.user_id).toBe('user_a83f');
@@ -302,8 +327,8 @@ describe('identify (user_id)', () => {
 
   it('uid is the raw value (not a hash) — server hashes it', async () => {
     const calls = loadTracker();
-    window.statnive.identify('plain_uid_42');
-    window.statnive.track('test', {}, 0);
+    window.statniveLive.identify('plain_uid_42');
+    window.statniveLive.track('test', {}, 0);
     const body = JSON.parse(await blobText(calls[1].body));
     // The tracker MUST NOT hash client-side. Server hashes via
     // identity.HexUserIDHash with the master_secret, which the tracker
