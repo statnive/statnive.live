@@ -113,7 +113,7 @@ The following sub-processors are US-resident and are disclosed under EU-US Data 
 
 EU-resident sub-processors (intra-EEA processing, no Chapter V transfer):
 
-- **MailerLite Limited** (registered in Ireland, processing in Lithuania) — newsletter signup form on `https://statnive.live/` (pre-launch waitlist) and transactional + marketing email delivery to opted-in subscribers. MailerLite receives subscriber email, IP at submission, browser UA, and timestamp. The signup widget is loaded **lazily** only on user intent — no third-party hits fire on page load for drive-by visitors.
+- **MailerLite Limited** (registered in Ireland, processing in Lithuania) — newsletter signup form on `https://statnive.live/` (pre-launch waitlist) and transactional + marketing email delivery to opted-in subscribers. The official MailerLite-supplied embed (`webforms.min.js`, fonts, and a one-time form-impression ping) loads on every page-load, so MailerLite sees visitors' IPs and User-Agents from the first page-view. Submitters additionally transfer their email address.
 
 ## 7. Breach Notification (Art. 33)
 
