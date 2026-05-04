@@ -41,6 +41,7 @@ import (
 	"github.com/statnive/statnive.live/internal/health"
 	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/ingest"
+	"github.com/statnive/statnive.live/internal/landing"
 	"github.com/statnive/statnive.live/internal/metrics"
 	"github.com/statnive/statnive.live/internal/ratelimit"
 	"github.com/statnive/statnive.live/internal/sites"
@@ -473,6 +474,14 @@ func run() error {
 	// blob that's safe to hand back unauthenticated under any traffic.
 	router.Method(http.MethodGet, "/tracker.js", tracker.Handler())
 
+	// Public coming-soon page at GET /. Independent of cfg.Dashboard.SPAEnabled
+	// so the marketing surface is reachable even when the operator-facing
+	// dashboard is gated off in prod. The Iranian-DC air-gap binary does not
+	// register this route — it has no public marketing surface (Architecture C).
+	landingHandler := landing.Handler()
+	router.Method(http.MethodGet, "/", landingHandler)
+	router.Method(http.MethodHead, "/", landingHandler)
+
 	// Embedded Preact dashboard SPA at /app/*. Auth is enforced at
 	// /api/* by session + api-token middleware (see auth.CompositeAuth);
 	// the SPA shell is safe to serve unauthenticated because it can't
@@ -489,7 +498,6 @@ func run() error {
 
 		router.Method(http.MethodGet, "/app", http.RedirectHandler("/app/", http.StatusFound))
 		router.Mount("/app/", http.StripPrefix("/app", spaHandler))
-		router.Method(http.MethodGet, "/", http.RedirectHandler("/app/", http.StatusFound))
 
 		logger.Info("spa enabled", "mount", "/app/", "bearer_set", cfg.Dashboard.BearerToken != "")
 	}

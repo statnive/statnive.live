@@ -111,6 +111,10 @@ The following sub-processors are US-resident and are disclosed under EU-US Data 
 - **ISRG / Let's Encrypt** — TLS DV certificate issuance only. No personal data is transferred during ACME issuance (DNS-01 challenge).
 - **Cloudflare, Inc.** — authoritative DNS for the `statnive.live` zone in DNS-only / grey-cloud mode. Cloudflare receives DNS query metadata (resolver IP, queried name) but no application payload; no proxy, no Workers, no Cloudflare Analytics.
 
+EU-resident sub-processors (intra-EEA processing, no Chapter V transfer):
+
+- **MailerLite Limited** (registered in Ireland, processing in Lithuania) — newsletter signup form on `https://statnive.live/` (pre-launch waitlist) and transactional + marketing email delivery to opted-in subscribers. MailerLite receives subscriber email, IP at submission, browser UA, and timestamp. The signup widget is loaded **lazily** only on user intent — no third-party hits fire on page load for drive-by visitors.
+
 ## 7. Breach Notification (Art. 33)
 
 Processor will notify Customer of any personal data breach **without undue delay** and in any event within **48 hours** of becoming aware, providing the information required by Art. 33(3) to the extent available at that time.
