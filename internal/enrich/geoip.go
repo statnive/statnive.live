@@ -271,7 +271,7 @@ func cleanCountryCode(s string) (string, bool) {
 	// ISO-3166 alpha-2 is ASCII A-Z only; reject accented Unicode letters
 	// (which would slip past unicode.IsLetter and still fit FixedString(2)
 	// as 2-byte UTF-8) so the column stores only valid ISO codes.
-	for i := 0; i < len(cc); i++ {
+	for i := range len(cc) {
 		if cc[i] < 'A' || cc[i] > 'Z' {
 			return unknownCountryCode, false
 		}
