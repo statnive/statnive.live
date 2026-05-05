@@ -18,15 +18,19 @@ import (
 var indexHTML []byte
 
 // CSP is intentionally looser than the SPA's `'self'`-only policy in
-// internal/dashboard/spa: MailerLite's embed loads scripts + fonts from
-// three of its hosts and emits an inline success callback. Nonce-rewriting
-// per request would risk breaking the form whenever MailerLite ships a new
-// template, so 'unsafe-inline' is preferred over a brittle nonce.
+// internal/dashboard/spa: MailerLite's Universal embed (universal.js)
+// fans out to multiple MailerLite hosts at runtime, including loading
+// jQuery from the MailerLite CDN and a font stylesheet from
+// fonts.mailerlite.com. The host list was confirmed via a local
+// browser preview against the verbatim Universal snippet — see PR #99
+// description. Nonce-rewriting per request would risk breaking the
+// form whenever MailerLite ships a new template, so 'unsafe-inline'
+// is preferred over a brittle nonce.
 const contentSecurityPolicy = "default-src 'self'; " +
-	"script-src 'self' 'unsafe-inline' https://groot.mailerlite.com https://assets.mailerlite.com; " +
-	"style-src 'self' 'unsafe-inline' https://assets.mlcdn.com; " +
+	"script-src 'self' 'unsafe-inline' https://groot.mailerlite.com https://assets.mailerlite.com https://assets.mlcdn.com https://static.mailerlite.com; " +
+	"style-src 'self' 'unsafe-inline' https://assets.mlcdn.com https://assets.mailerlite.com https://fonts.mailerlite.com; " +
 	"img-src 'self' data: https://assets.mlcdn.com; " +
-	"font-src 'self' https://assets.mlcdn.com; " +
+	"font-src 'self' https://assets.mlcdn.com https://fonts.mailerlite.com; " +
 	"connect-src 'self' https://assets.mailerlite.com https://groot.mailerlite.com; " +
 	"form-action https://assets.mailerlite.com; " +
 	"base-uri 'self'; " +
