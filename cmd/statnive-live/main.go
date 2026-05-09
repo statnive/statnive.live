@@ -466,8 +466,10 @@ func run() error {
 	// /api/about — unauthenticated build + third-party attribution
 	// surface. Required by CLAUDE.md License Rules for IP2Location LITE
 	// CC-BY-SA-4.0 §3(a)(1); paired with LICENSE-third-party.md and the
-	// dashboard footer.
-	router.Method(http.MethodGet, "/api/about", about.Handler(readBuildInfo(), about.DefaultAttributions()))
+	// dashboard footer. buildInfo is hoisted so /api/about and the
+	// landing meta strip can't drift against each other.
+	buildInfo := readBuildInfo()
+	router.Method(http.MethodGet, "/api/about", about.Handler(buildInfo, about.DefaultAttributions()))
 
 	// First-party tracker — bytes embedded via go:embed in internal/tracker.
 	// Sits outside the dashboard auth + rate-limit groups; serves a static
@@ -477,10 +479,15 @@ func run() error {
 	// Public coming-soon page at GET /. Independent of cfg.Dashboard.SPAEnabled
 	// so the marketing surface is reachable even when the operator-facing
 	// dashboard is gated off in prod. The Iranian-DC air-gap binary does not
-	// register this route — it has no public marketing surface (Architecture C).
-	landingHandler := landing.Handler()
+	// register either route — no public marketing surface (Architecture C).
+	// Build version is template-injected so the meta strip tracks the actual
+	// shipped binary instead of drifting against a hardcoded literal.
+	landingHandler := landing.Handler(landing.Config{Version: buildInfo.Version})
 	router.Method(http.MethodGet, "/", landingHandler)
 	router.Method(http.MethodHead, "/", landingHandler)
+	faviconHandler := landing.FaviconHandler()
+	router.Method(http.MethodGet, "/favicon.ico", faviconHandler)
+	router.Method(http.MethodHead, "/favicon.ico", faviconHandler)
 
 	// Embedded Preact dashboard SPA at /app/*. Auth is enforced at
 	// /api/* by session + api-token middleware (see auth.CompositeAuth);
