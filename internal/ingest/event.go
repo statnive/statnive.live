@@ -85,7 +85,7 @@ type EnrichedEvent struct {
 	ViewportWidth uint16
 	EventType     string
 	EventName     string
-	EventValue    uint64 // rials, integer (PLAN.md feature #18)
+	EventValue    uint64 // currency-neutral integer; SPA labels via site.Currency (PLAN.md feature #18)
 	IsGoal        uint8
 	IsNew         uint8
 	PropKeys      []string

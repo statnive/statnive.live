@@ -37,25 +37,25 @@ var (
 var (
 	sqlCreate = `INSERT INTO %s.goals (
 		goal_id, site_id, name, match_type, pattern,
-		value_rials, enabled, created_at, updated_at
+		value, enabled, created_at, updated_at
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	sqlGet = `SELECT goal_id, site_id, name, toString(match_type), pattern,
-		value_rials, enabled,
+		value, enabled,
 		toInt64(toUnixTimestamp(created_at)), toInt64(toUnixTimestamp(updated_at))
 		FROM %s.goals FINAL
 		WHERE site_id = ? AND goal_id = ?
 		LIMIT 1`
 
 	sqlList = `SELECT goal_id, site_id, name, toString(match_type), pattern,
-		value_rials, enabled,
+		value, enabled,
 		toInt64(toUnixTimestamp(created_at)), toInt64(toUnixTimestamp(updated_at))
 		FROM %s.goals FINAL
 		WHERE site_id = ?
 		ORDER BY name`
 
 	sqlListActive = `SELECT goal_id, site_id, name, toString(match_type), pattern,
-		value_rials, enabled,
+		value, enabled,
 		toInt64(toUnixTimestamp(created_at)), toInt64(toUnixTimestamp(updated_at))
 		FROM %s.goals FINAL
 		WHERE site_id > 0 AND enabled = 1
@@ -112,7 +112,7 @@ func (s *ClickHouseStore) Create(ctx context.Context, g *Goal) error {
 	if err := s.conn.Exec(ctx,
 		fmt.Sprintf(sqlCreate, s.db),
 		g.GoalID, g.SiteID, g.Name, string(g.MatchType), g.Pattern,
-		g.ValueRials, enabled,
+		g.Value, enabled,
 		time.Unix(g.CreatedAt, 0).UTC(),
 		time.Unix(g.UpdatedAt, 0).UTC(),
 	); err != nil {
@@ -204,7 +204,7 @@ func (s *ClickHouseStore) ListActive(ctx context.Context) ([]*Goal, error) {
 }
 
 // Update rewrites the mutable fields (name, match_type, pattern,
-// value_rials, enabled). ReplacingMergeTree collapses to newest by
+// value, enabled). ReplacingMergeTree collapses to newest by
 // updated_at; FINAL reads see the new value immediately.
 func (s *ClickHouseStore) Update(ctx context.Context, g *Goal) error {
 	if g == nil {
@@ -235,7 +235,7 @@ func (s *ClickHouseStore) Update(ctx context.Context, g *Goal) error {
 	if execErr := s.conn.Exec(ctx,
 		fmt.Sprintf(sqlCreate, s.db),
 		g.GoalID, g.SiteID, g.Name, string(g.MatchType), g.Pattern,
-		g.ValueRials, enabled,
+		g.Value, enabled,
 		time.Unix(g.CreatedAt, 0).UTC(),
 		time.Unix(g.UpdatedAt, 0).UTC(),
 	); execErr != nil {
@@ -292,7 +292,7 @@ func scanGoal(scan func(...any) error) (*Goal, error) {
 
 	if err := scan(
 		&g.GoalID, &g.SiteID, &g.Name, &matchType, &g.Pattern,
-		&g.ValueRials, &enabled, &g.CreatedAt, &g.UpdatedAt,
+		&g.Value, &enabled, &g.CreatedAt, &g.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}

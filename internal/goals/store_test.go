@@ -91,7 +91,7 @@ func createOneTestGoal(t *testing.T, fs *fakeStore) *Goal {
 
 	g := &Goal{
 		SiteID: 1, Name: "Purchase", MatchType: MatchTypeEventNameEquals,
-		Pattern: "purchase", ValueRials: 500_000, Enabled: true,
+		Pattern: "purchase", Value: 500_000, Enabled: true,
 	}
 
 	if err := fs.Create(context.Background(), g); err != nil {

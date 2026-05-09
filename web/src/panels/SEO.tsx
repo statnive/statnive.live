@@ -4,9 +4,9 @@ import { apiGet } from '../api/client';
 import type { SEORow } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
-import { siteSignal } from '../state/site';
+import { siteSignal, activeSiteSignal } from '../state/site';
 import { LazyChart } from '../components/LazyChart';
-import { fmtInt, fmtRials } from '../lib/fmt';
+import { fmtInt, fmtMoney } from '../lib/fmt';
 import { toVisitorSeries, visitorLineChartOptions } from '../lib/chart';
 import './panels.css';
 
@@ -77,6 +77,8 @@ export default function SEO() {
     );
   }
 
+  const currency = activeSiteSignal.value?.currency ?? 'EUR';
+
   return (
     <section class="statnive-section" data-testid="panel-seo">
       <h2 class="statnive-h2">SEO</h2>
@@ -98,7 +100,7 @@ export default function SEO() {
               <td>{fmtInt(r.views)}</td>
               <td>{fmtInt(r.visitors)}</td>
               <td>{fmtInt(r.goals)}</td>
-              <td>{fmtRials(r.revenue_rials)}</td>
+              <td>{fmtMoney(r.revenue, currency)}</td>
             </tr>
           ))}
         </tbody>

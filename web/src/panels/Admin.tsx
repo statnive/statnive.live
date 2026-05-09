@@ -11,10 +11,14 @@ import {
   createSite,
   updateSiteEnabled,
   updateSitePolicy,
+  listCurrencies,
+  listTimezones,
   type AdminUser,
   type AdminGoal,
   type AdminSite,
   type SitePolicyPatch,
+  type CurrencyOption,
+  type TimezoneOption,
 } from '../api/admin';
 import './Admin.css';
 
@@ -26,6 +30,9 @@ import './Admin.css';
 // Phase 11 SaaS adds cursor pagination + richer edit flows.
 
 type Tab = 'sites' | 'users' | 'goals';
+
+const FALLBACK_CURRENCY = 'EUR';
+const FALLBACK_TIMEZONE = 'Europe/Berlin';
 
 export default function Admin() {
   const tab = useSignal<Tab>('sites');
@@ -257,7 +264,7 @@ function GoalsTab() {
                 <td>{g.name}</td>
                 <td>{g.match_type}</td>
                 <td><code>{g.pattern}</code></td>
-                <td>{g.value_rials}</td>
+                <td>{g.value}</td>
                 <td>{g.enabled ? 'yes' : 'no'}</td>
                 <td>
                   {g.enabled ? (
@@ -284,7 +291,7 @@ function NewGoalForm({
 }) {
   const [name, setName] = useState('');
   const [pattern, setPattern] = useState('');
-  const [valueRials, setValueRials] = useState(0);
+  const [value, setValue] = useState(0);
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(ev: Event) {
@@ -296,12 +303,12 @@ function NewGoalForm({
         name,
         match_type: 'event_name_equals',
         pattern,
-        value_rials: valueRials,
+        value,
         enabled: true,
       });
       setName('');
       setPattern('');
-      setValueRials(0);
+      setValue(0);
       await onCreated();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
@@ -328,12 +335,12 @@ function NewGoalForm({
         />
       </label>
       <label>
-        Value (rials)
+        Value
         <input
           type="number"
           min={0}
-          value={valueRials}
-          onInput={(e) => setValueRials(Number((e.target as HTMLInputElement).value))}
+          value={value}
+          onInput={(e) => setValue(Number((e.target as HTMLInputElement).value))}
         />
       </label>
       <button type="submit" disabled={busy}>
@@ -347,6 +354,8 @@ function NewGoalForm({
 
 function SitesTab() {
   const [rows, setRows] = useState<AdminSite[] | null>(null);
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
+  const [timezones, setTimezones] = useState<TimezoneOption[]>([]);
   const [err, setErr] = useState<string>('');
 
   async function refresh() {
@@ -359,6 +368,18 @@ function SitesTab() {
 
   useEffect(() => {
     void refresh();
+    // Load the dropdown option lists once on mount — they're stable
+    // for the life of the binary (currencies/timezones are compiled
+    // into the server allow-list, not user-editable).
+    void (async () => {
+      try {
+        const [cs, tzs] = await Promise.all([listCurrencies(), listTimezones()]);
+        setCurrencies(cs);
+        setTimezones(tzs);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : String(e));
+      }
+    })();
   }, []);
 
   async function onToggleEnabled(site: AdminSite) {
@@ -381,7 +402,12 @@ function SitesTab() {
 
   return (
     <div class="statnive-admin-sites">
-      <NewSiteForm onCreated={refresh} onError={setErr} />
+      <NewSiteForm
+        currencies={currencies}
+        timezones={timezones}
+        onCreated={refresh}
+        onError={setErr}
+      />
 
       {err ? <p class="statnive-admin-error" role="alert">{err}</p> : null}
 
@@ -397,6 +423,8 @@ function SitesTab() {
               <th>Slug</th>
               <th>Plan</th>
               <th>Status</th>
+              <th>Currency</th>
+              <th>Timezone</th>
               <th title="Honor Sec-GPC: 1 (suppresses identity for visitors who send the header). EU operators must enable.">GPC</th>
               <th title="Honor DNT: 1 (suppresses identity for visitors who send the header). EU operators must enable.">DNT</th>
               <th title="Track bots (default on; off drops bot events at the pipeline).">Bots</th>
@@ -411,6 +439,8 @@ function SitesTab() {
                 <td><code>{s.slug}</code></td>
                 <td>{s.plan}</td>
                 <td>{s.enabled ? 'active' : 'disabled'}</td>
+                <CurrencyCell site={s} options={currencies} onPatch={onPatchPolicy} />
+                <TimezoneCell site={s} options={timezones} onPatch={onPatchPolicy} />
                 <PolicyCell site={s} field="respect_gpc" label="respect Sec-GPC" onPatch={onPatchPolicy} />
                 <PolicyCell site={s} field="respect_dnt" label="respect DNT"     onPatch={onPatchPolicy} />
                 <PolicyCell site={s} field="track_bots"  label="track bots"      onPatch={onPatchPolicy} />
@@ -427,14 +457,84 @@ function SitesTab() {
       )}
 
       <p class="statnive-admin-help">
-        <strong>GPC / DNT:</strong> default off — every visit counted, identity hashed normally.
-        Operators with EU visitors <strong>must</strong> enable both flags per site to honor
-        the visitor's privacy signal under GDPR Art. 4(2).{' '}
+        <strong>Currency:</strong> a display label only — the dashboard renders revenue
+        integers using the selected ISO 4217 code. Switching currency does not transform
+        stored values.{' '}
+        <strong>Timezone:</strong> the IANA zone the dashboard's date-range picker
+        interprets midnights in. Default <code>Europe/Berlin</code>.{' '}
+        <strong>GPC / DNT:</strong> default off — every visit counted, identity hashed
+        normally. Operators with EU visitors <strong>must</strong> enable both flags
+        per site to honor the visitor's privacy signal under GDPR Art. 4(2).{' '}
         <strong>Bots:</strong> default on — bot events flow through with{' '}
-        <code>is_bot=1</code> so the dashboard can split human from bot traffic. Flip off to
-        drop bots at the pipeline (no rows in <code>events_raw</code>).
+        <code>is_bot=1</code> so the dashboard can split human from bot traffic.
       </p>
     </div>
+  );
+}
+
+// CurrencyCell renders the currency dropdown for one site. Selecting a
+// new option immediately PATCHes /api/admin/sites/{id} with {currency}.
+function CurrencyCell({
+  site,
+  options,
+  onPatch,
+}: {
+  site: AdminSite;
+  options: CurrencyOption[];
+  onPatch: (siteID: number, patch: SitePolicyPatch) => void | Promise<void>;
+}) {
+  return (
+    <td>
+      <select
+        aria-label={`currency for ${site.hostname}`}
+        value={site.currency}
+        onChange={(e) => void onPatch(site.site_id, {
+          currency: (e.target as HTMLSelectElement).value,
+        })}
+      >
+        {options.length === 0 ? (
+          <option value={site.currency}>{site.currency}</option>
+        ) : null}
+        {options.map((c) => (
+          <option key={c.code} value={c.code}>
+            {c.code} — {c.symbol} {c.name}
+          </option>
+        ))}
+      </select>
+    </td>
+  );
+}
+
+// TimezoneCell renders the timezone dropdown for one site. Same PATCH
+// flow as CurrencyCell.
+function TimezoneCell({
+  site,
+  options,
+  onPatch,
+}: {
+  site: AdminSite;
+  options: TimezoneOption[];
+  onPatch: (siteID: number, patch: SitePolicyPatch) => void | Promise<void>;
+}) {
+  return (
+    <td>
+      <select
+        aria-label={`timezone for ${site.hostname}`}
+        value={site.tz}
+        onChange={(e) => void onPatch(site.site_id, {
+          tz: (e.target as HTMLSelectElement).value,
+        })}
+      >
+        {options.length === 0 ? (
+          <option value={site.tz}>{site.tz}</option>
+        ) : null}
+        {options.map((t) => (
+          <option key={t.iana} value={t.iana}>
+            {t.label} ({t.offset})
+          </option>
+        ))}
+      </select>
+    </td>
   );
 }
 
@@ -481,15 +581,20 @@ function TrackerSnippet() {
 }
 
 function NewSiteForm({
+  currencies,
+  timezones,
   onCreated,
   onError,
 }: {
+  currencies: CurrencyOption[];
+  timezones: TimezoneOption[];
   onCreated: () => void | Promise<void>;
   onError: (msg: string) => void;
 }) {
   const [hostname, setHostname] = useState('');
   const [slug, setSlug] = useState('');
-  const [tz, setTz] = useState('Asia/Tehran');
+  const [tz, setTz] = useState(FALLBACK_TIMEZONE);
+  const [currency, setCurrency] = useState(FALLBACK_CURRENCY);
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(ev: Event) {
@@ -501,10 +606,12 @@ function NewSiteForm({
         hostname,
         slug: slug || undefined,
         tz: tz || undefined,
+        currency: currency || undefined,
       });
       setHostname('');
       setSlug('');
-      setTz('Asia/Tehran');
+      setTz(FALLBACK_TIMEZONE);
+      setCurrency(FALLBACK_CURRENCY);
       await onCreated();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
@@ -537,12 +644,38 @@ function NewSiteForm({
         />
       </label>
       <label>
+        Currency
+        <select
+          aria-label="currency"
+          value={currency}
+          onChange={(e) => setCurrency((e.target as HTMLSelectElement).value)}
+        >
+          {currencies.length === 0 ? (
+            <option value={FALLBACK_CURRENCY}>{FALLBACK_CURRENCY}</option>
+          ) : null}
+          {currencies.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.code} — {c.symbol} {c.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
         Timezone
-        <input
-          type="text"
+        <select
+          aria-label="timezone"
           value={tz}
-          onInput={(e) => setTz((e.target as HTMLInputElement).value)}
-        />
+          onChange={(e) => setTz((e.target as HTMLSelectElement).value)}
+        >
+          {timezones.length === 0 ? (
+            <option value={FALLBACK_TIMEZONE}>{FALLBACK_TIMEZONE}</option>
+          ) : null}
+          {timezones.map((t) => (
+            <option key={t.iana} value={t.iana}>
+              {t.label} ({t.offset})
+            </option>
+          ))}
+        </select>
       </label>
       <button type="submit" disabled={busy}>
         {busy ? 'Adding…' : 'Add site'}

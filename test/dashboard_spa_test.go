@@ -194,7 +194,7 @@ func TestDashboardSPA_ShellAndOverviewRoundTrip(t *testing.T) {
 
 	// The 5 KPI fields the SPA Overview panel reads (mirrors
 	// internal/storage/result.go:OverviewResult JSON tags).
-	for _, key := range []string{"pageviews", "visitors", "goals", "revenue_rials", "rpv_rials"} {
+	for _, key := range []string{"pageviews", "visitors", "goals", "revenue", "rpv"} {
 		if _, ok := overview[key]; !ok {
 			t.Errorf("overview response missing %q (SPA Overview panel needs this)", key)
 		}

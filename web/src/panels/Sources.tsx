@@ -4,9 +4,9 @@ import { apiGet } from '../api/client';
 import type { SourceRow } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
-import { siteSignal } from '../state/site';
+import { siteSignal, activeSiteSignal } from '../state/site';
 import { DualBar } from './DualBar';
-import { fmtInt } from '../lib/fmt';
+import { fmtInt, fmtMoney } from '../lib/fmt';
 import { rowMax } from '../lib/rows';
 import './panels.css';
 
@@ -73,7 +73,8 @@ export default function Sources() {
   }
 
   const maxVisitors = rowMax(rows, (r) => r.visitors);
-  const maxRevenue = rowMax(rows, (r) => r.revenue_rials);
+  const maxRevenue = rowMax(rows, (r) => r.revenue);
+  const currency = activeSiteSignal.value?.currency ?? 'EUR';
 
   return (
     <section class="statnive-section" data-testid="panel-sources">
@@ -85,7 +86,7 @@ export default function Sources() {
             <th scope="col">Channel</th>
             <th scope="col">Views</th>
             <th scope="col">Goals</th>
-            <th scope="col">RPV (﷼)</th>
+            <th scope="col">RPV</th>
             <th scope="col">Visitors / Revenue</th>
           </tr>
         </thead>
@@ -96,11 +97,11 @@ export default function Sources() {
               <td><span class="statnive-channel-chip">{r.channel || '—'}</span></td>
               <td>{fmtInt(r.views)}</td>
               <td>{fmtInt(r.goals)}</td>
-              <td>{fmtInt(Math.round(r.rpv_rials))}</td>
+              <td>{fmtMoney(Math.round(r.rpv), currency)}</td>
               <td>
                 <DualBar
                   visitors={r.visitors}
-                  revenue={r.revenue_rials}
+                  revenue={r.revenue}
                   maxVisitors={maxVisitors}
                   maxRevenue={maxRevenue}
                 />

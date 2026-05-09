@@ -318,7 +318,7 @@ func newFakeSitesStore() *fakeSitesStore {
 	return &fakeSitesStore{byID: make(map[uint32]*sites.SiteAdmin)}
 }
 
-func (f *fakeSitesStore) CreateSite(_ context.Context, hostname, slug, tz string) (uint32, error) {
+func (f *fakeSitesStore) CreateSite(_ context.Context, hostname, slug, tz, currency string) (uint32, error) {
 	hostname = strings.ToLower(strings.TrimSpace(hostname))
 	if err := sites.ValidateHostname(hostname); err != nil {
 		return 0, err
@@ -346,12 +346,20 @@ func (f *fakeSitesStore) CreateSite(_ context.Context, hostname, slug, tz string
 	f.nextID++
 
 	if tz == "" {
-		tz = "Asia/Tehran"
+		tz = sites.DefaultTimezone
+	} else if !sites.IsValidTimezone(tz) {
+		return 0, sites.ErrInvalidTimezone
+	}
+
+	if currency == "" {
+		currency = sites.DefaultCurrency
+	} else if !sites.IsValidCurrency(currency) {
+		return 0, sites.ErrInvalidCurrency
 	}
 
 	f.byID[f.nextID] = &sites.SiteAdmin{
 		Site: sites.Site{
-			ID: f.nextID, Hostname: hostname, Enabled: true, TZ: tz,
+			ID: f.nextID, Hostname: hostname, Enabled: true, TZ: tz, Currency: currency,
 		},
 		Slug:      slug,
 		Plan:      "free",
@@ -385,6 +393,42 @@ func (f *fakeSitesStore) UpdateSitePolicy(_ context.Context, siteID uint32, poli
 	}
 
 	s.SitePolicy = policy
+
+	return nil
+}
+
+func (f *fakeSitesStore) UpdateSiteAttributes(_ context.Context, siteID uint32, currency, tz *string) error {
+	if siteID == 0 {
+		return sites.ErrUnknownHostname
+	}
+
+	if currency == nil && tz == nil {
+		return nil
+	}
+
+	if currency != nil && !sites.IsValidCurrency(*currency) {
+		return sites.ErrInvalidCurrency
+	}
+
+	if tz != nil && !sites.IsValidTimezone(*tz) {
+		return sites.ErrInvalidTimezone
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	s, ok := f.byID[siteID]
+	if !ok {
+		return sites.ErrUnknownHostname
+	}
+
+	if currency != nil {
+		s.Currency = *currency
+	}
+
+	if tz != nil {
+		s.TZ = *tz
+	}
 
 	return nil
 }

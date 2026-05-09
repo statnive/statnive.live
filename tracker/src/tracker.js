@@ -20,6 +20,12 @@
 // plugin tracker that some same-brand customers also load at window.statnive
 // as a queue stub):
 //   .track(name, props, value)  — custom event; pageview is fired automatically.
+//                                 `value` is a positive integer; the dashboard
+//                                 renders it via Intl.NumberFormat using the
+//                                 site's configured currency code as a display
+//                                 label (no minor-unit math). Goal-matched
+//                                 events have their value overwritten by the
+//                                 admin-configured goal.value (server-authoritative).
 //   .identify(uid)              — store raw uid; sent in user_id field; server
 //                                 hashes via identity.HexUserIDHash and clears
 //                                 the raw value before pipeline (Privacy Rule 4).

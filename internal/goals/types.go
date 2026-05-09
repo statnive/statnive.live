@@ -40,14 +40,17 @@ const MaxPatternLen = 128
 
 // Goal is one admin-configured goal. Raw UUIDs; the pattern is a
 // cleartext event-name string (NOT visitor PII — operator input).
+// Value is a currency-neutral integer overwritten onto event_value
+// when the matcher fires (the SPA renders it via fmtMoney with the
+// site's currency code as a display label).
 type Goal struct {
-	GoalID     uuid.UUID
-	SiteID     uint32
-	Name       string
-	MatchType  MatchType
-	Pattern    string
-	ValueRials uint64
-	Enabled    bool
-	CreatedAt  int64 // unix seconds, UTC
-	UpdatedAt  int64
+	GoalID    uuid.UUID
+	SiteID    uint32
+	Name      string
+	MatchType MatchType
+	Pattern   string
+	Value     uint64
+	Enabled   bool
+	CreatedAt int64 // unix seconds, UTC
+	UpdatedAt int64
 }

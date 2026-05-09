@@ -33,7 +33,7 @@ type goalResponse struct {
 	Name       string `json:"name"`
 	MatchType  string `json:"match_type"`
 	Pattern    string `json:"pattern"`
-	ValueRials uint64 `json:"value_rials"`
+	Value uint64 `json:"value"`
 	Enabled    bool   `json:"enabled"`
 	CreatedAt  int64  `json:"created_at"`
 	UpdatedAt  int64  `json:"updated_at"`
@@ -46,7 +46,7 @@ func toGoalResponse(g *goals.Goal) goalResponse {
 		Name:       g.Name,
 		MatchType:  string(g.MatchType),
 		Pattern:    g.Pattern,
-		ValueRials: g.ValueRials,
+		Value:      g.Value,
 		Enabled:    g.Enabled,
 		CreatedAt:  g.CreatedAt,
 		UpdatedAt:  g.UpdatedAt,
@@ -90,7 +90,7 @@ type createGoalRequest struct {
 	Name       string `json:"name"`
 	MatchType  string `json:"match_type"`
 	Pattern    string `json:"pattern"`
-	ValueRials uint64 `json:"value_rials"`
+	Value uint64 `json:"value"`
 	Enabled    bool   `json:"enabled"`
 }
 
@@ -108,7 +108,7 @@ func (h *Goals) Create(w http.ResponseWriter, r *http.Request) {
 
 	var req createGoalRequest
 	if err := httpjson.DecodeAllowed(r, &req, []string{
-		"name", "match_type", "pattern", "value_rials", "enabled",
+		"name", "match_type", "pattern", "value", "enabled",
 	}); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 
@@ -120,7 +120,7 @@ func (h *Goals) Create(w http.ResponseWriter, r *http.Request) {
 		Name:       strings.TrimSpace(req.Name),
 		MatchType:  goals.MatchType(req.MatchType),
 		Pattern:    strings.TrimSpace(req.Pattern),
-		ValueRials: req.ValueRials,
+		Value:      req.Value,
 		Enabled:    req.Enabled,
 	}
 
@@ -149,7 +149,7 @@ type updateGoalRequest struct {
 	Name       string `json:"name"`
 	MatchType  string `json:"match_type"`
 	Pattern    string `json:"pattern"`
-	ValueRials uint64 `json:"value_rials"`
+	Value uint64 `json:"value"`
 	Enabled    bool   `json:"enabled"`
 }
 
@@ -171,7 +171,7 @@ func (h *Goals) Update(w http.ResponseWriter, r *http.Request) {
 
 	var req updateGoalRequest
 	if err := httpjson.DecodeAllowed(r, &req, []string{
-		"name", "match_type", "pattern", "value_rials", "enabled",
+		"name", "match_type", "pattern", "value", "enabled",
 	}); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 
@@ -184,7 +184,7 @@ func (h *Goals) Update(w http.ResponseWriter, r *http.Request) {
 		Name:       strings.TrimSpace(req.Name),
 		MatchType:  goals.MatchType(req.MatchType),
 		Pattern:    strings.TrimSpace(req.Pattern),
-		ValueRials: req.ValueRials,
+		Value:      req.Value,
 		Enabled:    req.Enabled,
 	}
 

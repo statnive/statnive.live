@@ -6,14 +6,16 @@ import "time"
 // goals, and revenue for a (site_id, date range). Visitors come from
 // uniqMerge of HyperLogLog states (~0.5% error per CLAUDE.md).
 //
-// RPV is computed: revenue_rials / visitors. Returned for caller
-// convenience so dashboards don't have to re-derive it.
+// Revenue is the integer aggregate; RPV is revenue / visitors. Both
+// are currency-neutral integers — the SPA's fmtMoney formats them
+// using the active site's currency code (display label only, no
+// minor-unit math).
 type OverviewResult struct {
-	Pageviews    uint64  `json:"pageviews"`
-	Visitors     uint64  `json:"visitors"`
-	Goals        uint64  `json:"goals"`
-	RevenueRials uint64  `json:"revenue_rials"`
-	RPV          float64 `json:"rpv_rials"`
+	Pageviews uint64  `json:"pageviews"`
+	Visitors  uint64  `json:"visitors"`
+	Goals     uint64  `json:"goals"`
+	Revenue   uint64  `json:"revenue"`
+	RPV       float64 `json:"rpv"`
 }
 
 // SourceRow is one row of the Sources table — referrer + channel grouped.
@@ -23,39 +25,39 @@ type SourceRow struct {
 	Views        uint64  `json:"views"`
 	Visitors     uint64  `json:"visitors"`
 	Goals        uint64  `json:"goals"`
-	RevenueRials uint64  `json:"revenue_rials"`
-	RPV          float64 `json:"rpv_rials"`
+	Revenue      uint64  `json:"revenue"`
+	RPV          float64 `json:"rpv"`
 }
 
 // PageRow is one row of the Pages table — pathname grouped.
 type PageRow struct {
-	Pathname     string  `json:"pathname"`
-	Views        uint64  `json:"views"`
-	Visitors     uint64  `json:"visitors"`
-	Goals        uint64  `json:"goals"`
-	RevenueRials uint64  `json:"revenue_rials"`
-	RPV          float64 `json:"rpv_rials"`
+	Pathname string  `json:"pathname"`
+	Views    uint64  `json:"views"`
+	Visitors uint64  `json:"visitors"`
+	Goals    uint64  `json:"goals"`
+	Revenue  uint64  `json:"revenue"`
+	RPV      float64 `json:"rpv"`
 }
 
 // SEORow is one bucket of the organic-search trend — typically a daily
 // series. Day is the bucket boundary (UTC); the API layer converts to
-// IRST for display.
+// the site's TZ for display.
 type SEORow struct {
-	Day          time.Time `json:"day"`
-	Views        uint64    `json:"views"`
-	Visitors     uint64    `json:"visitors"`
-	Goals        uint64    `json:"goals"`
-	RevenueRials uint64    `json:"revenue_rials"`
+	Day      time.Time `json:"day"`
+	Views    uint64    `json:"views"`
+	Visitors uint64    `json:"visitors"`
+	Goals    uint64    `json:"goals"`
+	Revenue  uint64    `json:"revenue"`
 }
 
 // CampaignRow is one row of the Campaigns table — utm_campaign grouped.
 type CampaignRow struct {
-	UTMCampaign  string  `json:"utm_campaign"`
-	Views        uint64  `json:"views"`
-	Visitors     uint64  `json:"visitors"`
-	Goals        uint64  `json:"goals"`
-	RevenueRials uint64  `json:"revenue_rials"`
-	RPV          float64 `json:"rpv_rials"`
+	UTMCampaign string  `json:"utm_campaign"`
+	Views       uint64  `json:"views"`
+	Visitors    uint64  `json:"visitors"`
+	Goals       uint64  `json:"goals"`
+	Revenue     uint64  `json:"revenue"`
+	RPV         float64 `json:"rpv"`
 }
 
 // DailyPoint is one day of the all-traffic trend that feeds the uPlot

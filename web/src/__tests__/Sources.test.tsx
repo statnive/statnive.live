@@ -24,8 +24,8 @@ describe('Sources panel', () => {
 
   it('renders one row per source with dual-bar values', async () => {
     mockRows([
-      { referrer_name: 'google', channel: 'Organic Search', views: 500, visitors: 300, goals: 20, revenue_rials: 1000, rpv_rials: 3 },
-      { referrer_name: '(direct)', channel: 'Direct', views: 200, visitors: 150, goals: 5, revenue_rials: 300, rpv_rials: 2 },
+      { referrer_name: 'google', channel: 'Organic Search', views: 500, visitors: 300, goals: 20, revenue: 1000, rpv: 3 },
+      { referrer_name: '(direct)', channel: 'Direct', views: 200, visitors: 150, goals: 5, revenue: 300, rpv: 2 },
     ]);
 
     render(<Sources />);
