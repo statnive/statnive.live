@@ -485,6 +485,7 @@ func run() error {
 	landingHandler := landing.Handler(landing.Config{Version: buildInfo.Version})
 	router.Method(http.MethodGet, "/", landingHandler)
 	router.Method(http.MethodHead, "/", landingHandler)
+
 	faviconHandler := landing.FaviconHandler()
 	router.Method(http.MethodGet, "/favicon.ico", faviconHandler)
 	router.Method(http.MethodHead, "/favicon.ico", faviconHandler)
