@@ -262,17 +262,63 @@ func seedDPEvent(t *testing.T, ctx context.Context, conn driver.Conn, siteID uin
 
 	hash := [16]byte{byte(siteID), byte(value), byte(value >> 8)}
 
-	if err := conn.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.events_raw (
+	// PrepareBatch is the only path the clickhouse-go driver round-trips
+	// FixedString(16) cleanly — the raw `INSERT ... VALUES (?, ...)`
+	// path silently coerces []byte to a String column-type and CH then
+	// rejects with "Too large string for FixedString column".
+	batch, err := conn.PrepareBatch(ctx, fmt.Sprintf(`INSERT INTO %s.events_raw (
 		site_id, time, user_id_hash, cookie_id, visitor_hash, hostname, pathname,
 		title, referrer, referrer_name, channel, utm_source, utm_medium,
 		utm_campaign, utm_content, utm_term, province, city, country_code,
 		isp, carrier, os, browser, device_type, viewport_width, event_type,
 		event_name, event_value, is_goal, is_new, prop_keys, prop_vals,
 		user_segment, is_bot
-	) VALUES (?, ?, '', '', ?, '', ?, '', '', 'direct', 'Direct', '', '', '', '', '', '', '', '--', '', '', '', '', '', 0, 'pageview', 'pageview', ?, ?, 1, [], [], '', 0)`, dataPreservationDB),
-		siteID, time.Now().UTC().Add(-1*time.Minute), hash[:], pathname, value, goal,
+	)`, dataPreservationDB))
+	if err != nil {
+		t.Fatalf("prepare seed batch: %v", err)
+	}
+
+	if err := batch.Append(
+		siteID,
+		time.Now().UTC().Add(-1*time.Minute),
+		"",        // user_id_hash
+		"",        // cookie_id
+		hash[:],   // visitor_hash
+		"",        // hostname
+		pathname,
+		"",        // title
+		"",        // referrer
+		"direct",  // referrer_name
+		"Direct",  // channel
+		"",        // utm_source
+		"",        // utm_medium
+		"",        // utm_campaign
+		"",        // utm_content
+		"",        // utm_term
+		"",        // province
+		"",        // city
+		"--",      // country_code
+		"",        // isp
+		"",        // carrier
+		"",        // os
+		"",        // browser
+		"",        // device_type
+		uint16(0), // viewport_width
+		"pageview",
+		"pageview",
+		value,
+		goal,
+		uint8(1),   // is_new
+		[]string{}, // prop_keys
+		[]string{}, // prop_vals
+		"",         // user_segment
+		uint8(0),   // is_bot
 	); err != nil {
-		t.Fatalf("seed event: %v", err)
+		t.Fatalf("append seed event: %v", err)
+	}
+
+	if err := batch.Send(); err != nil {
+		t.Fatalf("send seed batch: %v", err)
 	}
 }
 

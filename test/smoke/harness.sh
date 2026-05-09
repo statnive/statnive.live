@@ -344,8 +344,8 @@ probe_stats_auth() {
         && echo "$body" | grep -q '"pageviews"' \
         && echo "$body" | grep -q '"visitors"' \
         && echo "$body" | grep -q '"goals"' \
-        && echo "$body" | grep -q '"revenue_rials"' \
-        && echo "$body" | grep -q '"rpv_rials"'; then
+        && echo "$body" | grep -q '"revenue"' \
+        && echo "$body" | grep -q '"rpv"'; then
         cond=0
     fi
     _assert "stats/overview with bearer: 200 + 5 KPI keys" "$cond" \
