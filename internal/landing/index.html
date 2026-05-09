@@ -12,77 +12,244 @@
   <meta property="og:url" content="https://statnive.live/">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary">
-  <meta name="theme-color" content="#0b0d10">
+  <meta name="theme-color" content="#c8401f">
   <style>
     :root {
-      --bg: #0b0d10;
-      --fg: #f3f5f7;
-      --fg-muted: #9aa3ad;
-      --maxw: 560px;
+      /* Vermilion-drench palette. OKLCH; warm-tinted neutrals (chroma
+         0.005–0.012 on the bone, never #fff). The page IS the colour.
+         Voice: signal-flag vermilion against a bone specimen sheet. */
+      --vermilion: oklch(58% 0.205 28);
+      --bone:      oklch(95% 0.012 80);
+      /* bone-60 alpha: WCAG-AA-safe at 11px tracked-mono on vermilion
+         (~4.9:1). The earlier 0.62 failed AA at 3.14:1. */
+      --bone-60:   oklch(95% 0.012 80 / 0.8);
+      --bone-30:   oklch(95% 0.012 80 / 0.32);
+      --ink:       oklch(15% 0.012 80);
+      --ink-50:    oklch(15% 0.012 80 / 0.55);
     }
+
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
+    html { background: var(--vermilion); }
     body {
-      background: var(--bg);
-      color: var(--fg);
-      font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--vermilion);
+      color: var(--bone);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      padding: 32px 20px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
+
+    /* The whole page is one composition. Flex-column body, nav at top,
+       main carries the asymmetric 2-col, footer at bottom. */
+    .top {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 24px;
+      padding: clamp(24px, 4vh, 40px) clamp(24px, 5vw, 80px);
+      max-width: 1440px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .wordmark {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--bone);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .wordmark::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--bone);
+      box-shadow: 0 0 0 0 var(--bone-60);
+      animation: pulse 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+    }
+    .wordmark:focus-visible {
+      outline: 2px dashed var(--bone);
+      outline-offset: 4px;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 var(--bone-60); }
+      70%  { box-shadow: 0 0 0 12px rgba(0,0,0,0); }
+      100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .wordmark::before { animation: none; }
+      footer a, .form-frame__foot a { transition: none; }
+    }
+    .top .meta {
+      font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--bone-60);
+    }
+
     main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+      gap: clamp(40px, 6vw, 96px);
+      align-items: start;
+      max-width: 1440px;
       width: 100%;
-      max-width: var(--maxw);
-      margin: auto;
+      margin: 0 auto;
+      padding: clamp(40px, 8vh, 120px) clamp(24px, 5vw, 80px) clamp(48px, 8vh, 96px);
     }
-    .brand { font-weight: 700; letter-spacing: -0.01em; font-size: 18px; margin-bottom: 40px; }
-    .brand .dot { color: #00a693; }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; gap: 48px; padding-top: 32px; }
+    }
+
     h1 {
-      font-size: clamp(28px, 5vw, 40px);
-      line-height: 1.15;
-      letter-spacing: -0.02em;
-      margin: 0 0 16px;
-      font-weight: 600;
+      font-family: inherit;
+      font-size: clamp(72px, 14vw, 220px);
+      line-height: 0.86;
+      letter-spacing: -0.045em;
+      margin: 0 0 clamp(28px, 4vh, 48px);
+      color: var(--bone);
+      font-weight: 800;
+      text-wrap: balance;
     }
-    .lede {
-      color: var(--fg-muted);
-      font-size: 17px;
-      margin: 0 0 28px;
-    }
-    .lede strong { color: var(--fg); font-weight: 600; }
+    h1 span { display: block; }
+    h1 .light  { font-weight: 200; }
+    h1 .heavy  { font-weight: 800; }
+    h1 .indent { padding-left: clamp(48px, 10vw, 160px); }
 
-    /* universal.js renders the form into .ml-embedded; the shadow
-       lifts whatever it renders off the dark hero. min-height reserves
-       space so the layout doesn't shift while universal.js fetches.
-       border-radius is left to MailerLite's own card chrome. */
-    .ml-embedded {
-      max-width: 400px;
-      margin: 0 auto 24px;
-      min-height: 280px;
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    .deck {
+      max-width: 56ch;
+      font-size: clamp(17px, 1.6vw, 22px);
+      line-height: 1.45;
+      color: var(--bone);
+      margin: 0 0 clamp(40px, 7vh, 80px);
     }
+    .deck strong { font-weight: 700; color: var(--bone); }
 
-    .footnote {
-      color: var(--fg-muted);
-      font-size: 13px;
+    /* Spec strip — three rows of literal facts, tracked-uppercase mono.
+       Earns its register by being true (build, infra, privacy invariants). */
+    .specs {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      border-top: 1px solid var(--bone-30);
+      font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--bone);
+      max-width: 56ch;
+    }
+    .specs li {
+      display: grid;
+      grid-template-columns: clamp(48px, 6vw, 72px) 1fr;
+      gap: 16px;
+      align-items: baseline;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--bone-30);
+    }
+    .specs li::before {
+      content: attr(data-n);
+      color: var(--bone-60);
+      font-variant-numeric: tabular-nums;
+    }
+    .specs li b { font-weight: 700; }
+
+    /* Right column — ink-framed form card. The MailerLite white form
+       sits inside an ink panel that floats off the vermilion. The ink
+       absorbs the white-edge transition; no garish boundary on the
+       saturated background. */
+    .form-frame {
+      background: var(--ink);
+      padding: clamp(20px, 3vw, 36px);
+      position: sticky;
+      top: clamp(40px, 7vh, 96px);
+      box-shadow:
+        0 1px 0 0 var(--bone-30) inset,
+        0 24px 64px -24px rgba(0,0,0,0.55),
+        0 8px 24px -12px rgba(0,0,0,0.35);
+    }
+    .form-frame__head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--bone);
+      margin: 0 0 clamp(16px, 2vw, 24px);
+    }
+    .form-frame__head .ix { color: var(--bone-60); }
+
+    /* universal.js renders the MailerLite form into .ml-embedded. We
+       reserve only the minimum height a single email-input + submit
+       row needs (~110px); anything larger leaves dead ink space below
+       the rendered form. Kill MailerLite's outer drop shadow — the
+       ink frame already does the lifting. */
+    .ml-embedded { min-height: 110px; }
+    #mlb2-40784054 .ml-form-embedWrapper { box-shadow: none !important; }
+
+    .form-frame__foot {
+      margin: clamp(16px, 2vw, 24px) 0 0;
+      font-size: 12px;
       line-height: 1.5;
-      margin: 16px 0 0;
+      color: var(--bone-60);
     }
-    .footnote a { color: var(--fg-muted); text-decoration: underline; }
+    .form-frame__foot a {
+      color: var(--bone);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
     footer {
+      max-width: 1440px;
       width: 100%;
-      max-width: var(--maxw);
-      margin: 64px auto 0;
-      color: var(--fg-muted);
-      font-size: 13px;
+      margin: 0 auto;
+      padding: clamp(20px, 3vh, 32px) clamp(24px, 5vw, 80px) clamp(28px, 4vh, 48px);
+      border-top: 1px solid var(--bone-30);
       display: flex;
       justify-content: space-between;
       gap: 16px;
       flex-wrap: wrap;
+      font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--bone);
     }
-    footer a { color: var(--fg-muted); text-decoration: none; }
-    footer a:hover { color: var(--fg); }
+    footer a {
+      color: var(--bone);
+      text-decoration: none;
+      border-bottom: 1px solid var(--bone-30);
+      padding-bottom: 1px;
+      transition: color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+                  background-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+                  border-color 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    footer a:hover,
+    footer a:focus-visible {
+      color: var(--ink);
+      background-color: var(--bone);
+      border-color: var(--bone);
+      padding: 1px 6px;
+      outline: none;
+    }
+    .form-frame__foot a:focus-visible {
+      outline: 2px solid var(--bone);
+      outline-offset: 2px;
+    }
   </style>
 
   <!-- MailerLite Universal -->
@@ -96,28 +263,53 @@
   <!-- End MailerLite Universal -->
 </head>
 <body>
+  <header class="top">
+    <a class="wordmark" href="/">Statnive.live</a>
+    <span class="meta">v0.0.3 · Netcup DE · Pre-launch</span>
+  </header>
+
   <main>
-    <div class="brand">statnive<span class="dot">.</span>live</div>
+    <section>
+      <h1>
+        <span class="light">Privacy</span>
+        <span class="heavy indent">is the</span>
+        <span class="heavy">system.</span>
+      </h1>
 
-    <h1>Privacy-aware analytics for high-traffic websites.</h1>
-    <p class="lede">
-      Statnive is launching soon. Subscribe before release and get
-      <strong>50% off your first plan.</strong>
-    </p>
+      <p class="deck">
+        Statnive is privacy-aware web analytics that <strong>scales to 100M events a day on a single 8-core box.</strong>
+        Cookieless by construction. No fingerprinting. Self-hosted, or run as SaaS from Netcup. Pick the version your compliance officer can sign.
+      </p>
 
-    <div class="ml-embedded" data-form="GBS1Qd"></div>
+      <ul class="specs">
+        <li data-n="01"><span><b>Cookieless</b> · IP ephemeral · No fingerprinting · GDPR-fit by default</span></li>
+        <li data-n="02"><span><b>Self-hosted</b> single Go binary · ClickHouse single-node · Air-gappable · LE TLS</span></li>
+        <li data-n="03"><span><b>100M events/day</b> on 8 vCPU / 32 GB · WAL-fsync ack · 0.05% server loss budget</span></li>
+      </ul>
+    </section>
 
-    <p class="footnote">
-      The signup form is hosted by MailerLite (EU), which sees every visitor's IP and browser on this page. Email subscribers can unsubscribe anytime.
-      <noscript> JavaScript is disabled — email
-        <a href="mailto:hello@statnive.com">hello@statnive.com</a> instead.
+    <aside class="form-frame">
+      <div class="form-frame__head">
+        <span>Subscribe</span>
+        <span class="ix">//</span>
+      </div>
+      <div class="ml-embedded" data-form="GBS1Qd"></div>
+      <noscript>
+        <p class="form-frame__foot" role="alert">
+          JavaScript is off and the signup form needs it. Email
+          <a href="mailto:hello@statnive.com">hello@statnive.com</a>
+          and we'll add you to the launch list manually.
+        </p>
       </noscript>
-    </p>
+      <p class="form-frame__foot">
+        Form hosted by MailerLite (EU); your IP and browser are visible to MailerLite. Unsubscribe anytime.
+      </p>
+    </aside>
   </main>
 
   <footer>
-    <span>© Statnive</span>
-    <a href="/app/">Operator? Go to the dashboard →</a>
+    <span>© Statnive 2026</span>
+    <a href="/app/">Operator? Dashboard at /app/ →</a>
   </footer>
 </body>
 </html>
