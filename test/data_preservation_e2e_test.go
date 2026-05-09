@@ -34,7 +34,6 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
-	"text/template"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -100,10 +99,10 @@ func TestMigration008_DataPreservation(t *testing.T) {
 	// (CH AggregatingMergeTree MVs propagate on insert; the GROUP BY
 	// query merges any unmaterialized parts).
 	type oracleRow struct {
-		site  uint32
-		hv    uint64
-		dp    uint64
-		ds    uint64
+		site uint32
+		hv   uint64
+		dp   uint64
+		ds   uint64
 	}
 
 	pre := func(suffix string) []oracleRow {
@@ -218,28 +217,22 @@ func applyMigrations(t *testing.T, ctx context.Context, conn driver.Conn, names 
 			t.Fatalf("read migration %s: %v", name, err)
 		}
 
-		// Render the embedded SQL with .Cluster="" (single-node mode),
-		// then substitute the database name. Migrations hardcode
-		// "statnive."; for this isolated test we point at our DB.
-		rendered := renderForSingleNode(t, name, body)
+		// Render the embedded SQL with .Cluster="" (single-node mode)
+		// via the production helper so comment-strip + statement-split
+		// happen in the same order the runtime uses. Hand-rolling the
+		// splitter inverts the order and a literal ';' inside a
+		// comment in migration 001 breaks statement boundaries.
+		rendered, err := storage.RenderMigration(name, body, "")
+		if err != nil {
+			t.Fatalf("render %s: %v", name, err)
+		}
+
+		// Substitute the database name. Migrations hardcode "statnive.";
+		// for this isolated test we point at our DB.
 		rendered = strings.ReplaceAll(rendered, "statnive.", dataPreservationDB+".")
 
-		// Split on `;` and exec each non-empty statement.
-		for _, stmt := range strings.Split(rendered, ";") {
+		for _, stmt := range storage.SplitStatements(rendered) {
 			s := strings.TrimSpace(stmt)
-			if s == "" || strings.HasPrefix(s, "--") {
-				continue
-			}
-
-			// Strip full-line "--" comments inside the statement.
-			lines := []string{}
-			for _, line := range strings.Split(s, "\n") {
-				if strings.HasPrefix(strings.TrimSpace(line), "--") {
-					continue
-				}
-				lines = append(lines, line)
-			}
-			s = strings.TrimSpace(strings.Join(lines, "\n"))
 			if s == "" {
 				continue
 			}
@@ -249,27 +242,6 @@ func applyMigrations(t *testing.T, ctx context.Context, conn driver.Conn, names 
 			}
 		}
 	}
-}
-
-// renderForSingleNode runs the embedded SQL through text/template with
-// .Cluster="" so the {{if .Cluster}} branches resolve to the
-// single-node literal.
-func renderForSingleNode(t *testing.T, name string, body []byte) string {
-	t.Helper()
-
-	type data struct{ Cluster string }
-
-	tmpl, err := template.New(name).Option("missingkey=error").Parse(string(body))
-	if err != nil {
-		t.Fatalf("template parse %s: %v", name, err)
-	}
-
-	var sb strings.Builder
-	if err := tmpl.Execute(&sb, data{Cluster: ""}); err != nil {
-		t.Fatalf("template execute %s: %v", name, err)
-	}
-
-	return sb.String()
 }
 
 func firstNLines(s string, n int) string {

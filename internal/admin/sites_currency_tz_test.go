@@ -104,7 +104,7 @@ func TestSites_Create_RejectsBadTimezone(t *testing.T) {
 
 // TestSites_PatchCurrencyTZ pins the round-trip: create with defaults,
 // PATCH to USD + America/New_York, GET back the updated row. This is
-// the canonical user journey for "I changed my mind on currency."
+// the canonical user journey for "I changed my mind on currency".
 func TestSites_PatchCurrencyTZ(t *testing.T) {
 	t.Parallel()
 
@@ -121,6 +121,7 @@ func TestSites_PatchCurrencyTZ(t *testing.T) {
 	}
 
 	var created siteAdminResponse
+
 	_ = json.Unmarshal(cw.Body.Bytes(), &created)
 
 	idStr := strconv.FormatUint(uint64(created.SiteID), 10)
@@ -134,6 +135,7 @@ func TestSites_PatchCurrencyTZ(t *testing.T) {
 	}
 
 	var got siteAdminResponse
+
 	_ = json.Unmarshal(uw.Body.Bytes(), &got)
 
 	if got.Currency != "USD" {
@@ -145,53 +147,58 @@ func TestSites_PatchCurrencyTZ(t *testing.T) {
 	}
 }
 
-func TestSites_PatchBadCurrency(t *testing.T) {
+// TestSites_PatchBadAttribute table-pins the negative paths for both
+// PATCH attributes. The two cases share the same "create + PATCH +
+// expect 400" shape; folding them into a table avoids the dupl lint
+// warning while keeping each variant explicit.
+func TestSites_PatchBadAttribute(t *testing.T) {
 	t.Parallel()
 
-	deps, _ := newSitesDeps()
-	admin := newTestAdmin()
-	h := NewSites(deps)
-
-	cw := httptest.NewRecorder()
-	h.Create(cw, adminRequest(t, "POST", "/api/admin/sites",
-		`{"hostname":"reject-cur.example"}`, admin, nil))
-
-	var created siteAdminResponse
-	_ = json.Unmarshal(cw.Body.Bytes(), &created)
-
-	idStr := strconv.FormatUint(uint64(created.SiteID), 10)
-	uw := httptest.NewRecorder()
-	h.Update(uw, adminRequest(t, "PATCH", "/api/admin/sites/"+idStr,
-		`{"currency":"FOO"}`, admin,
-		map[string]string{"id": idStr}))
-
-	if uw.Code != 400 {
-		t.Errorf("patch invalid currency status = %d, want 400", uw.Code)
+	cases := []struct {
+		name    string
+		host    string
+		body    string
+		errLine string
+	}{
+		{
+			name:    "currency",
+			host:    "reject-cur.example",
+			body:    `{"currency":"FOO"}`,
+			errLine: "patch invalid currency status = %d, want 400",
+		},
+		{
+			name:    "timezone",
+			host:    "reject-tz.example",
+			body:    `{"tz":"Mars/Olympus"}`,
+			errLine: "patch invalid tz status = %d, want 400",
+		},
 	}
-}
 
-func TestSites_PatchBadTimezone(t *testing.T) {
-	t.Parallel()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	deps, _ := newSitesDeps()
-	admin := newTestAdmin()
-	h := NewSites(deps)
+			deps, _ := newSitesDeps()
+			admin := newTestAdmin()
+			h := NewSites(deps)
 
-	cw := httptest.NewRecorder()
-	h.Create(cw, adminRequest(t, "POST", "/api/admin/sites",
-		`{"hostname":"reject-tz.example"}`, admin, nil))
+			cw := httptest.NewRecorder()
+			h.Create(cw, adminRequest(t, "POST", "/api/admin/sites",
+				`{"hostname":"`+tc.host+`"}`, admin, nil))
 
-	var created siteAdminResponse
-	_ = json.Unmarshal(cw.Body.Bytes(), &created)
+			var created siteAdminResponse
 
-	idStr := strconv.FormatUint(uint64(created.SiteID), 10)
-	uw := httptest.NewRecorder()
-	h.Update(uw, adminRequest(t, "PATCH", "/api/admin/sites/"+idStr,
-		`{"tz":"Mars/Olympus"}`, admin,
-		map[string]string{"id": idStr}))
+			_ = json.Unmarshal(cw.Body.Bytes(), &created)
 
-	if uw.Code != 400 {
-		t.Errorf("patch invalid tz status = %d, want 400", uw.Code)
+			idStr := strconv.FormatUint(uint64(created.SiteID), 10)
+			uw := httptest.NewRecorder()
+			h.Update(uw, adminRequest(t, "PATCH", "/api/admin/sites/"+idStr,
+				tc.body, admin, map[string]string{"id": idStr}))
+
+			if uw.Code != 400 {
+				t.Errorf(tc.errLine, uw.Code)
+			}
+		})
 	}
 }
 
@@ -226,6 +233,7 @@ func TestOptions_CurrenciesEndpoint(t *testing.T) {
 
 	// EUR is the default and must be present.
 	var foundEUR bool
+
 	for _, c := range body.Currencies {
 		if c.Code == "EUR" {
 			foundEUR = true

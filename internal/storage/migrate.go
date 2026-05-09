@@ -193,6 +193,19 @@ func parseVersion(name string) (uint32, error) {
 	return uint32(v), nil
 }
 
+// RenderMigration is the exported test seam for renderMigration. Tests
+// that need to apply a subset of migrations (data-preservation gate)
+// reuse this so the rendering path stays bit-identical to production.
+func RenderMigration(name string, body []byte, cluster string) (string, error) {
+	return renderMigration(name, body, MigrationData{Cluster: cluster})
+}
+
+// SplitStatements is the exported test seam for splitStatements. Strips
+// line comments BEFORE splitting on ';' so a literal ';' inside a
+// comment doesn't truncate a real statement (the inverse order silently
+// breaks migration 001 which contains "Go text/template;" in a comment).
+func SplitStatements(body string) []string { return splitStatements(body) }
+
 func renderMigration(name string, body []byte, data MigrationData) (string, error) {
 	tmpl, err := template.New(name).Option("missingkey=error").Parse(string(body))
 	if err != nil {

@@ -221,6 +221,22 @@ func ValidateHostname(h string) error {
 	return nil
 }
 
+// normalizeAttribute resolves a TZ or currency to a validated value or
+// returns the matching sentinel error. Empty input falls back to
+// fallback; non-empty input is checked against valid(...).
+func normalizeAttribute(raw, fallback string, valid func(string) bool, invalid error) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return fallback, nil
+	}
+
+	if !valid(v) {
+		return "", invalid
+	}
+
+	return v, nil
+}
+
 // CreateSite inserts a new row in statnive.sites. Returns ErrHostnameTaken
 // if the hostname already exists (any enabled flag), ErrSlugTaken if the
 // proposed slug collides with another site's row, ErrInvalidHostname
@@ -239,37 +255,19 @@ func (r *Registry) CreateSite(ctx context.Context, hostname, slug, tz, currency 
 		return 0, ErrHostnameTaken
 	}
 
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	if slug == "" {
-		slug = GenerateSlug(hostname)
-	}
-
-	if slug == "" {
-		return 0, ErrInvalidHostname
-	}
-
-	if _, reserved := reservedSlugs[slug]; reserved {
-		return 0, ErrSlugTaken
-	}
-
-	if ok, err := r.IsSlugAvailable(ctx, slug); err != nil {
+	slug, err := r.resolveSlug(ctx, hostname, slug)
+	if err != nil {
 		return 0, err
-	} else if !ok {
-		return 0, ErrSlugTaken
 	}
 
-	tz = strings.TrimSpace(tz)
-	if tz == "" {
-		tz = DefaultTimezone
-	} else if !IsValidTimezone(tz) {
-		return 0, ErrInvalidTimezone
+	tz, err = normalizeAttribute(tz, DefaultTimezone, IsValidTimezone, ErrInvalidTimezone)
+	if err != nil {
+		return 0, err
 	}
 
-	currency = strings.TrimSpace(currency)
-	if currency == "" {
-		currency = DefaultCurrency
-	} else if !IsValidCurrency(currency) {
-		return 0, ErrInvalidCurrency
+	currency, err = normalizeAttribute(currency, DefaultCurrency, IsValidCurrency, ErrInvalidCurrency)
+	if err != nil {
+		return 0, err
 	}
 
 	var maxID uint32
@@ -291,6 +289,35 @@ func (r *Registry) CreateSite(ctx context.Context, hostname, slug, tz, currency 
 	}
 
 	return siteID, nil
+}
+
+// resolveSlug normalizes the operator-supplied slug (or auto-generates
+// from hostname when empty) and asserts uniqueness against the
+// reserved set + the existing rows.
+func (r *Registry) resolveSlug(ctx context.Context, hostname, slug string) (string, error) {
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if slug == "" {
+		slug = GenerateSlug(hostname)
+	}
+
+	if slug == "" {
+		return "", ErrInvalidHostname
+	}
+
+	if _, reserved := reservedSlugs[slug]; reserved {
+		return "", ErrSlugTaken
+	}
+
+	ok, err := r.IsSlugAvailable(ctx, slug)
+	if err != nil {
+		return "", err
+	}
+
+	if !ok {
+		return "", ErrSlugTaken
+	}
+
+	return slug, nil
 }
 
 // UpdateSiteAttributes mutates the per-site display attributes

@@ -28,28 +28,28 @@ func NewGoals(deps Deps) *Goals {
 }
 
 type goalResponse struct {
-	GoalID     string `json:"goal_id"`
-	SiteID     uint32 `json:"site_id"`
-	Name       string `json:"name"`
-	MatchType  string `json:"match_type"`
-	Pattern    string `json:"pattern"`
-	Value uint64 `json:"value"`
-	Enabled    bool   `json:"enabled"`
-	CreatedAt  int64  `json:"created_at"`
-	UpdatedAt  int64  `json:"updated_at"`
+	GoalID    string `json:"goal_id"`
+	SiteID    uint32 `json:"site_id"`
+	Name      string `json:"name"`
+	MatchType string `json:"match_type"`
+	Pattern   string `json:"pattern"`
+	Value     uint64 `json:"value"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 func toGoalResponse(g *goals.Goal) goalResponse {
 	return goalResponse{
-		GoalID:     g.GoalID.String(),
-		SiteID:     g.SiteID,
-		Name:       g.Name,
-		MatchType:  string(g.MatchType),
-		Pattern:    g.Pattern,
-		Value:      g.Value,
-		Enabled:    g.Enabled,
-		CreatedAt:  g.CreatedAt,
-		UpdatedAt:  g.UpdatedAt,
+		GoalID:    g.GoalID.String(),
+		SiteID:    g.SiteID,
+		Name:      g.Name,
+		MatchType: string(g.MatchType),
+		Pattern:   g.Pattern,
+		Value:     g.Value,
+		Enabled:   g.Enabled,
+		CreatedAt: g.CreatedAt,
+		UpdatedAt: g.UpdatedAt,
 	}
 }
 
@@ -87,11 +87,11 @@ func (h *Goals) List(w http.ResponseWriter, r *http.Request) {
 
 // createGoalRequest — tight whitelist. site_id comes from session.
 type createGoalRequest struct {
-	Name       string `json:"name"`
-	MatchType  string `json:"match_type"`
-	Pattern    string `json:"pattern"`
-	Value uint64 `json:"value"`
-	Enabled    bool   `json:"enabled"`
+	Name      string `json:"name"`
+	MatchType string `json:"match_type"`
+	Pattern   string `json:"pattern"`
+	Value     uint64 `json:"value"`
+	Enabled   bool   `json:"enabled"`
 }
 
 // Create handles POST /api/admin/goals. Write-time validation rejects
@@ -116,12 +116,12 @@ func (h *Goals) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	g := &goals.Goal{
-		SiteID:     actor.SiteID, // session context — NEVER body
-		Name:       strings.TrimSpace(req.Name),
-		MatchType:  goals.MatchType(req.MatchType),
-		Pattern:    strings.TrimSpace(req.Pattern),
-		Value:      req.Value,
-		Enabled:    req.Enabled,
+		SiteID:    actor.SiteID, // session context — NEVER body
+		Name:      strings.TrimSpace(req.Name),
+		MatchType: goals.MatchType(req.MatchType),
+		Pattern:   strings.TrimSpace(req.Pattern),
+		Value:     req.Value,
+		Enabled:   req.Enabled,
 	}
 
 	if err := h.deps.Goals.Create(r.Context(), g); err != nil {
@@ -146,11 +146,11 @@ func (h *Goals) Create(w http.ResponseWriter, r *http.Request) {
 // updateGoalRequest — editable fields. site_id / goal_id come from
 // path + session.
 type updateGoalRequest struct {
-	Name       string `json:"name"`
-	MatchType  string `json:"match_type"`
-	Pattern    string `json:"pattern"`
-	Value uint64 `json:"value"`
-	Enabled    bool   `json:"enabled"`
+	Name      string `json:"name"`
+	MatchType string `json:"match_type"`
+	Pattern   string `json:"pattern"`
+	Value     uint64 `json:"value"`
+	Enabled   bool   `json:"enabled"`
 }
 
 // Update handles PATCH /api/admin/goals/{id}.
@@ -179,13 +179,13 @@ func (h *Goals) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	g := &goals.Goal{
-		GoalID:     goalID,
-		SiteID:     actor.SiteID, // session-scoped — cross-tenant update impossible
-		Name:       strings.TrimSpace(req.Name),
-		MatchType:  goals.MatchType(req.MatchType),
-		Pattern:    strings.TrimSpace(req.Pattern),
-		Value:      req.Value,
-		Enabled:    req.Enabled,
+		GoalID:    goalID,
+		SiteID:    actor.SiteID, // session-scoped — cross-tenant update impossible
+		Name:      strings.TrimSpace(req.Name),
+		MatchType: goals.MatchType(req.MatchType),
+		Pattern:   strings.TrimSpace(req.Pattern),
+		Value:     req.Value,
+		Enabled:   req.Enabled,
 	}
 
 	if err := h.deps.Goals.Update(r.Context(), g); err != nil {
