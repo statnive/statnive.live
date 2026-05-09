@@ -491,7 +491,7 @@ probe_admin_flow() {
     _assert "admin: disabled flag flipped after disable" "$cond" "status=${status}"
 
     # Create a goal — event_name_equals on a synthetic event name.
-    local newgoal='{"name":"smoke-goal","match_type":"event_name_equals","pattern":"smoke_purchase","value_rials":123456,"enabled":true}'
+    local newgoal='{"name":"smoke-goal","match_type":"event_name_equals","pattern":"smoke_purchase","value":123456,"enabled":true}'
     tmp=$(mktemp)
     status=$(curl -sS -o "$tmp" -w '%{http_code}' \
         -b "$cookies" -H 'Content-Type: application/json' -d "$newgoal" \
@@ -506,7 +506,7 @@ probe_admin_flow() {
     local bigpattern
     bigpattern=$(printf 'x%.0s' $(seq 1 130))
     local bigbody
-    bigbody=$(printf '{"name":"big","match_type":"event_name_equals","pattern":"%s","value_rials":0,"enabled":true}' "$bigpattern")
+    bigbody=$(printf '{"name":"big","match_type":"event_name_equals","pattern":"%s","value":0,"enabled":true}' "$bigpattern")
     status=$(curl -sS -o /dev/null -w '%{http_code}' \
         -b "$cookies" -H 'Content-Type: application/json' -d "$bigbody" \
         "$base/api/admin/goals")
