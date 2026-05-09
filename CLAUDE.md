@@ -160,7 +160,7 @@ Release gate (`make release`) additionally runs `make test-integration` + the ai
 
 ## Feature Scope
 
-Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across 20 weeks (docs 17/18/24). v1 = SamplePlatform first 90 days + 5 Project Goals; polish → v1.1; product expansion → v2.
+Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across 20 weeks (docs 17/18/24). v1 = SamplePlatform first 90 days + 5 Project Goals; polish → v1.1; product expansion → v2. Milestone 1 cutover postmortem archived to [`PLAN-MILESTONE-1.md`](PLAN-MILESTONE-1.md).
 
 **Deliberate skips / Never:**
 - **ClickHouse cluster at v1** — single-node is the rule; migrations Distributed-ready from day 1 per [`clickhouse-cluster-migration`](.claude/skills/clickhouse-cluster-migration/README.md).

@@ -42,8 +42,9 @@ check_lines() {
     fi
 }
 
-check_lines CLAUDE.md 285
+check_lines CLAUDE.md 290
 check_lines PLAN.md 720
+check_lines PLAN-MILESTONE-1.md 120
 check_lines docs/tooling.md 350
 
 CUSTOM_SKILLS=(
