@@ -524,6 +524,50 @@ Research anchor: doc 32 §A / doc 34 §C — the closest public pattern to Statn
 - [ ] **Flag debug toolbar** ([doc 32 §A](../jaan-to/docs/research/32-posthog-statnive-deep-research.md) + [doc 34 §C](../jaan-to/docs/research/34-posthog-mechanics-and-portability-to-statnive.md) + [doc 35 §2.10](../jaan-to/docs/research/35-ui-ux-dashboard-evidence-synthesis.md); ~0.5 day on top of the slice). Admin-only panel surface (or behind a `?flags=debug` query-string toggle, mirroring the existing `?debug=1` tracker-verify pattern from 6-polish-2) showing for each flag: which value evaluated, the rule that fired (constant / cohort / percentage), the bucketing inputs (`flag_key` + `visitor_hash`), and the snapshot SHA256 the eval used. Bundle: ~1 KB gz lazy chunk (only loads when the toggle is on). Critical for diagnosing "why didn't this flag fire for this visitor" without remote evaluation logs.
 - [ ] **Acceptance:** flag eval p99 <5 ms in-process; 100% offline under `iptables -P OUTPUT DROP` (blackout-sim, Verification §37); flag change → new eval result within 1 s of SIGHUP; cross-tenant isolation enforced by `whereTimeAndTenant` + `rollup-join-tenancy` (Verification §50).
 
+## P0 Audit Backlog — `detect-live` (2026-05-04)
+
+Sourced from the `/jaan-to:detect-{dev,design,writing,product,ux}` audit pack at [`../jaan-to/outputs/detect-live/`](../jaan-to/outputs/detect-live/) against `statnive-live` @ `89ab36d`. Selected P0s only — full severity matrix in the per-domain audit files. Items here all land in **v1.1** unless flagged otherwise; the multi-tenancy + value-prop items are Phase 11b prerequisites.
+
+> **Cross-cutting theme — error-string handling (resolves 7 P0s with one workstream).** Build a shared `<ErrorState>` Preact component + a Go-error → user-string sentinel-translation layer between handlers and the dashboard. Closes **E-WRT-WEB-002**, **E-WRT-WEB-003**, **E-WRT-BACKEND-001**, **E-WRT-BACKEND-002**, **E-WRT-GLOSS-001**, **G-002**, **PP-002** (and improves **PP-001**) in one slice. Sentinel layer maps `errors.Is(err, store.ErrWALBackPressure)` → user-facing `"We're catching up on a traffic spike — your event was queued."` with no leakage of internal terms (`WAL`, `events_raw`, package prefixes). `<ErrorState>` provides retry button + recovery hint per error class. Recommend ~3 days; lands ahead of any SaaS public-self-serve copy.
+
+### dev (1 P0)
+
+- [ ] **E-DEV-028** [High, cicd] — Release pipeline does not generate or attach an SBOM. Add CycloneDX SBOM via `cyclonedx-gomod` + sigstore attestation to `release.yml`. ~2-min CI delta. → [`detect-live/dev/cicd.md`](../jaan-to/outputs/detect-live/dev/cicd.md). **Fits Phase 8b** alongside the existing GHA release pipeline work.
+
+### writing (7 P0)
+
+- [ ] **E-WRT-WEB-002** [High] — Raw backend Go error sentinels leak to dashboard UI. → [`detect-live/writing/writing-system-web.md`](../jaan-to/outputs/detect-live/writing/writing-system-web.md). *Closed by cross-cutting workstream above.*
+- [ ] **E-WRT-WEB-003** [High] — User-facing errors lack recovery guidance. → [`detect-live/writing/writing-system-web.md`](../jaan-to/outputs/detect-live/writing/writing-system-web.md). *Closed by cross-cutting workstream above.*
+- [ ] **E-WRT-BACKEND-001** [High] — User-facing HTTP errors are too terse for client surfaces. → [`detect-live/writing/writing-system-backend.md`](../jaan-to/outputs/detect-live/writing/writing-system-backend.md). *Closed by cross-cutting workstream above.*
+- [ ] **E-WRT-BACKEND-002** [High] — Error sentinels carry package prefixes that leak to clients. → [`detect-live/writing/writing-system-backend.md`](../jaan-to/outputs/detect-live/writing/writing-system-backend.md). *Closed by cross-cutting workstream above.*
+- [ ] **E-WRT-GLOSS-001** [High] — Internal term `WAL` leaks to end users via 503 error. → [`detect-live/writing/glossary.md`](../jaan-to/outputs/detect-live/writing/glossary.md). *Closed by cross-cutting workstream above.* Sentinel-translation layer must remap `wal back-pressure` 503 to user-language.
+- [ ] **E-WRT-UICOPY-001** [High] — 4 of 8 NNg UI categories absent or near-empty (no toasts, no success states, no confirmation dialogs, no first-run onboarding copy). → [`detect-live/writing/ui-copy-web.md`](../jaan-to/outputs/detect-live/writing/ui-copy-web.md). Pairs with G-002 / G-003 frontend work.
+- [ ] **E-WRT-UICOPY-002** [High] — Form labels have no helper text or validation feedback. → [`detect-live/writing/ui-copy-web.md`](../jaan-to/outputs/detect-live/writing/ui-copy-web.md). Affects every Admin form (sites, users, goals).
+
+### product (3 P0)
+
+- [ ] **E-PRD-ENT-006** [High, **Phase 11b prerequisite**] — Site ownership check is missing. `/api/stats/?site=N` doesn't verify `ctx.User` owns site N; any authenticated user can read any site by changing `?site=`. Single-tenant safe today; **breaks the moment Phase 11b SaaS lands** with multiple paying tenants. Fix: add `user_sites (user_id, site_id, role)` migration + `RequireSiteAccess(ctx, siteID)` middleware between `RequireRole` and the handler. Goals snapshot pattern (`atomic.Pointer` hot-swap) is the right shape for site-membership caching. → [`detect-live/product/entitlements.md`](../jaan-to/outputs/detect-live/product/entitlements.md). **Hard gate before Phase 11b cutover.**
+- [ ] **E-PRD-PROP-001** [High, marketing] — Sole tagline ("Privacy-aware analytics for high-traffic websites") is generic to the category — Plausible, Fathom, Aptabase, Simple Analytics all claim it verbatim. → [`detect-live/product/value-prop.md`](../jaan-to/outputs/detect-live/product/value-prop.md). Lives in [`statnive-website/`](../statnive-website/) homepage hero copy, not this binary.
+- [ ] **E-PRD-PROP-002** [High, marketing] — Air-gap differentiator (zero-outbound under `iptables OUTPUT DROP`) is unique in the analytics market but absent from any public copy. → [`detect-live/product/value-prop.md`](../jaan-to/outputs/detect-live/product/value-prop.md). Lives in `statnive-website/`. Pair with E-PRD-PROP-001 in a single homepage rewrite.
+
+### ux (3 P0)
+
+- [ ] **A11Y-004** [High, accessibility] — DualBar visualization has no text alternative. Screen-reader users get no signal on the primary attribution table. Add `<table>` shadow DOM or visually-hidden text alternative per visualization. → [`detect-live/ux/accessibility.md`](../jaan-to/outputs/detect-live/ux/accessibility.md).
+- [ ] **G-002** [High] — Shared `<ErrorState>` component absent; 9 bespoke error blocks duplicate `"could not load — see logs"`. → [`detect-live/ux/gaps.md`](../jaan-to/outputs/detect-live/ux/gaps.md). *Closed by cross-cutting workstream above.* This is the Preact-side half of the cross-cutting fix; the Go sentinel-translation layer is the backend half.
+- [ ] **PP-002** [High] — Overview "refresh page to reload" instruction is a usability cop-out. → [`detect-live/ux/pain-points.md`](../jaan-to/outputs/detect-live/ux/pain-points.md). Replace with explicit refresh button using existing TanStack Query / signals refetch — no new state machinery needed.
+
+### Roadmap placement
+
+| Phase / surface | Items | Notes |
+|---|---|---|
+| **Phase 8b** (release pipeline) | E-DEV-028 | Add SBOM + sigstore step alongside the existing `release.yml`. |
+| **Phase 11b prerequisite** (HARD GATE before paid SaaS) | E-PRD-ENT-006 | Multi-tenancy site-ownership check; non-negotiable before non-trusted operators share a binary. |
+| **v1.1 — error-handling workstream** (cross-cutting, ~3 days) | E-WRT-WEB-002 / WEB-003 / BACKEND-001 / BACKEND-002 / GLOSS-001, G-002, PP-002 | One PR shaped as Go sentinel-translation layer + Preact `<ErrorState>` component + retry-button affordance + sentinel→user-string registry. |
+| **v1.1 — UI copy + a11y polish** | E-WRT-UICOPY-001, E-WRT-UICOPY-002, A11Y-004 | Pairs with the standard UI-polish phase; no architectural changes. |
+| **`statnive-website/` (separate submodule)** | E-PRD-PROP-001, E-PRD-PROP-002 | Homepage rewrite — air-gap claim + non-generic tagline. Not in this binary. |
+
+> **Items deliberately NOT promoted to PLAN.md.** The detect-live audit also surfaced E-WRT-WEB-001 (i18n absent on a Persian-market product, **Critical**), E-PRD-MON-001 (monetization 0% built — already tracked as Phase 11b), E-PRD-INS-006 (zero self-instrumentation), E-DSN-028 / A11Y-001 (skip-link missing), E-DSN-035 (no CODEOWNERS), E-DSN-019 (single mobile breakpoint), E-WRT-UICOPY-003–009, A11Y-007, G-001, G-003, PP-001, PP-003, PP-007. They remain in the audit pack for future triage but are not on this P0 list per operator decision.
+
 ## Twelve-Factor Compliance Map
 
 statnive-live targets the [twelve-factor.net](https://twelve-factor.net) deployment posture (active 2024 fork at [github.com/twelve-factor/twelve-factor](https://github.com/twelve-factor/twelve-factor); 12 factors unchanged from 2011, strengthened guidance on secrets management / supply-chain / observability). The binary already complies; this map is the reference for future debate and for new contributors.
