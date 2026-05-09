@@ -1,6 +1,6 @@
 module github.com/statnive/statnive.live
 
-go 1.25.9
+go 1.25.10
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.45.0
