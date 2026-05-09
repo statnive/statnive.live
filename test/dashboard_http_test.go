@@ -60,7 +60,7 @@ func TestDashboardHTTP_OverviewShape(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	for _, key := range []string{"pageviews", "visitors", "goals", "revenue_rials", "rpv_rials"} {
+	for _, key := range []string{"pageviews", "visitors", "goals", "revenue", "rpv"} {
 		if _, ok := got[key]; !ok {
 			t.Errorf("response missing %q: %v", key, got)
 		}

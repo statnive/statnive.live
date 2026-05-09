@@ -3,9 +3,9 @@ import { useSignal } from '@preact/signals';
 import { apiGet } from '../api/client';
 import type { OverviewResponse } from '../api/types';
 import { rangeSignal } from '../state/range';
-import { siteSignal } from '../state/site';
+import { siteSignal, activeSiteSignal } from '../state/site';
 import { filtersSignal } from '../state/filters';
-import { fmtInt, fmtPct, fmtRials } from '../lib/fmt';
+import { fmtInt, fmtPct, fmtMoney } from '../lib/fmt';
 import { DeltaPill } from '../components/DeltaPill';
 import { TrendChart } from './TrendChart';
 import './Overview.css';
@@ -108,14 +108,14 @@ export function Overview() {
             <div class="statnive-label">Revenue</div>
             <DeltaPill deltaPct={withDelta.revenue_delta_pct} />
           </div>
-          <div class="statnive-num-primary">{fmtRials(d.revenue_rials)}</div>
+          <div class="statnive-num-primary">{fmtMoney(d.revenue, activeSiteSignal.value?.currency ?? 'EUR')}</div>
         </div>
         <div class="statnive-card" data-kpi="rpv">
           <div class="statnive-card-head">
             <div class="statnive-label">RPV</div>
             <DeltaPill deltaPct={withDelta.rpv_delta_pct} />
           </div>
-          <div class="statnive-num-primary">{fmtRials(Math.round(d.rpv_rials))}</div>
+          <div class="statnive-num-primary">{fmtMoney(Math.round(d.rpv), activeSiteSignal.value?.currency ?? 'EUR')}</div>
         </div>
       </div>
 

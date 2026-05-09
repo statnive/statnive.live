@@ -41,8 +41,8 @@ describe('Overview panel', () => {
       pageviews: 1000,
       visitors: 500,
       goals: 25,
-      revenue_rials: 1_000_000,
-      rpv_rials: 2000,
+      revenue: 1_000_000,
+      rpv: 2000,
     });
 
     render(<Overview />);
@@ -64,8 +64,8 @@ describe('Overview panel', () => {
       pageviews: 9999,
       visitors: 200,
       goals: 10,
-      revenue_rials: 50_000,
-      rpv_rials: 250,
+      revenue: 50_000,
+      rpv: 250,
     });
 
     render(<Overview />);
@@ -84,8 +84,8 @@ describe('Overview panel', () => {
       pageviews: 0,
       visitors: 0,
       goals: 0,
-      revenue_rials: 0,
-      rpv_rials: 0,
+      revenue: 0,
+      rpv: 0,
     });
 
     render(<Overview />);

@@ -129,16 +129,16 @@ func (s *clickhouseStore) Overview(ctx context.Context, f *Filter) (*OverviewRes
 			toUInt64(sum(pageviews))            AS pageviews,
 			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
 			toUInt64(sum(goals))                AS goals,
-			toUInt64(sum(revenue_rials))        AS revenue
+			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.hourly_visitors %s
 	`, where), args...)
 
 	var out OverviewResult
-	if err := row.Scan(&out.Pageviews, &out.Visitors, &out.Goals, &out.RevenueRials); err != nil {
+	if err := row.Scan(&out.Pageviews, &out.Visitors, &out.Goals, &out.Revenue); err != nil {
 		return nil, fmt.Errorf("overview query: %w", err)
 	}
 
-	out.RPV = rpv(out.RevenueRials, out.Visitors)
+	out.RPV = rpv(out.Revenue, out.Visitors)
 
 	return &out, nil
 }
@@ -161,7 +161,7 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 			toUInt64(sum(views))                AS views,
 			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
 			toUInt64(sum(goals))                AS goals,
-			toUInt64(sum(revenue_rials))        AS revenue
+			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.daily_sources %s
 		GROUP BY referrer_name, channel
 		ORDER BY revenue DESC, views DESC
@@ -177,11 +177,11 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 
 	for rows.Next() {
 		var r SourceRow
-		if err := rows.Scan(&r.ReferrerName, &r.Channel, &r.Views, &r.Visitors, &r.Goals, &r.RevenueRials); err != nil {
+		if err := rows.Scan(&r.ReferrerName, &r.Channel, &r.Views, &r.Visitors, &r.Goals, &r.Revenue); err != nil {
 			return nil, fmt.Errorf("sources scan: %w", err)
 		}
 
-		r.RPV = rpv(r.RevenueRials, r.Visitors)
+		r.RPV = rpv(r.Revenue, r.Visitors)
 		out = append(out, r)
 	}
 
@@ -208,7 +208,7 @@ func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, erro
 			toUInt64(sum(views))                AS views,
 			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
 			toUInt64(sum(goals))                AS goals,
-			toUInt64(sum(revenue_rials))        AS revenue
+			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.daily_pages %s
 		GROUP BY pathname
 		ORDER BY views DESC
@@ -224,11 +224,11 @@ func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, erro
 
 	for rows.Next() {
 		var r PageRow
-		if err := rows.Scan(&r.Pathname, &r.Views, &r.Visitors, &r.Goals, &r.RevenueRials); err != nil {
+		if err := rows.Scan(&r.Pathname, &r.Views, &r.Visitors, &r.Goals, &r.Revenue); err != nil {
 			return nil, fmt.Errorf("pages scan: %w", err)
 		}
 
-		r.RPV = rpv(r.RevenueRials, r.Visitors)
+		r.RPV = rpv(r.Revenue, r.Visitors)
 		out = append(out, r)
 	}
 
@@ -272,7 +272,7 @@ func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) 
 			toUInt64(sum(views))                AS views,
 			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
 			toUInt64(sum(goals))                AS goals,
-			toUInt64(sum(revenue_rials))        AS revenue
+			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.daily_sources %s AND channel = ?
 		GROUP BY day
 		ORDER BY day WITH FILL FROM toDate(?) TO toDate(?) STEP INTERVAL 1 DAY
@@ -287,7 +287,7 @@ func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) 
 
 	for rows.Next() {
 		var r SEORow
-		if err := rows.Scan(&r.Day, &r.Views, &r.Visitors, &r.Goals, &r.RevenueRials); err != nil {
+		if err := rows.Scan(&r.Day, &r.Views, &r.Visitors, &r.Goals, &r.Revenue); err != nil {
 			return nil, fmt.Errorf("seo scan: %w", err)
 		}
 
@@ -315,7 +315,7 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 			toUInt64(sum(views))                AS views,
 			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
 			toUInt64(sum(goals))                AS goals,
-			toUInt64(sum(revenue_rials))        AS revenue
+			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.daily_sources %s AND utm_campaign != ''
 		GROUP BY utm_campaign
 		ORDER BY revenue DESC, views DESC
@@ -331,11 +331,11 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 
 	for rows.Next() {
 		var r CampaignRow
-		if err := rows.Scan(&r.UTMCampaign, &r.Views, &r.Visitors, &r.Goals, &r.RevenueRials); err != nil {
+		if err := rows.Scan(&r.UTMCampaign, &r.Views, &r.Visitors, &r.Goals, &r.Revenue); err != nil {
 			return nil, fmt.Errorf("campaigns scan: %w", err)
 		}
 
-		r.RPV = rpv(r.RevenueRials, r.Visitors)
+		r.RPV = rpv(r.Revenue, r.Visitors)
 		out = append(out, r)
 	}
 

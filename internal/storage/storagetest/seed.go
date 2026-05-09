@@ -66,7 +66,9 @@ func CleanSiteEvents(t *testing.T, ctx context.Context, conn driver.Conn, siteID
 }
 
 // SeedEvent represents one synthetic event the test wants to land in
-// every relevant rollup. Insert via WriteEvents.
+// every relevant rollup. Insert via WriteEvents. Revenue is stored as a
+// currency-neutral integer; the SPA formats it using the site's
+// currency code (display label only).
 type SeedEvent struct {
 	SiteID       uint32
 	Time         time.Time
@@ -76,7 +78,7 @@ type SeedEvent struct {
 	Channel      string
 	UTMCampaign  string
 	IsGoal       bool
-	RevenueRials uint64
+	Revenue      uint64
 	VisitorHash  [16]byte
 }
 
@@ -144,7 +146,7 @@ func WriteEvents(t *testing.T, ctx context.Context, conn driver.Conn, events []S
 			uint16(0),  // viewport_width
 			"pageview", // event_type
 			"pageview", // event_name
-			e.RevenueRials,
+			e.Revenue,
 			goal,
 			uint8(1),   // is_new
 			[]string{}, // prop_keys

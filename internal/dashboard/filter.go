@@ -8,11 +8,11 @@
 package dashboard
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/statnive/statnive.live/internal/storage"
@@ -23,48 +23,48 @@ const (
 	defaultRangeDays = 7
 
 	// dateLayout is the only date format the URL parser accepts.
-	// IRST midnights are normalized to UTC for the Filter.
+	// Per-site TZ midnights are normalized to UTC for the Filter.
 	dateLayout = "2006-01-02"
 )
 
-var (
-	// irstOnce caches the *time.Location lookup. Mirrors the pattern in
-	// internal/identity/salt.go — duplicated here to avoid an import
-	// cycle (dashboard → identity is undesirable; identity is pure
-	// crypto/identity, dashboard is HTTP).
-	irstOnce sync.Once
-	irstTZ   *time.Location
+// errBadInput is the umbrella sentinel for any URL-parameter parse
+// failure (missing ?site, unparseable ?from/?to, negative ?limit).
+// classifyError in errors.go maps it to HTTP 400.
+var errBadInput = errors.New("dashboard: bad request")
 
-	// errBadInput is the umbrella sentinel for any URL-parameter parse
-	// failure (missing ?site, unparseable ?from/?to, negative ?limit).
-	// classifyError in errors.go maps it to HTTP 400.
-	errBadInput = errors.New("dashboard: bad request")
-)
+// resolveSiteTZ looks up the site's IANA TZ from the registry and
+// converts to *time.Location. Falls back to UTC if the registry lookup
+// fails OR the stored zone fails LoadLocation — both are non-fatal
+// because the dashboard would otherwise 500 on every request after a
+// stray sites-table corruption. Operator sees boundary drift, not an
+// outage.
+func resolveSiteTZ(ctx context.Context, lister SiteLister, siteID uint32) *time.Location {
+	if lister == nil {
+		return time.UTC
+	}
 
-// irstLocation returns the Asia/Tehran *time.Location, falling back to
-// a fixed +03:30 zone when tzdata is unavailable. Same shape as
-// internal/identity/salt.go:irstLocation().
-func irstLocation() *time.Location {
-	irstOnce.Do(func() {
-		if loc, err := time.LoadLocation("Asia/Tehran"); err == nil {
-			irstTZ = loc
+	site, err := lister.LookupSiteByID(ctx, siteID)
+	if err != nil {
+		return time.UTC
+	}
 
-			return
-		}
+	loc, err := time.LoadLocation(site.TZ)
+	if err != nil || loc == nil {
+		return time.UTC
+	}
 
-		irstTZ = time.FixedZone("IRST", int(3.5*float64(time.Hour/time.Second)))
-	})
-
-	return irstTZ
+	return loc
 }
 
 // filterFromRequest parses URL query into a storage.Filter. Required:
 // ?site (uint32). Optional dimensions all default to empty string. ?from
-// + ?to are interpreted as YYYY-MM-DD IRST date midnights and converted
-// to UTC half-open [from, to). Defaults: ?to = tomorrow IRST midnight;
-// ?from = ?to - 7 days. The returned Filter is also Validate()d so
-// downstream handlers don't need to.
-func filterFromRequest(r *http.Request) (*storage.Filter, error) {
+// + ?to are interpreted as YYYY-MM-DD midnights in the site's
+// configured TZ (defaults to Europe/Berlin per
+// sites.DefaultTimezone) and converted to UTC half-open [from, to).
+// Defaults: ?to = tomorrow site-TZ midnight; ?from = ?to - 7 days. The
+// returned Filter is also Validate()d so downstream handlers don't
+// need to.
+func filterFromRequest(r *http.Request, lister SiteLister) (*storage.Filter, error) {
 	q := r.URL.Query()
 
 	siteID, err := parseSiteID(q.Get("site"))
@@ -72,7 +72,9 @@ func filterFromRequest(r *http.Request) (*storage.Filter, error) {
 		return nil, err
 	}
 
-	from, to, err := parseDateRange(q.Get("from"), q.Get("to"))
+	loc := resolveSiteTZ(r.Context(), lister, siteID)
+
+	from, to, err := parseDateRange(q.Get("from"), q.Get("to"), loc)
 	if err != nil {
 		return nil, err
 	}
@@ -134,24 +136,24 @@ func parseSiteID(raw string) (uint32, error) {
 
 // parseDateRange returns the [from, to) half-open interval in UTC. When
 // fromRaw is empty the range defaults to (defaultRangeDays before to).
-// When toRaw is empty, to defaults to tomorrow IRST midnight (so the
-// range includes the entire current IRST day).
-func parseDateRange(fromRaw, toRaw string) (time.Time, time.Time, error) {
-	loc := irstLocation()
+// When toRaw is empty, to defaults to tomorrow midnight in the supplied
+// loc (so the range includes the entire current local-day for the
+// site's configured TZ).
+func parseDateRange(fromRaw, toRaw string, loc *time.Location) (time.Time, time.Time, error) {
 	now := time.Now().In(loc)
 
-	to, err := parseIRSTDate(toRaw, loc)
+	to, err := parseLocalDate(toRaw, loc)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
 
 	if to.IsZero() {
-		// Tomorrow midnight IRST — half-open includes today.
+		// Tomorrow local midnight — half-open includes today.
 		to = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).
 			AddDate(0, 0, 1)
 	}
 
-	from, err := parseIRSTDate(fromRaw, loc)
+	from, err := parseLocalDate(fromRaw, loc)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
@@ -163,9 +165,10 @@ func parseDateRange(fromRaw, toRaw string) (time.Time, time.Time, error) {
 	return from.UTC(), to.UTC(), nil
 }
 
-// parseIRSTDate parses YYYY-MM-DD as IRST midnight. Empty input returns
-// the zero time.Time so callers can distinguish "missing" from "invalid".
-func parseIRSTDate(raw string, loc *time.Location) (time.Time, error) {
+// parseLocalDate parses YYYY-MM-DD as midnight in loc. Empty input
+// returns the zero time.Time so callers can distinguish "missing" from
+// "invalid".
+func parseLocalDate(raw string, loc *time.Location) (time.Time, error) {
 	if raw == "" {
 		return time.Time{}, nil
 	}

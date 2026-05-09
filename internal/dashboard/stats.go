@@ -12,9 +12,13 @@ import (
 
 // SiteLister is the subset of *sites.Registry the dashboard consumes.
 // Kept as an interface so tests can wire a stub without spinning up a
-// real ClickHouse connection.
+// real ClickHouse connection. LookupSiteByID is needed by
+// filterFromRequest so date-range parsing uses the per-site TZ
+// (Currency is along for the ride for downstream handlers that surface
+// it in responses).
 type SiteLister interface {
 	List(ctx context.Context) ([]sites.Site, error)
+	LookupSiteByID(ctx context.Context, siteID uint32) (sites.SiteAdmin, error)
 }
 
 // Deps groups the runtime collaborators every handler needs. Store is
@@ -49,7 +53,7 @@ func overviewHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const endpoint = endpointOverview
 
-		f, err := filterFromRequest(r)
+		f, err := filterFromRequest(r, deps.Sites)
 		if err != nil {
 			writeError(w, r, deps, endpoint, err)
 
@@ -71,7 +75,7 @@ func sourcesHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const endpoint = "sources"
 
-		f, err := filterFromRequest(r)
+		f, err := filterFromRequest(r, deps.Sites)
 		if err != nil {
 			writeError(w, r, deps, endpoint, err)
 
@@ -93,7 +97,7 @@ func pagesHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const endpoint = "pages"
 
-		f, err := filterFromRequest(r)
+		f, err := filterFromRequest(r, deps.Sites)
 		if err != nil {
 			writeError(w, r, deps, endpoint, err)
 
@@ -115,7 +119,7 @@ func seoHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const endpoint = "seo"
 
-		f, err := filterFromRequest(r)
+		f, err := filterFromRequest(r, deps.Sites)
 		if err != nil {
 			writeError(w, r, deps, endpoint, err)
 
@@ -137,7 +141,7 @@ func trendHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const endpoint = endpointTrend
 
-		f, err := filterFromRequest(r)
+		f, err := filterFromRequest(r, deps.Sites)
 		if err != nil {
 			writeError(w, r, deps, endpoint, err)
 
@@ -159,7 +163,7 @@ func campaignsHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const endpoint = "campaigns"
 
-		f, err := filterFromRequest(r)
+		f, err := filterFromRequest(r, deps.Sites)
 		if err != nil {
 			writeError(w, r, deps, endpoint, err)
 
@@ -185,7 +189,7 @@ func geoHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const endpoint = "geo"
 
-		f, err := filterFromRequest(r)
+		f, err := filterFromRequest(r, deps.Sites)
 		if err != nil {
 			writeError(w, r, deps, endpoint, err)
 
@@ -209,7 +213,7 @@ func devicesHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const endpoint = "devices"
 
-		f, err := filterFromRequest(r)
+		f, err := filterFromRequest(r, deps.Sites)
 		if err != nil {
 			writeError(w, r, deps, endpoint, err)
 
@@ -233,7 +237,7 @@ func funnelHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const endpoint = "funnel"
 
-		f, err := filterFromRequest(r)
+		f, err := filterFromRequest(r, deps.Sites)
 		if err != nil {
 			writeError(w, r, deps, endpoint, err)
 

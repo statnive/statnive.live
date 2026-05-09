@@ -69,7 +69,7 @@ func TestDashboard_MultitenantIsolation(t *testing.T) {
 			Channel:      "AI",
 			UTMCampaign:  "tenant-a-launch",
 			IsGoal:       i%2 == 0,
-			RevenueRials: 1000,
+			Revenue: 1000,
 			VisitorHash:  [16]byte{byte('A'), byte(i)},
 		})
 		events = append(events, storagetest.SeedEvent{
@@ -81,7 +81,7 @@ func TestDashboard_MultitenantIsolation(t *testing.T) {
 			Channel:      "Organic Search",
 			UTMCampaign:  "tenant-b-launch",
 			IsGoal:       false,
-			RevenueRials: 500,
+			Revenue: 500,
 			VisitorHash:  [16]byte{byte('B'), byte(i)},
 		})
 	}
@@ -118,12 +118,12 @@ func TestDashboard_MultitenantIsolation(t *testing.T) {
 		t.Errorf("siteB pageviews = %d, want 5", overviewB.Pageviews)
 	}
 
-	if overviewA.RevenueRials != 5000 {
-		t.Errorf("siteA revenue = %d, want 5000", overviewA.RevenueRials)
+	if overviewA.Revenue != 5000 {
+		t.Errorf("siteA revenue = %d, want 5000", overviewA.Revenue)
 	}
 
-	if overviewB.RevenueRials != 2500 {
-		t.Errorf("siteB revenue = %d, want 2500", overviewB.RevenueRials)
+	if overviewB.Revenue != 2500 {
+		t.Errorf("siteB revenue = %d, want 2500", overviewB.Revenue)
 	}
 
 	// --- Pages --- siteA only sees /a-only; siteB only sees /b-only.
@@ -221,7 +221,7 @@ func TestDashboard_CachedStoreShortcuts(t *testing.T) {
 		ReferrerName: "direct",
 		Channel:      "Direct",
 		IsGoal:       true,
-		RevenueRials: 100,
+		Revenue: 100,
 		VisitorHash:  [16]byte{1},
 	}}
 	storagetest.WriteEvents(t, ctx, store.Conn(), events)

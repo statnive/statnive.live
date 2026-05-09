@@ -70,7 +70,7 @@ Other env knobs (all optional, defaults cover the common path):
 | `probe_spa_asset`   | `GET /app/assets/*.js`      | 200, JavaScript MIME, `Cache-Control: public, max-age=31536000`, body ≥ 5 KB (real bundle, not HTML fallback); asset URL extracted from the shell HTML |
 | `probe_ingest`      | `POST /api/event` (×10)     | Every request returns 202 (ack-after-fsync contract) |
 | `probe_ingest_count`| `events_raw` in ClickHouse  | `count()` reaches exactly 10 within 10 s (50 ms poll) |
-| `probe_stats_auth`  | `GET /api/stats/overview`   | Without `Authorization` header: 401. With the configured bearer: 200 and JSON body contains all 5 KPI keys (`pageviews`, `visitors`, `goals`, `revenue_rials`, `rpv_rials`) |
+| `probe_stats_auth`  | `GET /api/stats/overview`   | Without `Authorization` header: 401. With the configured bearer: 200 and JSON body contains all 5 KPI keys (`pageviews`, `visitors`, `goals`, `revenue`, `rpv`) |
 
 On any assertion failure the harness prints the exact response + context
 and exits non-zero.

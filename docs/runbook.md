@@ -1671,3 +1671,45 @@ sudo clickhouse-client -d statnive --query \
   "SELECT site_id, hostname, count() AS pv FROM events_raw GROUP BY site_id, hostname ORDER BY site_id"
 # Expected: ≥1 row per site_id you visited
 ```
+
+### Per-site currency + timezone deploy SOP (migrations 007 + 008)
+
+After the binary carrying migrations 007 (`sites.currency`) + 008 (`revenue_rials` → `revenue` rename) deploys to `app.statnive.live`, every existing site reads `currency='EUR'` from the column DEFAULT. The pre-existing rial-meaning revenue integers will display as `€<N>` until the operator PATCHes each site to its real currency. **Run the data-preservation snapshot before AND after the deploy** — the post-deploy sum must be byte-equal.
+
+```bash
+# === BEFORE deploy — snapshot pre-rename aggregate state ===
+ssh ops@app.statnive.live 'clickhouse-client -d statnive --query "
+  SELECT site_id, sum(revenue_rials) AS pre_revenue
+  FROM statnive.daily_pages
+  GROUP BY site_id ORDER BY site_id FORMAT TabSeparated"' \
+  | tee /tmp/statnive-pre-008.tsv
+
+# === Deploy proceeds (release.yml + deploy-saas.yml) ===
+
+# === AFTER deploy — confirm rename was lossless ===
+ssh ops@app.statnive.live 'clickhouse-client -d statnive --query "
+  SELECT site_id, sum(revenue) AS post_revenue
+  FROM statnive.daily_pages
+  GROUP BY site_id ORDER BY site_id FORMAT TabSeparated"' \
+  | tee /tmp/statnive-post-008.tsv
+
+diff /tmp/statnive-pre-008.tsv /tmp/statnive-post-008.tsv
+# MUST be empty. Any diff = migration 008 corrupted aggregate state →
+# rollback to the `pre-currency-tz-baseline` git tag and investigate
+# before proceeding.
+
+# === Set the real currency per site (post-rename) ===
+# 6 Iranian-rial sites + 1 customer (televika.com — confirm with the
+# customer first):
+for id in 1 2 3 5 6 7 8 9; do
+  curl -fsS -X PATCH \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"currency":"IRR"}' \
+    "https://app.statnive.live/api/admin/sites/${id}"
+done
+# Site 4 (televika.com) — set to whatever the customer confirms.
+# Site 10 (fa.statnive.com) — IRR if Iranian content, EUR if diaspora pricing.
+```
+
+The `pre-currency-tz-baseline` git tag in `statnive-live` points at the binary built before this PR. If the data-preservation diff fails, `gh release download <prev-version> && systemctl restart statnive-live` reverts in one cycle. Migration 008 is symmetric: `RENAME COLUMN revenue TO revenue_rials` (and `value` → `value_rials`) on the rollup tables + reverse `MODIFY QUERY` on the MVs restores the pre-state losslessly.

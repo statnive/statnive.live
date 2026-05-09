@@ -61,7 +61,7 @@ func TestGoals_CreateHappy(t *testing.T) {
 	admin := newTestAdmin()
 
 	h := NewGoals(deps)
-	body := `{"name":"Purchase","match_type":"event_name_equals","pattern":"purchase","value_rials":500000,"enabled":true}`
+	body := `{"name":"Purchase","match_type":"event_name_equals","pattern":"purchase","value":500000,"enabled":true}`
 
 	w := httptest.NewRecorder()
 	h.Create(w, adminRequest(t, "POST", "/api/admin/goals", body, admin, nil))
@@ -94,7 +94,7 @@ func TestGoals_Create_RejectsOversizedPattern(t *testing.T) {
 	admin := newTestAdmin()
 
 	pattern := strings.Repeat("x", goals.MaxPatternLen+1)
-	body := `{"name":"A","match_type":"event_name_equals","pattern":"` + pattern + `","value_rials":0,"enabled":true}`
+	body := `{"name":"A","match_type":"event_name_equals","pattern":"` + pattern + `","value":0,"enabled":true}`
 
 	h := NewGoals(deps)
 	w := httptest.NewRecorder()
@@ -113,7 +113,7 @@ func TestGoals_Create_RejectsUnknownMatchType(t *testing.T) {
 	deps, _ := newGoalsDeps()
 	admin := newTestAdmin()
 
-	body := `{"name":"A","match_type":"path_regex","pattern":"^.*$","value_rials":0,"enabled":true}`
+	body := `{"name":"A","match_type":"path_regex","pattern":"^.*$","value":0,"enabled":true}`
 
 	h := NewGoals(deps)
 	w := httptest.NewRecorder()
@@ -131,7 +131,7 @@ func TestGoals_Create_RejectsMassAssignment(t *testing.T) {
 	deps, _ := newGoalsDeps()
 	admin := newTestAdmin()
 
-	body := `{"name":"A","match_type":"event_name_equals","pattern":"p","value_rials":0,"enabled":true,"site_id":99}`
+	body := `{"name":"A","match_type":"event_name_equals","pattern":"p","value":0,"enabled":true,"site_id":99}`
 
 	h := NewGoals(deps)
 	w := httptest.NewRecorder()
@@ -155,7 +155,7 @@ func TestGoals_UpdateHappy(t *testing.T) {
 	}
 	_ = gs.Create(ctx, g)
 
-	body := `{"name":"Purchase-v2","match_type":"event_name_equals","pattern":"purchase","value_rials":1000000,"enabled":true}`
+	body := `{"name":"Purchase-v2","match_type":"event_name_equals","pattern":"purchase","value":1000000,"enabled":true}`
 
 	h := NewGoals(deps)
 	w := httptest.NewRecorder()
@@ -167,7 +167,7 @@ func TestGoals_UpdateHappy(t *testing.T) {
 	}
 
 	updated, _ := gs.Get(ctx, 1, g.GoalID)
-	if updated.Name != "Purchase-v2" || updated.ValueRials != 1_000_000 {
+	if updated.Name != "Purchase-v2" || updated.Value != 1_000_000 {
 		t.Errorf("not updated: %+v", updated)
 	}
 }
@@ -185,7 +185,7 @@ func TestGoals_Update_CrossSiteReturnsNotFound(t *testing.T) {
 	}
 	_ = gs.Create(context.Background(), other)
 
-	body := `{"name":"hijacked","match_type":"event_name_equals","pattern":"x","value_rials":0,"enabled":true}`
+	body := `{"name":"hijacked","match_type":"event_name_equals","pattern":"x","value":0,"enabled":true}`
 
 	h := NewGoals(deps)
 	w := httptest.NewRecorder()

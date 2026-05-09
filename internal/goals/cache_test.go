@@ -16,7 +16,7 @@ func TestMatch_HitAndMiss(t *testing.T) {
 
 	_ = fs.Create(ctx, &Goal{
 		SiteID: 1, Name: "Purchase", MatchType: MatchTypeEventNameEquals,
-		Pattern: "purchase", ValueRials: 500_000, Enabled: true,
+		Pattern: "purchase", Value: 500_000, Enabled: true,
 	})
 
 	snap, err := NewSnapshot(ctx, fs)
@@ -51,7 +51,7 @@ func TestMatch_DoesNotCrossSite(t *testing.T) {
 
 	_ = fs.Create(ctx, &Goal{
 		SiteID: 1, Name: "Site1-Purchase", MatchType: MatchTypeEventNameEquals,
-		Pattern: "purchase", ValueRials: 500_000, Enabled: true,
+		Pattern: "purchase", Value: 500_000, Enabled: true,
 	})
 
 	snap, _ := NewSnapshot(ctx, fs)
@@ -69,7 +69,7 @@ func TestMatch_DisabledGoalSkipped(t *testing.T) {
 
 	_ = fs.Create(ctx, &Goal{
 		SiteID: 1, Name: "Disabled", MatchType: MatchTypeEventNameEquals,
-		Pattern: "purchase", ValueRials: 500_000, Enabled: false,
+		Pattern: "purchase", Value: 500_000, Enabled: false,
 	})
 
 	snap, _ := NewSnapshot(ctx, fs)

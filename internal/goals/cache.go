@@ -62,7 +62,7 @@ func (s *Snapshot) Match(siteID uint32, eventName string) (uuid.UUID, uint64, bo
 	for i := range goals {
 		g := &goals[i]
 		if g.MatchType == MatchTypeEventNameEquals && g.Pattern == eventName {
-			return g.GoalID, g.ValueRials, true
+			return g.GoalID, g.Value, true
 		}
 	}
 

@@ -200,8 +200,8 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 	// Stage 7 — goal matching. Server-authoritative on event_value:
 	// /api/event has no request signature (CLAUDE.md Security #3), so
 	// a client-supplied event_value is untrusted. When a goal matches,
-	// the admin-configured value_rials wins over whatever the tracker
-	// sent. Matching only runs on non-bot, non-pageview shape events
+	// the admin-configured value wins over whatever the tracker sent.
+	// Matching only runs on non-bot, non-pageview shape events
 	// (pageviews aren't goal candidates in v1 per doc 17 row 17).
 	if p.deps.Goals != nil && ev.IsBot == 0 {
 		if gID, val, matched := p.deps.Goals.Match(ev.SiteID, ev.EventName); matched {

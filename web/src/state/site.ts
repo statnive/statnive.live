@@ -1,12 +1,15 @@
 import { signal, effect } from '@preact/signals';
 
 // Site mirrors internal/sites.Site. The JSON shape is the contract —
-// the /api/sites handler wraps a []Site in {sites: [...]}.
+// the /api/sites handler wraps a []Site in {sites: [...]}. Currency
+// is the ISO 4217 alpha-3 label fmtMoney uses; tz is the IANA zone
+// the dashboard's date-range picker interprets.
 export interface Site {
   id: number;
   hostname: string;
   enabled: boolean;
   tz: string;
+  currency: string;
 }
 
 // activeSiteSignal holds the currently-selected tenant. null = "not yet

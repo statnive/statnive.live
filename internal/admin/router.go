@@ -26,10 +26,13 @@ import (
 //	GET    /api/admin/sites
 //	POST   /api/admin/sites
 //	PATCH  /api/admin/sites/{id}
+//	GET    /api/admin/currencies
+//	GET    /api/admin/timezones
 func Mount(r chi.Router, deps Deps) {
 	users := NewUsers(deps)
 	goalsH := NewGoals(deps)
 	sitesH := NewSites(deps)
+	options := NewOptions(deps)
 
 	r.Method(http.MethodGet, "/api/admin/users", http.HandlerFunc(users.List))
 	r.Method(http.MethodPost, "/api/admin/users", http.HandlerFunc(users.Create))
@@ -46,4 +49,7 @@ func Mount(r chi.Router, deps Deps) {
 	r.Method(http.MethodGet, "/api/admin/sites", http.HandlerFunc(sitesH.List))
 	r.Method(http.MethodPost, "/api/admin/sites", http.HandlerFunc(sitesH.Create))
 	r.Method(http.MethodPatch, "/api/admin/sites/{id}", http.HandlerFunc(sitesH.Update))
+
+	r.Method(http.MethodGet, "/api/admin/currencies", http.HandlerFunc(options.Currencies))
+	r.Method(http.MethodGet, "/api/admin/timezones", http.HandlerFunc(options.Timezones))
 }

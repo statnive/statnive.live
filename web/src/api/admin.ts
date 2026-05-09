@@ -22,7 +22,7 @@ export interface AdminGoal {
   name: string;
   match_type: 'event_name_equals';
   pattern: string;
-  value_rials: number;
+  value: number;
   enabled: boolean;
   created_at: number;
   updated_at: number;
@@ -35,6 +35,9 @@ export interface AdminSite {
   plan: string;
   enabled: boolean;
   tz: string;
+  // ISO 4217 alpha-3 (EUR, USD, IRR, ...). Display label only — no
+  // minor-unit math. Default 'EUR' on the server (migration 007).
+  currency: string;
   created_at: number;
   // Per-site privacy + bot-tracking policy (PR D2 — migration 006).
   // Defaults: respect_dnt=false, respect_gpc=false, track_bots=true.
@@ -45,14 +48,34 @@ export interface AdminSite {
 }
 
 // SitePolicyPatch is the shape the admin UI sends to PATCH
-// /api/admin/sites/{id} when toggling the privacy/bot checkboxes.
-// Every field is optional so the server can distinguish "field
-// omitted" (no change) from "field set false" (set it).
+// /api/admin/sites/{id} when toggling any settable field. Every key
+// is optional so the server can distinguish "field omitted" (no
+// change) from "field present" (apply it). Currency + tz join the
+// privacy flags as PATCH-able attributes.
 export interface SitePolicyPatch {
   enabled?: boolean;
   respect_dnt?: boolean;
   respect_gpc?: boolean;
   track_bots?: boolean;
+  currency?: string;
+  tz?: string;
+}
+
+// CurrencyOption mirrors internal/sites/currencies.go. Returned by
+// GET /api/admin/currencies; consumed by the Add/Edit Site form
+// dropdowns.
+export interface CurrencyOption {
+  code: string;
+  symbol: string;
+  name: string;
+}
+
+// TimezoneOption mirrors internal/sites/timezones.go. Returned by
+// GET /api/admin/timezones with Offset computed at request time.
+export interface TimezoneOption {
+  iana: string;
+  label: string;
+  offset: string;
 }
 
 async function request<T>(
@@ -146,7 +169,7 @@ export async function createGoal(body: {
   name: string;
   match_type: 'event_name_equals';
   pattern: string;
-  value_rials: number;
+  value: number;
   enabled: boolean;
 }): Promise<AdminGoal> {
   return request<AdminGoal>('POST', '/api/admin/goals', body);
@@ -158,7 +181,7 @@ export async function updateGoal(
     name: string;
     match_type: 'event_name_equals';
     pattern: string;
-    value_rials: number;
+    value: number;
     enabled: boolean;
   },
 ): Promise<AdminGoal> {
@@ -180,6 +203,7 @@ export async function createSite(body: {
   hostname: string;
   slug?: string;
   tz?: string;
+  currency?: string;
 }): Promise<AdminSite> {
   return request<AdminSite>('POST', '/api/admin/sites', body);
 }
@@ -191,12 +215,32 @@ export async function updateSiteEnabled(
   return request<AdminSite>('PATCH', `/api/admin/sites/${siteID}`, { enabled });
 }
 
-// updateSitePolicy patches the per-site DNT/GPC/track_bots flags.
-// Caller passes only the fields they want to change; omitted fields
-// are left unchanged on the server (PR D2a backend).
+// updateSitePolicy patches any settable site attribute — privacy
+// flags, currency, tz, or enabled. Caller passes only the fields they
+// want to change; omitted fields are left unchanged on the server.
+// The single PATCH endpoint accepts every key so the SPA's Edit Site
+// form can submit one request rather than one per dimension.
 export async function updateSitePolicy(
   siteID: number,
   patch: SitePolicyPatch,
 ): Promise<AdminSite> {
   return request<AdminSite>('PATCH', `/api/admin/sites/${siteID}`, patch);
+}
+
+// ---------------- Options (currencies + timezones dropdowns) ----------------
+
+export async function listCurrencies(): Promise<CurrencyOption[]> {
+  const res = await request<{ currencies: CurrencyOption[] }>(
+    'GET',
+    '/api/admin/currencies',
+  );
+  return res.currencies ?? [];
+}
+
+export async function listTimezones(): Promise<TimezoneOption[]> {
+  const res = await request<{ timezones: TimezoneOption[] }>(
+    'GET',
+    '/api/admin/timezones',
+  );
+  return res.timezones ?? [];
 }

@@ -22,9 +22,10 @@ import (
 // fakeSitesStore. Kept narrow so callers don't accidentally take a hot-
 // path dep (LookupSiteIDByHostname) into the admin surface.
 type SitesStore interface {
-	CreateSite(ctx context.Context, hostname, slug, tz string) (uint32, error)
+	CreateSite(ctx context.Context, hostname, slug, tz, currency string) (uint32, error)
 	UpdateSiteEnabled(ctx context.Context, siteID uint32, enabled bool) error
 	UpdateSitePolicy(ctx context.Context, siteID uint32, policy sites.SitePolicy) error
+	UpdateSiteAttributes(ctx context.Context, siteID uint32, currency, tz *string) error
 	LookupSiteByID(ctx context.Context, siteID uint32) (sites.SiteAdmin, error)
 	ListAdmin(ctx context.Context) ([]sites.SiteAdmin, error)
 }

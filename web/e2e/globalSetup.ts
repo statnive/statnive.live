@@ -75,7 +75,7 @@ interface SeedRow {
   country: string;
   visitorHex: string; // 32-char hex, represents FixedString(16)
   isGoal: number;
-  revenueRials: number;
+  revenue: number;
 }
 
 function seedEvents(rows: SeedRow[]): void {
@@ -93,7 +93,7 @@ function seedEvents(rows: SeedRow[]): void {
       '', '', '${r.utmCampaign}', '', '',
       '', '', '${r.country}', '', '',
       '', '', '${r.deviceType}', 0,
-      'pageview', 'pageview', ${r.revenueRials}, ${r.isGoal}, 1,
+      'pageview', 'pageview', ${r.revenue}, ${r.isGoal}, 1,
       [], [], '', 0
     )`.replace(/\s+/g, ' ').trim();
   });
@@ -168,7 +168,7 @@ function buildFixture(): SeedRow[] {
         country: g.country,
         visitorHex: vhex(SITE_A, nA),
         isGoal: g.goal,
-        revenueRials: g.rev,
+        revenue: g.rev,
       });
     }
   }
@@ -197,7 +197,7 @@ function buildFixture(): SeedRow[] {
         country: g.country,
         visitorHex: vhex(SITE_B, nB),
         isGoal: g.goal,
-        revenueRials: g.rev,
+        revenue: g.rev,
       });
     }
   }

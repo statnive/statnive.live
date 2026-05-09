@@ -34,6 +34,7 @@ type siteAdminResponse struct {
 	Plan       string `json:"plan"`
 	Enabled    bool   `json:"enabled"`
 	TZ         string `json:"tz"`
+	Currency   string `json:"currency"`
 	CreatedAt  int64  `json:"created_at"`
 	RespectDNT bool   `json:"respect_dnt"`
 	RespectGPC bool   `json:"respect_gpc"`
@@ -48,6 +49,7 @@ func toSiteResponse(s sites.SiteAdmin) siteAdminResponse {
 		Plan:       s.Plan,
 		Enabled:    s.Enabled,
 		TZ:         s.TZ,
+		Currency:   s.Currency,
 		CreatedAt:  s.CreatedAt,
 		RespectDNT: s.RespectDNT,
 		RespectGPC: s.RespectGPC,
@@ -82,11 +84,14 @@ func (h *Sites) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // createSiteRequest — tight allow-list; enabled/plan/created_at are
-// server-set, never accepted from the body.
+// server-set, never accepted from the body. Currency + TZ default to
+// EUR + Europe/Berlin when omitted (sites.DefaultCurrency /
+// sites.DefaultTimezone) — operator PATCHes per-site after creation.
 type createSiteRequest struct {
 	Hostname string `json:"hostname"`
 	Slug     string `json:"slug"`
 	TZ       string `json:"tz"`
+	Currency string `json:"currency"`
 }
 
 // Create handles POST /api/admin/sites. Returns 201 with the full site
@@ -102,7 +107,7 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 
 	var req createSiteRequest
 	if err := httpjson.DecodeAllowed(r, &req, []string{
-		"hostname", "slug", "tz",
+		"hostname", "slug", "tz", "currency",
 	}); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 
@@ -110,12 +115,22 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hostname := strings.ToLower(strings.TrimSpace(req.Hostname))
-	siteID, err := h.deps.Sites.CreateSite(r.Context(), hostname, req.Slug, req.TZ)
+	siteID, err := h.deps.Sites.CreateSite(r.Context(), hostname, req.Slug, req.TZ, req.Currency)
 
 	switch {
 	case errors.Is(err, sites.ErrInvalidHostname):
 		h.emitSiteRejected(r, actor, hostname, err)
 		http.Error(w, "invalid hostname", http.StatusBadRequest)
+
+		return
+	case errors.Is(err, sites.ErrInvalidCurrency):
+		h.emitSiteRejected(r, actor, hostname, err)
+		http.Error(w, "invalid currency", http.StatusBadRequest)
+
+		return
+	case errors.Is(err, sites.ErrInvalidTimezone):
+		h.emitSiteRejected(r, actor, hostname, err)
+		http.Error(w, "invalid timezone", http.StatusBadRequest)
 
 		return
 	case errors.Is(err, sites.ErrHostnameTaken):
@@ -169,20 +184,24 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 
 // updateSiteRequest — Phase 6 supports enable/disable. PR D2 adds the
 // per-site privacy + bot policy (CLAUDE.md Privacy Rule 6 + migration
-// 006). Pointer fields so the handler can distinguish "field omitted"
-// (no change) from "field set false" (set it). Slug + tz + plan
-// mutations still land when operator demand justifies them.
+// 006). Per-site-currency PR adds Currency + TZ. Pointer fields so the
+// handler can distinguish "field omitted" (no change) from "field set
+// to zero value" (apply it). Slug + plan mutations still land when
+// operator demand justifies them.
 type updateSiteRequest struct {
-	Enabled    *bool `json:"enabled,omitempty"`
-	RespectDNT *bool `json:"respect_dnt,omitempty"`
-	RespectGPC *bool `json:"respect_gpc,omitempty"`
-	TrackBots  *bool `json:"track_bots,omitempty"`
+	Enabled    *bool   `json:"enabled,omitempty"`
+	RespectDNT *bool   `json:"respect_dnt,omitempty"`
+	RespectGPC *bool   `json:"respect_gpc,omitempty"`
+	TrackBots  *bool   `json:"track_bots,omitempty"`
+	Currency   *string `json:"currency,omitempty"`
+	TZ         *string `json:"tz,omitempty"`
 }
 
 // Update handles PATCH /api/admin/sites/{id}. Payload may include any
-// combination of {enabled, respect_dnt, respect_gpc, track_bots};
-// anything else fails the F4 unknown-field guard. Empty payloads
-// short-circuit with the existing site projection (idempotent no-op).
+// combination of {enabled, respect_dnt, respect_gpc, track_bots,
+// currency, tz}; anything else fails the F4 unknown-field guard. Empty
+// payloads short-circuit with the existing site projection (idempotent
+// no-op).
 func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {
@@ -200,7 +219,7 @@ func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 
 	var req updateSiteRequest
 	if err := httpjson.DecodeAllowed(r, &req, []string{
-		"enabled", "respect_dnt", "respect_gpc", "track_bots",
+		"enabled", "respect_dnt", "respect_gpc", "track_bots", "currency", "tz",
 	}); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 
@@ -208,6 +227,12 @@ func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if status := h.applyPolicyPatch(r, siteID, req); status != 0 {
+		http.Error(w, http.StatusText(status), status)
+
+		return
+	}
+
+	if status := h.applyAttributesPatch(r, siteID, req); status != 0 {
 		http.Error(w, http.StatusText(status), status)
 
 		return
@@ -279,6 +304,32 @@ func (h *Sites) applyPolicyPatch(r *http.Request, siteID uint32, req updateSiteR
 
 	if err := h.deps.Sites.UpdateSitePolicy(r.Context(), siteID, policy); err != nil {
 		h.deps.emitDashboardError(r, "update_site_policy", err)
+
+		return http.StatusInternalServerError
+	}
+
+	return 0
+}
+
+// applyAttributesPatch read-modify-writes the per-site display
+// attributes (currency + tz) when at least one of those fields is
+// present in req. Returns 0 on success / no-op (no attribute fields),
+// or an HTTP status code on failure (404 for unknown site, 400 for
+// invalid currency/tz, 500 otherwise). Mirror of applyPolicyPatch.
+func (h *Sites) applyAttributesPatch(r *http.Request, siteID uint32, req updateSiteRequest) int {
+	if req.Currency == nil && req.TZ == nil {
+		return 0
+	}
+
+	err := h.deps.Sites.UpdateSiteAttributes(r.Context(), siteID, req.Currency, req.TZ)
+
+	switch {
+	case errors.Is(err, sites.ErrUnknownHostname):
+		return http.StatusNotFound
+	case errors.Is(err, sites.ErrInvalidCurrency), errors.Is(err, sites.ErrInvalidTimezone):
+		return http.StatusBadRequest
+	case err != nil:
+		h.deps.emitDashboardError(r, "update_site_attributes", err)
 
 		return http.StatusInternalServerError
 	}

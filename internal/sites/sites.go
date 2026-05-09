@@ -31,15 +31,27 @@ var ErrHostnameTaken = errors.New("sites: hostname taken")
 // validator on /api/event would itself reject. Maps to HTTP 400.
 var ErrInvalidHostname = errors.New("sites: invalid hostname")
 
+// ErrInvalidCurrency is returned when a CreateSite or UpdateSiteAttributes
+// receives a currency code outside the allow-list in currencies.go.
+// Maps to HTTP 400.
+var ErrInvalidCurrency = errors.New("sites: invalid currency")
+
+// ErrInvalidTimezone is returned when a CreateSite or UpdateSiteAttributes
+// receives a timezone outside the allow-list in timezones.go (or one
+// that fails time.LoadLocation). Maps to HTTP 400.
+var ErrInvalidTimezone = errors.New("sites: invalid timezone")
+
 // Site is the JSON-serialized row the dashboard's site-switcher consumes.
 // TZ is an IANA zone name — the dashboard's date picker renders midnight
-// boundaries in this zone (Asia/Tehran for Iran-hosted SamplePlatform,
-// operator-set for SaaS tenants outside Iran).
+// boundaries in this zone (default Europe/Berlin for SaaS, operator-set
+// per tenant). Currency is an ISO 4217 alpha-3 code used as a display
+// label by the SPA's Intl.NumberFormat call (default EUR).
 type Site struct {
 	ID       uint32 `json:"id"`
 	Hostname string `json:"hostname"`
 	Enabled  bool   `json:"enabled"`
 	TZ       string `json:"tz"`
+	Currency string `json:"currency"`
 }
 
 // SitePolicy is the per-site privacy + bot-tracking posture, written
@@ -209,13 +221,31 @@ func ValidateHostname(h string) error {
 	return nil
 }
 
+// normalizeAttribute resolves a TZ or currency to a validated value or
+// returns the matching sentinel error. Empty input falls back to
+// fallback; non-empty input is checked against valid(...).
+func normalizeAttribute(raw, fallback string, valid func(string) bool, invalid error) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return fallback, nil
+	}
+
+	if !valid(v) {
+		return "", invalid
+	}
+
+	return v, nil
+}
+
 // CreateSite inserts a new row in statnive.sites. Returns ErrHostnameTaken
 // if the hostname already exists (any enabled flag), ErrSlugTaken if the
-// proposed slug collides with another site's row, or ErrInvalidHostname
-// for shape-invalid input. Site ID is allocated server-side via a
-// max(site_id)+1 select — safe on single-node; Phase 11 SaaS will
-// revisit once multi-writer contention matters.
-func (r *Registry) CreateSite(ctx context.Context, hostname, slug, tz string) (uint32, error) {
+// proposed slug collides with another site's row, ErrInvalidHostname
+// for shape-invalid input, ErrInvalidCurrency for unknown currency codes,
+// or ErrInvalidTimezone for unknown IANA zones. Empty tz/currency fall
+// back to DefaultTimezone / DefaultCurrency. Site ID is allocated
+// server-side via a max(site_id)+1 select — safe on single-node;
+// Phase 11 SaaS will revisit once multi-writer contention matters.
+func (r *Registry) CreateSite(ctx context.Context, hostname, slug, tz, currency string) (uint32, error) {
 	hostname = strings.ToLower(strings.TrimSpace(hostname))
 	if err := ValidateHostname(hostname); err != nil {
 		return 0, err
@@ -225,28 +255,19 @@ func (r *Registry) CreateSite(ctx context.Context, hostname, slug, tz string) (u
 		return 0, ErrHostnameTaken
 	}
 
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	if slug == "" {
-		slug = GenerateSlug(hostname)
-	}
-
-	if slug == "" {
-		return 0, ErrInvalidHostname
-	}
-
-	if _, reserved := reservedSlugs[slug]; reserved {
-		return 0, ErrSlugTaken
-	}
-
-	if ok, err := r.IsSlugAvailable(ctx, slug); err != nil {
+	slug, err := r.resolveSlug(ctx, hostname, slug)
+	if err != nil {
 		return 0, err
-	} else if !ok {
-		return 0, ErrSlugTaken
 	}
 
-	tz = strings.TrimSpace(tz)
-	if tz == "" {
-		tz = "Asia/Tehran"
+	tz, err = normalizeAttribute(tz, DefaultTimezone, IsValidTimezone, ErrInvalidTimezone)
+	if err != nil {
+		return 0, err
+	}
+
+	currency, err = normalizeAttribute(currency, DefaultCurrency, IsValidCurrency, ErrInvalidCurrency)
+	if err != nil {
+		return 0, err
 	}
 
 	var maxID uint32
@@ -260,14 +281,106 @@ func (r *Registry) CreateSite(ctx context.Context, hostname, slug, tz string) (u
 	siteID := maxID + 1
 
 	if err := r.conn.Exec(ctx,
-		`INSERT INTO statnive.sites (site_id, hostname, slug, plan, enabled, created_at, tz)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		siteID, hostname, slug, "free", uint8(1), time.Now().UTC(), tz,
+		`INSERT INTO statnive.sites (site_id, hostname, slug, plan, enabled, created_at, tz, currency)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		siteID, hostname, slug, "free", uint8(1), time.Now().UTC(), tz, currency,
 	); err != nil {
 		return 0, fmt.Errorf("sites insert: %w", err)
 	}
 
 	return siteID, nil
+}
+
+// resolveSlug normalizes the operator-supplied slug (or auto-generates
+// from hostname when empty) and asserts uniqueness against the
+// reserved set + the existing rows.
+func (r *Registry) resolveSlug(ctx context.Context, hostname, slug string) (string, error) {
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if slug == "" {
+		slug = GenerateSlug(hostname)
+	}
+
+	if slug == "" {
+		return "", ErrInvalidHostname
+	}
+
+	if _, reserved := reservedSlugs[slug]; reserved {
+		return "", ErrSlugTaken
+	}
+
+	ok, err := r.IsSlugAvailable(ctx, slug)
+	if err != nil {
+		return "", err
+	}
+
+	if !ok {
+		return "", ErrSlugTaken
+	}
+
+	return slug, nil
+}
+
+// UpdateSiteAttributes mutates the per-site display attributes
+// (currency + tz). Either field can be nil to leave it unchanged. Both
+// are validated against the allow-lists before the ALTER UPDATE runs;
+// invalid input returns ErrInvalidCurrency / ErrInvalidTimezone before
+// ClickHouse is touched. ErrUnknownHostname semantics for non-existent
+// site_id, mirroring UpdateSitePolicy / UpdateSiteEnabled.
+func (r *Registry) UpdateSiteAttributes(ctx context.Context, siteID uint32, currency, tz *string) error {
+	if siteID == 0 {
+		return ErrUnknownHostname
+	}
+
+	if currency == nil && tz == nil {
+		return nil
+	}
+
+	if currency != nil && !IsValidCurrency(*currency) {
+		return ErrInvalidCurrency
+	}
+
+	if tz != nil && !IsValidTimezone(*tz) {
+		return ErrInvalidTimezone
+	}
+
+	var exists uint64
+
+	if err := r.conn.QueryRow(ctx,
+		`SELECT count() FROM statnive.sites WHERE site_id = ?`,
+		siteID,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("sites existence: %w", err)
+	}
+
+	if exists == 0 {
+		return ErrUnknownHostname
+	}
+
+	sets := make([]string, 0, 2)
+	args := make([]any, 0, 3)
+
+	if currency != nil {
+		sets = append(sets, "currency = ?")
+		args = append(args, *currency)
+	}
+
+	if tz != nil {
+		sets = append(sets, "tz = ?")
+		args = append(args, *tz)
+	}
+
+	args = append(args, siteID)
+
+	stmt := fmt.Sprintf(
+		`ALTER TABLE statnive.sites UPDATE %s WHERE site_id = ? SETTINGS mutations_sync = 2`,
+		strings.Join(sets, ", "),
+	)
+
+	if err := r.conn.Exec(ctx, stmt, args...); err != nil {
+		return fmt.Errorf("sites update attributes: %w", err)
+	}
+
+	return nil
 }
 
 // UpdateSitePolicy mutates the per-site privacy + bot flags
@@ -368,7 +481,7 @@ func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin
 	)
 
 	row := r.conn.QueryRow(ctx,
-		`SELECT site_id, hostname, slug, plan, enabled, tz,
+		`SELECT site_id, hostname, slug, plan, enabled, tz, currency,
 		        toInt64(toUnixTimestamp(created_at)),
 		        respect_dnt, respect_gpc, track_bots
 		 FROM statnive.sites WHERE site_id = ? LIMIT 1`,
@@ -376,7 +489,7 @@ func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin
 	)
 
 	if err := row.Scan(
-		&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.CreatedAt,
+		&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.Currency, &sa.CreatedAt,
 		&respectDNT, &respectGPC, &trackBots,
 	); err != nil {
 		return SiteAdmin{}, ErrUnknownHostname
@@ -402,7 +515,7 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 	// rows can only appear if migration 001 changes engines; the
 	// integration test pins that invariant.
 	rows, err := r.conn.Query(ctx,
-		`SELECT site_id, hostname, slug, plan, enabled, tz,
+		`SELECT site_id, hostname, slug, plan, enabled, tz, currency,
 		        toInt64(toUnixTimestamp(created_at)),
 		        respect_dnt, respect_gpc, track_bots
 		 FROM statnive.sites ORDER BY site_id ASC`,
@@ -422,7 +535,7 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 		)
 
 		if scanErr := rows.Scan(
-			&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.CreatedAt,
+			&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.Currency, &sa.CreatedAt,
 			&respectDNT, &respectGPC, &trackBots,
 		); scanErr != nil {
 			return nil, fmt.Errorf("sites scan admin: %w", scanErr)
@@ -444,7 +557,7 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 // so the operator can see the full tenancy picture.
 func (r *Registry) List(ctx context.Context) ([]Site, error) {
 	rows, err := r.conn.Query(ctx,
-		`SELECT site_id, hostname, enabled, tz FROM statnive.sites ORDER BY site_id ASC`,
+		`SELECT site_id, hostname, enabled, tz, currency FROM statnive.sites ORDER BY site_id ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("sites list: %w", err)
@@ -459,7 +572,7 @@ func (r *Registry) List(ctx context.Context) ([]Site, error) {
 
 		var enabled uint8
 
-		if scanErr := rows.Scan(&s.ID, &s.Hostname, &enabled, &s.TZ); scanErr != nil {
+		if scanErr := rows.Scan(&s.ID, &s.Hostname, &enabled, &s.TZ, &s.Currency); scanErr != nil {
 			return nil, fmt.Errorf("sites scan: %w", scanErr)
 		}
 
