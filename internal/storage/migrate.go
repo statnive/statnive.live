@@ -24,10 +24,13 @@ import (
 var Migrations embed.FS
 
 // MigrationData is the template context passed to every embedded SQL file.
-// .Cluster == "" for single-node — the template's {{if .Cluster}} branches
-// degrade gracefully.
+// .Cluster == "" for single-node — templates' {{if .Cluster}} branches
+// degrade gracefully. .OperatorEmail is the operator-bootstrap email
+// (migration 010); empty → bootstrap insert is skipped via {{if}} guard
+// so dev / CI / fresh-tenant deploys don't grant an empty-string user.
 type MigrationData struct {
-	Cluster string
+	Cluster       string
+	OperatorEmail string
 }
 
 // MigrationConfig is read by main.go from the YAML config.
@@ -37,6 +40,10 @@ type MigrationConfig struct {
 	Cluster string
 	// Database is the schema name; "statnive" by default.
 	Database string
+	// OperatorEmail is the email of the SaaS operator account that
+	// migration 010 grants admin-on-all-sites to. Empty disables the
+	// bootstrap (dev / fresh deploy / CI). Validated at boot in main.go.
+	OperatorEmail string
 }
 
 // MigrationRunner applies numbered migrations in order. Idempotent — already-
@@ -75,7 +82,10 @@ func (r *MigrationRunner) Run(ctx context.Context) error {
 	}
 
 	plans := make([]planned, 0, len(entries))
-	tmplData := MigrationData{Cluster: r.cfg.Cluster}
+	tmplData := MigrationData{
+		Cluster:       r.cfg.Cluster,
+		OperatorEmail: r.cfg.OperatorEmail,
+	}
 
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
@@ -196,8 +206,18 @@ func parseVersion(name string) (uint32, error) {
 // RenderMigration is the exported test seam for renderMigration. Tests
 // that need to apply a subset of migrations (data-preservation gate)
 // reuse this so the rendering path stays bit-identical to production.
+// Empty OperatorEmail is fine — migration 010's bootstrap branch is
+// {{if}}-guarded.
 func RenderMigration(name string, body []byte, cluster string) (string, error) {
 	return renderMigration(name, body, MigrationData{Cluster: cluster})
+}
+
+// RenderMigrationWith is the broader-data variant used when a caller
+// needs to inject more than just the cluster name (e.g. migration 010's
+// OperatorEmail). Existing callers stay on RenderMigration; production
+// goes through MigrationRunner.Run which builds the full MigrationData.
+func RenderMigrationWith(name string, body []byte, data MigrationData) (string, error) {
+	return renderMigration(name, body, data)
 }
 
 // SplitStatements is the exported test seam for splitStatements. Strips

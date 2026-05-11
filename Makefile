@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -55,11 +55,12 @@ test:
 test-integration: web-build
 	$(GO) test -mod=vendor -race -tags=integration -v -timeout 240s ./test/...
 
-## lint: Run golangci-lint + tenancy-grep gate + identity-gate + privacy-gate
+## lint: Run golangci-lint + tenancy-grep + identity-gate + privacy-gate
+##       + legacy-site-id-grep (v0.0.9 per-site-admin grant gate)
 # golangci-lint wants filesystem paths, not the import paths `go list`
 # returns; `./...` gets it to walk the tree itself and honor
 # .golangci.yml's exclude list (which already covers web/node_modules).
-lint: tenancy-grep identity-gate privacy-gate
+lint: tenancy-grep identity-gate privacy-gate legacy-site-id-grep
 	$(GOLANGCI_LINT) run ./...
 
 ## identity-gate: auth-return nil-guard regression (CVE-2024-10924, PLAN.md §53).
@@ -128,6 +129,12 @@ skill-sanitizer-selftest:
 	@./scripts/skill-sanitizer.sh --selftest test/fixtures/skill-sanitizer/should-not-trigger/ >/dev/null \
 		|| (echo "FAIL: scanner fired on should-not-trigger"; exit 1)
 	@echo "OK: scanner clean on should-not-trigger"
+
+## legacy-site-id-grep: CI gate — migration 010 / per-site-admin (v0.0.9).
+## Asserts no NEW code reads the legacy users.site_id column outside the
+## allow-listed legacy paths; new code uses auth.SitesStore / actor.Sites.
+legacy-site-id-grep:
+	@./scripts/check-legacy-site-id.sh
 
 ## tenancy-grep: CI gate — Architecture Rules 1 + 8 (no events_raw queries; whereTimeAndTenant first)
 tenancy-grep:
