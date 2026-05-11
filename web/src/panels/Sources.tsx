@@ -104,6 +104,7 @@ export default function Sources() {
                   revenue={r.revenue}
                   maxVisitors={maxVisitors}
                   maxRevenue={maxRevenue}
+                  currency={currency}
                 />
               </td>
             </tr>
