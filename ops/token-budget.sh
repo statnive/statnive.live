@@ -17,7 +17,8 @@
 # calibration overlay; tracked as tech debt for a follow-up doc-pruning
 # PR before the aspirational caps below get reinstated):
 #   - CLAUDE.md      <= 285 lines (was 220 — root routing index)
-#   - PLAN.md        <= 720 lines (was 550 — phase plan + verification)
+#   - PLAN.md        <= 780 lines (was 720 — research-53 consent-free
+#                                  audit backlog index added 2026-05-11)
 #   - docs/tooling.md <= 350 lines (was 320 — skill routing detail)
 #   - Each custom skill SKILL.md `description:` field <= 1100 chars
 #     (~150 tokens; one trigger sentence + file globs + enforcement summary)
@@ -43,7 +44,7 @@ check_lines() {
 }
 
 check_lines CLAUDE.md 290
-check_lines PLAN.md 720
+check_lines PLAN.md 780
 check_lines PLAN-MILESTONE-1.md 120
 check_lines docs/tooling.md 350
 
