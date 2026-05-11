@@ -101,6 +101,7 @@ export default function Campaigns() {
                   revenue={r.revenue}
                   maxVisitors={maxVisitors}
                   maxRevenue={maxRevenue}
+                  currency={currency}
                 />
               </td>
             </tr>
