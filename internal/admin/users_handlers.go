@@ -175,8 +175,14 @@ func (h *Users) listPerSite(w http.ResponseWriter, r *http.Request, actor *auth.
 	out := make([]userResponse, 0, len(grants))
 
 	for _, g := range grants {
-		u, userErr := h.deps.Auth.GetUserByID(ctx, g.UserID)
-		if userErr != nil || u == nil {
+		u, userErr := h.deps.Auth.GetUserByID(ctx, g.UserID) // nosemgrep: auth-return-nil-guard
+		// Semgrep's sibling-statement traversal misses the follow-up `u ==
+		// nil` check below. The defense is present; suppress the false positive.
+		if userErr != nil {
+			continue
+		}
+
+		if u == nil {
 			continue
 		}
 

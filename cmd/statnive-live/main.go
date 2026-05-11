@@ -1113,7 +1113,7 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 
 	// Admin + feature flags (v0.0.9 per-site-admin scaffolding).
 	v.SetDefault("admin.operator_email", "")
-	v.SetDefault("features.per_site_admin", true)
+	v.SetDefault("features.per_site_admin", false)
 
 	if readErr := v.ReadInConfig(); readErr != nil {
 		var notFound viper.ConfigFileNotFoundError

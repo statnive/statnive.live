@@ -150,7 +150,7 @@ admin:
 # to v0.0.8 on deploy. Flipped to true in v0.0.10 once the handler
 # refactor + frontend redesign land.
 features:
-  per_site_admin: true   # STATNIVE_FEATURES_PER_SITE_ADMIN — on: RequireSiteRole middleware; off: legacy single-site RequireRole (rollback: set false + restart)
+  per_site_admin: false   # STATNIVE_FEATURES_PER_SITE_ADMIN — on: RequireSiteRole middleware; off: legacy single-site RequireRole (v0.0.9 default; flip to true after smoke verifies on prod)
 
 # ─── Opt-in outbound features (ALL default OFF) ────────────────────────
 # Turning any on breaks the Isolation invariant (zero required outbound).
