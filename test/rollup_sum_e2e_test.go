@@ -106,9 +106,15 @@ func TestMigration009_RollupSumSemantics(t *testing.T) {
 	const siteID = uint32(901)
 	baseTime := time.Now().UTC().Truncate(time.Hour).Add(30 * time.Minute)
 
-	wantPageviews := uint64(5)
-	wantGoals := uint64(3)
-	wantRevenue := uint64(3) // 3 goal hits × value=1
+	const numPageviews = uint64(5)
+	const numGoalEvents = uint64(3)
+
+	// mv_hourly_visitors filters `is_bot=0 AND (event_type='pageview' OR is_goal=1)`
+	// then `count() AS pageviews` — the column counts ALL qualifying
+	// rows, both pageviews and goal events. Misnomer is pre-existing.
+	wantHourlyCount := numPageviews + numGoalEvents // 5 + 3 = 8
+	wantGoals := numGoalEvents                      // sum(is_goal) = 3
+	wantRevenue := numGoalEvents                    // each goal hit carries event_value=1
 
 	// Each insertRollupEvent calls PrepareBatch + Send, and
 	// clickhouse-go v2 emits one INSERT per Send — each call lands in
@@ -154,14 +160,14 @@ func TestMigration009_RollupSumSemantics(t *testing.T) {
 		t.Fatalf("read hourly_visitors aggregate: %v", err)
 	}
 
-	if gotPV != wantPageviews {
-		t.Errorf("hourly_visitors pageviews after FINAL merge = %d, want %d (merge dropped %d rows — migration 009 broken)",
-			gotPV, wantPageviews, wantPageviews-gotPV)
+	if gotPV != wantHourlyCount {
+		t.Errorf("hourly_visitors qualifying-row count after FINAL merge = %d, want %d (merge dropped rows — migration 009 broken)",
+			gotPV, wantHourlyCount)
 	}
 
 	if gotGoals != wantGoals {
-		t.Errorf("hourly_visitors goals after FINAL merge = %d, want %d (merge dropped %d goal rows)",
-			gotGoals, wantGoals, wantGoals-gotGoals)
+		t.Errorf("hourly_visitors goals after FINAL merge = %d, want %d (merge dropped goal rows)",
+			gotGoals, wantGoals)
 	}
 
 	if gotRev != wantRevenue {
@@ -183,8 +189,9 @@ func TestMigration009_RollupSumSemantics(t *testing.T) {
 
 	// daily_pages MV filter is `WHERE is_bot = 0` (no event_type filter),
 	// so it counts BOTH the 5 pageviews AND the 3 custom goal events.
-	if pagesPV != wantPageviews+wantGoals {
-		t.Errorf("daily_pages views = %d, want %d (5 pv + 3 goal events)", pagesPV, wantPageviews+wantGoals)
+	wantDailyPagesViews := numPageviews + numGoalEvents
+	if pagesPV != wantDailyPagesViews {
+		t.Errorf("daily_pages views = %d, want %d (5 pv + 3 goal events)", pagesPV, wantDailyPagesViews)
 	}
 
 	if pagesGoals != wantGoals {
