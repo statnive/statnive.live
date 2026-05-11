@@ -133,6 +133,25 @@ consent:
   #     label: "ci-smoke"
   #     role: "viewer"
 
+# ─── Admin (operator-side identity) ────────────────────────────────────
+# operator_email is the SaaS operator account that migration 010 grants
+# admin-on-all-sites to on first apply (idempotent on rerun). Empty
+# disables the bootstrap entirely (dev / fresh deploy / CI). When set,
+# must look like an email — config loader rejects values that don't match
+# the basic email regex (so the migration template's string substitution
+# can't be exploited by a crafted YAML value).
+admin:
+  operator_email: ""   # STATNIVE_ADMIN_OPERATOR_EMAIL
+
+# ─── Feature flags ─────────────────────────────────────────────────────
+# per_site_admin gates the v0.0.9+ per-site admin authorization path
+# (RequireSiteRole middleware reading ?site_id=N against the user_sites
+# grant table). Default off in v0.0.9 — production behaves byte-identical
+# to v0.0.8 on deploy. Flipped to true in v0.0.10 once the handler
+# refactor + frontend redesign land.
+features:
+  per_site_admin: false   # STATNIVE_FEATURES_PER_SITE_ADMIN
+
 # ─── Opt-in outbound features (ALL default OFF) ────────────────────────
 # Turning any on breaks the Isolation invariant (zero required outbound).
 # Placeholders shown for visibility; activated in v1.1 / Phase 11.

@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -176,8 +177,9 @@ func run() error {
 	defer func() { _ = store.Close() }()
 
 	migrator := storage.NewMigrationRunner(store.Conn(), storage.MigrationConfig{
-		Database: cfg.ClickHouse.Database,
-		Cluster:  cfg.ClickHouse.Cluster,
+		Database:      cfg.ClickHouse.Database,
+		Cluster:       cfg.ClickHouse.Cluster,
+		OperatorEmail: cfg.Admin.OperatorEmail,
 	}, logger)
 
 	if migErr := migrator.Run(rootCtx); migErr != nil {
@@ -434,20 +436,36 @@ func run() error {
 
 	// Admin CRUD — admin-only. Viewers + api-tokens are rejected with
 	// 403 + auth.rbac.denied audit event by RequireRole.
+	//
+	// features.per_site_admin swaps the legacy single-site role check
+	// for RequireSiteRole(user_sites + ?site_id). Handlers don't need
+	// to know which path the request came through — both populate
+	// UserFrom(ctx) with an authorized admin.
+	userSitesStore := auth.NewClickHouseSitesStore(store.Conn(), cfg.ClickHouse.Database)
+
+	adminDeps := admin.Deps{
+		Auth:      authStore,
+		Goals:     goalStore,
+		Snapshot:  goalSnapshot,
+		Sites:     registry,
+		UserSites: userSitesStore,
+		Audit:     auditLog,
+		Logger:    logger,
+	}
+
 	router.Group(func(r chi.Router) {
 		r.Use(rateLimitMW)
 		r.Use(sessionMW)
 		r.Use(apiTokenMW)
 		r.Use(requireAuthed)
-		r.Use(auth.RequireRole(auditLog, auth.RoleAdmin))
-		admin.Mount(r, admin.Deps{
-			Auth:     authStore,
-			Goals:    goalStore,
-			Snapshot: goalSnapshot,
-			Sites:    registry,
-			Audit:    auditLog,
-			Logger:   logger,
-		})
+
+		if cfg.Features.PerSiteAdmin {
+			r.Use(auth.RequireSiteRole(auditLog, userSitesStore, auth.RoleAdmin))
+		} else {
+			r.Use(auth.RequireRole(auditLog, auth.RoleAdmin))
+		}
+
+		admin.Mount(r, adminDeps)
 	})
 
 	router.Method(http.MethodGet, "/healthz", health.Handler(health.Reporter{
@@ -960,7 +978,31 @@ type appConfig struct {
 		// statnive.sites (migration 006), not global cfg flags. The
 		// admin UI at /admin/sites toggles them per tenant. PR D2.
 	}
+	Admin struct {
+		// OperatorEmail is the SaaS operator account that migration 010
+		// grants admin-on-all-sites to. Empty disables the bootstrap
+		// (dev / fresh deploy / CI). Validated at boot: when set, must
+		// match a simple email regex so the migration template can't be
+		// exploited via crafted config values.
+		OperatorEmail string
+	}
+	Features struct {
+		// PerSiteAdmin gates the per-site admin authorization path
+		// (RequireSiteRole middleware + user_sites read) on /api/admin/*.
+		// Off → legacy single-site role check. The flag exists so the
+		// binary can ship the schema + middleware before the handler +
+		// frontend that consume them.
+		PerSiteAdmin bool
+	}
 }
+
+// operatorEmailRegex pins the shape of admin.operator_email so the
+// migration-template substitution cannot be exploited via a crafted
+// config value (single quotes / semicolons would inject into the
+// migration SQL). RFC 5321 is more permissive than this regex; the
+// operator account format is the operator's choice — this rejects
+// only obvious injection payloads.
+var operatorEmailRegex = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
 
 // loadConfig parses CLI flags + env vars to find the config file path,
 // then defers to loadConfigFromPath. Splitting the two means tests can
@@ -1065,6 +1107,10 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("auth.default_site_id", 1)
 	v.SetDefault("auth.demo_banner", "")
 
+	// Admin + feature flags (v0.0.9 per-site-admin scaffolding).
+	v.SetDefault("admin.operator_email", "")
+	v.SetDefault("features.per_site_admin", false)
+
 	if readErr := v.ReadInConfig(); readErr != nil {
 		var notFound viper.ConfigFileNotFoundError
 		if !errors.As(readErr, &notFound) {
@@ -1133,6 +1179,19 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.Auth.Bootstrap.Username = v.GetString("auth.bootstrap.username")
 	cfg.Auth.DefaultSiteID = v.GetUint32("auth.default_site_id")
 	cfg.Auth.DemoBanner = v.GetString("auth.demo_banner")
+
+	cfg.Admin.OperatorEmail = strings.TrimSpace(v.GetString("admin.operator_email"))
+	cfg.Features.PerSiteAdmin = v.GetBool("features.per_site_admin")
+
+	// Validate operator email format when set. The value flows into
+	// migration 010 as a string literal in the SQL template; reject
+	// crafted values that could break out of the literal.
+	if cfg.Admin.OperatorEmail != "" && !operatorEmailRegex.MatchString(cfg.Admin.OperatorEmail) {
+		return appConfig{}, fmt.Errorf(
+			"admin.operator_email %q: must be a plain email address",
+			cfg.Admin.OperatorEmail,
+		)
+	}
 
 	// auth.api_tokens is a list of {token_hash, site_id, label, role}
 	// entries. Viper's UnmarshalKey handles the list-of-maps shape.

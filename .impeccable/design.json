@@ -1,0 +1,368 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-05T00:00:00Z",
+  "title": "Design System: statnive-live",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Daylight Paper",
+        "canonical": "#FAFAF8",
+        "tonalRamp": ["#1A1B19", "#3A3B36", "#5A5B53", "#7B7C71", "#9C9C8E", "#BDBEAB", "#DDDED0", "#FAFAF8"]
+      },
+      "paper-2": {
+        "role": "neutral",
+        "displayName": "Surface White",
+        "canonical": "#FFFFFF",
+        "tonalRamp": ["#1A1A1A", "#3A3A3A", "#5A5A5A", "#7B7B7B", "#9C9C9C", "#BDBDBD", "#DEDEDE", "#FFFFFF"]
+      },
+      "ink": {
+        "role": "secondary",
+        "displayName": "Brand Navy",
+        "canonical": "#0A2540",
+        "tonalRamp": ["#0A2540", "#143458", "#1F4574", "#2C5891", "#446EAA", "#6388BC", "#8AA4CD", "#B6C4DD"]
+      },
+      "ink-2": {
+        "role": "secondary",
+        "displayName": "Pressed Navy",
+        "canonical": "#12304F",
+        "tonalRamp": ["#0A2540", "#12304F", "#1B3D62", "#244B76", "#34608E", "#5079A6", "#7194BD", "#9AB1CF"]
+      },
+      "cream": {
+        "role": "neutral",
+        "displayName": "On-Navy Cream",
+        "canonical": "#EDE3D1",
+        "tonalRamp": ["#3D331F", "#5A4D33", "#776748", "#94815E", "#B19B79", "#C9B696", "#DDCDB4", "#EDE3D1"]
+      },
+      "rule-soft": {
+        "role": "neutral",
+        "displayName": "Soft Rule",
+        "canonical": "#E8E5DC",
+        "tonalRamp": ["#383528", "#56533F", "#737059", "#908D74", "#ACAA90", "#C5C2AC", "#D9D6C7", "#E8E5DC"]
+      },
+      "rule-hair": {
+        "role": "neutral",
+        "displayName": "Hairline Rule",
+        "canonical": "#EFECE4",
+        "tonalRamp": ["#3F3C30", "#5C5946", "#79755D", "#969276", "#B1AE91", "#CBC8AE", "#DEDBC8", "#EFECE4"]
+      },
+      "green": {
+        "role": "primary",
+        "displayName": "Persian Teal",
+        "canonical": "#00A693",
+        "tonalRamp": ["#002923", "#004D43", "#007063", "#009383", "#00A693", "#3DBDAC", "#7BD2C5", "#B0E1D8"]
+      },
+      "green-dk": {
+        "role": "primary",
+        "displayName": "Persian Teal Pressed",
+        "canonical": "#007A6C",
+        "tonalRamp": ["#001D19", "#003832", "#00524A", "#006B61", "#007A6C", "#3D9A8E", "#7BB7AE", "#AED2CB"]
+      },
+      "green-lt": {
+        "role": "primary",
+        "displayName": "Persian Teal Tint",
+        "canonical": "#B0D4CC",
+        "tonalRamp": ["#1F3D38", "#365C55", "#4F7A72", "#6B988E", "#86B4A9", "#A3C9C0", "#B0D4CC", "#D4E7E2"]
+      },
+      "error": {
+        "role": "tertiary",
+        "displayName": "Alert Red",
+        "canonical": "#B0243A",
+        "tonalRamp": ["#2C0810", "#52111E", "#771B2C", "#962335", "#B0243A", "#C24F61", "#D27E8B", "#E2AEB6"]
+      },
+      "error-dk": {
+        "role": "tertiary",
+        "displayName": "Alert Red Pressed",
+        "canonical": "#8A1D2E",
+        "tonalRamp": ["#220714", "#420F1E", "#621626", "#7A1B2A", "#8A1D2E", "#A24A57", "#BC7B85", "#D5ACB2"]
+      },
+      "amber": {
+        "role": "tertiary",
+        "displayName": "Admin Amber",
+        "canonical": "#C47A0E",
+        "tonalRamp": ["#2C1B03", "#523207", "#774A0B", "#965E0F", "#C47A0E", "#D4953D", "#E2B173", "#EFCFA9"]
+      },
+      "chart-visitors": {
+        "role": "secondary",
+        "displayName": "Chart — Visitors (Navy)",
+        "canonical": "#0A2540",
+        "tonalRamp": ["#0A2540", "#143458", "#1F4574", "#2C5891", "#446EAA", "#6388BC", "#8AA4CD", "#B6C4DD"]
+      },
+      "chart-revenue": {
+        "role": "primary",
+        "displayName": "Chart — Revenue (Teal)",
+        "canonical": "#00A693",
+        "tonalRamp": ["#002923", "#004D43", "#007063", "#009383", "#00A693", "#3DBDAC", "#7BD2C5", "#B0E1D8"]
+      },
+      "chart-ochre": {
+        "role": "tertiary",
+        "displayName": "Chart — Ochre",
+        "canonical": "#B87B1A",
+        "tonalRamp": ["#2C1C04", "#553609", "#79500F", "#955F12", "#B87B1A", "#CB9847", "#DCB57A", "#EBD2AB"]
+      },
+      "chart-plum": {
+        "role": "tertiary",
+        "displayName": "Chart — Plum",
+        "canonical": "#5F3B6E",
+        "tonalRamp": ["#170E1A", "#2B1B33", "#3F284B", "#52336A", "#5F3B6E", "#7E5A8E", "#A081B0", "#C4ACCF"]
+      },
+      "chart-rust": {
+        "role": "tertiary",
+        "displayName": "Chart — Rust",
+        "canonical": "#A84628",
+        "tonalRamp": ["#28100A", "#4D1F11", "#702C18", "#8E371F", "#A84628", "#BC6F55", "#CD9784", "#DDBDB0"]
+      },
+      "ch-direct": {
+        "role": "primary",
+        "displayName": "Channel — Direct",
+        "canonical": "#00A693",
+        "tonalRamp": ["#002923", "#004D43", "#007063", "#009383", "#00A693", "#3DBDAC", "#7BD2C5", "#B0E1D8"]
+      },
+      "ch-search": {
+        "role": "tertiary",
+        "displayName": "Channel — Search",
+        "canonical": "#1A73E8",
+        "tonalRamp": ["#061B36", "#0B3268", "#114996", "#1660BD", "#1A73E8", "#558FED", "#8EAFF1", "#BFCEF6"]
+      },
+      "ch-social": {
+        "role": "neutral",
+        "displayName": "Channel — Social",
+        "canonical": "#1A1A1A",
+        "tonalRamp": ["#000000", "#0A0A0A", "#141414", "#1A1A1A", "#3D3D3D", "#666666", "#999999", "#CCCCCC"]
+      },
+      "ch-email": {
+        "role": "tertiary",
+        "displayName": "Channel — Email",
+        "canonical": "#7A4A6E",
+        "tonalRamp": ["#1B1019", "#34202F", "#4D2F46", "#673E5C", "#7A4A6E", "#9A6F8F", "#B796AE", "#D2BBC9"]
+      },
+      "ch-referral": {
+        "role": "neutral",
+        "displayName": "Channel — Referral",
+        "canonical": "#8B7355",
+        "tonalRamp": ["#1F1A11", "#3B3220", "#564A2F", "#71613D", "#8B7355", "#A8927A", "#BFAE9D", "#D4C9BD"]
+      },
+      "ch-ai": {
+        "role": "secondary",
+        "displayName": "Channel — AI",
+        "canonical": "#0A2540",
+        "tonalRamp": ["#0A2540", "#143458", "#1F4574", "#2C5891", "#446EAA", "#6388BC", "#8AA4CD", "#B6C4DD"]
+      },
+      "ch-paid": {
+        "role": "tertiary",
+        "displayName": "Channel — Paid",
+        "canonical": "#8A5508",
+        "tonalRamp": ["#1F1302", "#3B2304", "#553306", "#704408", "#8A5508", "#A87A37", "#C19E6E", "#D6C09F"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display — Space Grotesk 500",
+        "purpose": "Wordmark, KPI primary numbers, section h2 titles. Tracking -0.02em on wordmark + KPI; -0.01em on h2."
+      },
+      "headline": {
+        "displayName": "KPI Primary — Space Grotesk 500 / 34px / tabular-nums",
+        "purpose": "The four primary KPI tiles on Overview: Visitors, Conversion %, Revenue, RPV."
+      },
+      "title": {
+        "displayName": "Section Title — Space Grotesk 500 / 20px",
+        "purpose": "h2 inside panels."
+      },
+      "body": {
+        "displayName": "Body — DM Sans 400 / 13px",
+        "purpose": "Tables, copy, forms, demo banner, error sentences. Prose surfaces cap line length at 65–75ch."
+      },
+      "label": {
+        "displayName": "Label — JetBrains Mono 500 / 10px UPPERCASE / +0.08em",
+        "purpose": "Table headers, KPI captions, filter labels, login form labels, role chip suffix, footer brand stamp. System speech only — never user content."
+      }
+    },
+    "shadows": [
+      {
+        "name": "login-card",
+        "value": "0 1px 2px rgb(0 0 0 / 20%), 0 12px 48px rgb(0 0 0 / 28%)",
+        "purpose": "The system's only standing shadow. Lifts the white Login card off the full-bleed brand-navy backdrop."
+      },
+      {
+        "name": "focus-ring",
+        "value": "outline: 2px solid var(--ink); outline-offset: 2px",
+        "purpose": "Visible focus ring for keyboard users. Non-negotiable; ships on every interactive element."
+      }
+    ],
+    "motion": [
+      {
+        "name": "live-pulse",
+        "value": "2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        "purpose": "The system's only standing animation. 8px Persian Teal dot expands a box-shadow ring from 0 to 6px and fades. Disabled under prefers-reduced-motion."
+      },
+      {
+        "name": "tab-transition",
+        "value": "color 120ms ease, border-color 120ms ease",
+        "purpose": "Nav tab hover / active state."
+      },
+      {
+        "name": "row-hover",
+        "value": "background 80ms ease",
+        "purpose": "Table row hover to rule-hair background."
+      },
+      {
+        "name": "chip-transition",
+        "value": "background 120ms ease, color 120ms ease",
+        "purpose": "DatePicker / Filter chip selection."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow",
+        "value": "720px",
+        "purpose": "Sticky four-row chrome collapses to static layout below this width."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Persian Teal CTA. The only saturated colour on a primary action surface.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Add a site</button>",
+      "css": ".ds-btn-primary { background: var(--green, #00A693); color: var(--paper-2, #FFFFFF); font-family: 'DM Sans', system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 1; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; transition: background 120ms ease; } .ds-btn-primary:hover { background: var(--green-dk, #007A6C); } .ds-btn-primary:focus-visible { outline: 2px solid var(--ink, #0A2540); outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Logout, secondary actions. Transparent fill, hairline border, ink text on hover.",
+      "html": "<button class=\"ds-btn-ghost\" type=\"button\">Sign out</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: var(--ink-2, #12304F); font-family: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--rule-soft, #E8E5DC); border-radius: 4px; cursor: pointer; transition: color 120ms ease, border-color 120ms ease; } .ds-btn-ghost:hover, .ds-btn-ghost:focus-visible { color: var(--ink, #0A2540); border-color: var(--ink, #0A2540); outline: none; }"
+    },
+    {
+      "name": "Channel Chip — Direct",
+      "kind": "chip",
+      "refersTo": "chip-pill",
+      "description": "Channel chip carrying the reserved-role colour for the Direct channel. Locked to the 17-step Go mapper.",
+      "html": "<span class=\"ds-chip ds-chip-channel\" data-channel=\"direct\">Direct</span>",
+      "css": ".ds-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; background: var(--rule-hair, #EFECE4); color: var(--ink, #0A2540); border: 1px solid transparent; } .ds-chip-channel[data-channel=\"direct\"] { color: var(--ch-direct, #00A693); border-color: var(--ch-direct, #00A693); }"
+    },
+    {
+      "name": "Filter Pill (Active)",
+      "kind": "chip",
+      "refersTo": "chip-pill-active",
+      "description": "DatePicker preset / FilterStrip chip in selected state. Ink-on-paper inversion is the loudest selection cue in the system.",
+      "html": "<div class=\"ds-pillgroup\"><button class=\"ds-pill ds-pill-active\" type=\"button\">Last 7 days</button><button class=\"ds-pill\" type=\"button\">Last 30 days</button><button class=\"ds-pill\" type=\"button\">Custom</button></div>",
+      "css": ".ds-pillgroup { display: inline-flex; border: 1px solid var(--rule-soft, #E8E5DC); border-radius: 999px; padding: 2px; background: var(--paper-2, #FFFFFF); gap: 0; } .ds-pill { border: none; border-radius: 999px; background: transparent; padding: 4px 16px; font-family: 'DM Sans', system-ui, sans-serif; font-size: 12px; font-weight: 500; color: var(--ink-2, #12304F); cursor: pointer; transition: background 120ms ease, color 120ms ease; } .ds-pill:hover, .ds-pill:focus-visible { color: var(--ink, #0A2540); outline: none; } .ds-pill.ds-pill-active { background: var(--ink, #0A2540); color: var(--paper-2, #FFFFFF); }"
+    },
+    {
+      "name": "KPI Card (Primary)",
+      "kind": "card",
+      "refersTo": "card-kpi",
+      "description": "Overview primary-tier KPI tile. Mono label + optional DeltaPill on the head row, then a Display 34px tabular-nums value. No icon, no badge, no decoration.",
+      "html": "<div class=\"ds-kpi\"><div class=\"ds-kpi-head\"><div class=\"ds-kpi-label\">Visitors</div><span class=\"ds-delta ds-delta-up\"><span class=\"ds-delta-arrow\" aria-hidden=\"true\">↑</span>4.3%<span class=\"ds-delta-vs\">VS PRIOR</span></span></div><div class=\"ds-kpi-value\">128,470</div></div>",
+      "css": ".ds-kpi { background: var(--paper-2, #FFFFFF); border: 1px solid var(--rule-soft, #E8E5DC); border-radius: 8px; padding: 16px 24px; display: flex; flex-direction: column; gap: 8px; } .ds-kpi-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; } .ds-kpi-label { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 500; color: var(--ink-2, #12304F); text-transform: uppercase; letter-spacing: 0.08em; margin: 0; } .ds-kpi-value { font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 34px; font-weight: 500; color: var(--ink, #0A2540); letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; } .ds-delta { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 999px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; } .ds-delta-up { color: var(--green-dk, #007A6C); background: rgb(0 166 147 / 12%); } .ds-delta-arrow { font-size: 12px; line-height: 1; } .ds-delta-vs { color: var(--ink-2, #12304F); opacity: 0.72; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; padding-left: 4px; }"
+    },
+    {
+      "name": "Sources Table with Dual-Bar",
+      "kind": "card",
+      "refersTo": "table-header",
+      "description": "Sources / Pages / Campaigns table row. Two horizontal bars (Visitors navy, Revenue teal) carry the comparison so small revenue sources stay legible. Stacked bars are forbidden.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>Source</th><th>Channel</th><th>Visitors / Revenue</th></tr></thead><tbody><tr><td>google.com</td><td><span class=\"ds-chip\" data-channel=\"search\" style=\"color:#1A73E8;border-color:#1A73E8\">Search</span></td><td><div class=\"ds-dualbar\"><div class=\"ds-dualbar-row\"><div class=\"ds-dualbar-track\"><span class=\"ds-dualbar-fill\" style=\"width:74%;background:var(--chart-visitors,#0A2540)\"></span></div><div class=\"ds-dualbar-value\">94,210</div></div><div class=\"ds-dualbar-row\"><div class=\"ds-dualbar-track\"><span class=\"ds-dualbar-fill\" style=\"width:48%;background:var(--chart-revenue,#00A693)\"></span></div><div class=\"ds-dualbar-value\">$3,840</div></div></div></td></tr><tr><td>(direct)</td><td><span class=\"ds-chip\" data-channel=\"direct\" style=\"color:#00A693;border-color:#00A693\">Direct</span></td><td><div class=\"ds-dualbar\"><div class=\"ds-dualbar-row\"><div class=\"ds-dualbar-track\"><span class=\"ds-dualbar-fill\" style=\"width:34%;background:var(--chart-visitors,#0A2540)\"></span></div><div class=\"ds-dualbar-value\">42,180</div></div><div class=\"ds-dualbar-row\"><div class=\"ds-dualbar-track\"><span class=\"ds-dualbar-fill\" style=\"width:88%;background:var(--chart-revenue,#00A693)\"></span></div><div class=\"ds-dualbar-value\">$7,020</div></div></div></td></tr></tbody></table>",
+      "css": ".ds-table { width: 100%; border-collapse: collapse; font-family: 'DM Sans', system-ui, sans-serif; font-size: 13px; color: var(--ink, #0A2540); background: var(--paper-2, #FFFFFF); border: 1px solid var(--rule-soft, #E8E5DC); border-radius: 8px; overflow: hidden; } .ds-table th, .ds-table td { text-align: left; padding: 8px 16px; border-bottom: 1px solid var(--rule-hair, #EFECE4); vertical-align: middle; } .ds-table thead { background: var(--paper, #FAFAF8); } .ds-table th { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: 0.08em; color: var(--ink-2, #12304F); border-bottom: 1px solid var(--rule-soft, #E8E5DC); } .ds-table tbody tr:last-child td { border-bottom: none; } .ds-table tbody tr:hover { background: var(--rule-hair, #EFECE4); transition: background 80ms ease; } .ds-table td { font-variant-numeric: tabular-nums; } .ds-table td:first-child { font-weight: 500; color: var(--ink, #0A2540); font-variant-numeric: normal; } .ds-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; background: var(--rule-hair, #EFECE4); border: 1px solid transparent; } .ds-dualbar { display: flex; flex-direction: column; gap: 4px; min-width: 200px; } .ds-dualbar-row { display: flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; } .ds-dualbar-track { flex: 1; height: 6px; background: var(--rule-hair, #EFECE4); border-radius: 3px; overflow: hidden; } .ds-dualbar-fill { display: block; height: 100%; border-radius: 3px; } .ds-dualbar-value { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink, #0A2540); }"
+    },
+    {
+      "name": "Nav Tab Strip (with Admin amber + SOON)",
+      "kind": "nav",
+      "refersTo": "nav-tab",
+      "description": "Sticky Nav row. Active tab carries a teal border-bottom; Admin route swaps to amber to signal a higher-privilege mode. SOON tabs (Geo / Devices / Funnel until v1.1/v2) render as visual-only entries with a mono SOON pill.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Main\"><a class=\"ds-nav-tab ds-nav-tab-active\" href=\"#overview\">Overview</a><a class=\"ds-nav-tab\" href=\"#sources\">Sources</a><a class=\"ds-nav-tab\" href=\"#pages\">Pages</a><a class=\"ds-nav-tab\" href=\"#seo\">SEO</a><a class=\"ds-nav-tab\" href=\"#campaigns\">Campaigns</a><a class=\"ds-nav-tab\" href=\"#realtime\">Realtime <span class=\"ds-pulse\" aria-hidden=\"true\"></span></a><span class=\"ds-nav-tab ds-nav-tab-soon\" role=\"presentation\">Geo <span class=\"ds-soon-pill\">SOON</span></span><a class=\"ds-nav-tab ds-nav-tab-admin\" href=\"#admin\">Admin</a></nav>",
+      "css": ".ds-nav { display: flex; flex-wrap: wrap; gap: 0; padding: 0 24px; height: 48px; align-items: flex-end; background: var(--paper-2, #FFFFFF); border-bottom: 1px solid var(--rule-soft, #E8E5DC); } .ds-nav-tab { display: inline-flex; align-items: center; gap: 4px; padding: 0 16px; height: 48px; color: var(--ink-2, #12304F); font-family: 'DM Sans', system-ui, sans-serif; font-size: 13px; font-weight: 500; text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; transition: color 120ms ease, border-color 120ms ease; } .ds-nav-tab:hover, .ds-nav-tab:focus-visible { color: var(--ink, #0A2540); border-bottom-color: var(--rule-soft, #E8E5DC); outline: none; } .ds-nav-tab.ds-nav-tab-active { color: var(--ink, #0A2540); border-bottom-color: var(--green, #00A693); } .ds-nav-tab.ds-nav-tab-admin { color: var(--ink-2, #12304F); } .ds-nav-tab.ds-nav-tab-active.ds-nav-tab-admin { color: var(--amber, #C47A0E); border-bottom-color: var(--amber, #C47A0E); } .ds-nav-tab.ds-nav-tab-soon { cursor: default; opacity: 0.55; } .ds-nav-tab.ds-nav-tab-soon:hover { color: var(--ink-2, #12304F); border-bottom-color: transparent; } .ds-soon-pill { display: inline-block; padding: 1px 5px; border-radius: 999px; background: var(--rule-hair, #EFECE4); color: var(--ink-2, #12304F); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 9px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.3; } .ds-pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green, #00A693); margin-left: 4px; animation: ds-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; box-shadow: 0 0 0 0 rgb(0 166 147 / 50%); } @keyframes ds-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgb(0 166 147 / 50%); } 50% { box-shadow: 0 0 0 6px rgb(0 166 147 / 0%); } } @media (prefers-reduced-motion: reduce) { .ds-pulse { animation: none; } }"
+    },
+    {
+      "name": "User Chip with Role Pill",
+      "kind": "chip",
+      "refersTo": "chip-pill",
+      "description": "TopBar user identifier. The mono role suffix (admin / viewer / api) is the affordance that explains why a viewer doesn't see the Admin tab.",
+      "html": "<span class=\"ds-userchip\"><span class=\"ds-userchip-name\">parhumm@statnive.live</span><span class=\"ds-userchip-role\">VIEWER</span></span>",
+      "css": ".ds-userchip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 999px; background: var(--rule-hair, #EFECE4); font-size: 12px; color: var(--ink, #0A2540); } .ds-userchip-name { font-family: 'DM Sans', system-ui, sans-serif; font-weight: 500; } .ds-userchip-role { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2, #12304F); padding-left: 4px; border-left: 1px solid var(--rule-soft, #E8E5DC); }"
+    },
+    {
+      "name": "DeltaPill (Up / Down / Flat)",
+      "kind": "chip",
+      "refersTo": "delta-pill-up",
+      "description": "Period-over-period delta with a strict ±1% deadband. Changes inside ±1% render as Flat, never as Up or Down. The pill never lies about a rounding-error change.",
+      "html": "<div style=\"display:flex;gap:8px;align-items:center;\"><span class=\"ds-delta ds-delta-up\"><span class=\"ds-delta-arrow\" aria-hidden=\"true\">↑</span>4.3%</span><span class=\"ds-delta ds-delta-down\"><span class=\"ds-delta-arrow\" aria-hidden=\"true\">↓</span>2.1%</span><span class=\"ds-delta ds-delta-flat\"><span class=\"ds-delta-arrow\" aria-hidden=\"true\">→</span>0.4%</span></div>",
+      "css": ".ds-delta { display: inline-flex; align-items: center; gap: 2px; padding: 2px 6px; border-radius: 999px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; } .ds-delta-up { color: var(--green-dk, #007A6C); background: rgb(0 166 147 / 12%); } .ds-delta-down { color: var(--error, #B0243A); background: rgb(176 36 58 / 12%); } .ds-delta-flat { color: var(--ink-2, #12304F); background: var(--rule-hair, #EFECE4); } .ds-delta-arrow { font-size: 12px; line-height: 1; }"
+    },
+    {
+      "name": "Login Card on Brand Navy",
+      "kind": "card",
+      "refersTo": "card-login",
+      "description": "Customer-viewer first impression. The system's only on-dark surface and only standing shadow.",
+      "html": "<div class=\"ds-login\"><div class=\"ds-login-card\"><h1 class=\"ds-login-wordmark\">statnive<span class=\"ds-login-wordmark-live\">.live</span></h1><div class=\"ds-login-banner\"><span class=\"ds-login-banner-glyph\" aria-hidden=\"true\">▸</span> Demo dashboard. Sign in with the seed account.</div><form class=\"ds-login-form\"><label>EMAIL<input type=\"email\" autocomplete=\"username\" /></label><label>PASSWORD<input type=\"password\" autocomplete=\"current-password\" /></label><button class=\"ds-btn-primary\" type=\"submit\">Sign in</button></form></div></div>",
+      "css": ".ds-login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--ink, #0A2540); color: var(--cream, #EDE3D1); font-family: 'DM Sans', system-ui, sans-serif; } .ds-login-card { width: min(400px, 100%); padding: 32px; background: var(--paper-2, #FFFFFF); color: var(--ink, #0A2540); border-radius: 12px; box-shadow: 0 1px 2px rgb(0 0 0 / 20%), 0 12px 48px rgb(0 0 0 / 28%); } .ds-login-wordmark { margin: 0 0 32px; font-family: 'Space Grotesk', system-ui, sans-serif; font-weight: 500; font-size: 28px; letter-spacing: -0.02em; color: var(--ink, #0A2540); } .ds-login-wordmark-live { color: var(--green, #00A693); } .ds-login-banner { margin-bottom: 16px; padding: 8px 16px; background: rgb(0 166 147 / 10%); border-radius: 4px; font-family: 'DM Sans', system-ui, sans-serif; font-size: 13px; color: var(--ink, #0A2540); display: flex; align-items: center; gap: 8px; } .ds-login-banner-glyph { color: var(--green-dk, #007A6C); font-weight: 700; } .ds-login-form { display: flex; flex-direction: column; gap: 16px; } .ds-login-form label { display: flex; flex-direction: column; gap: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2, #12304F); } .ds-login-form input { font: inherit; font-family: 'DM Sans', system-ui, sans-serif; font-size: 14px; color: var(--ink, #0A2540); padding: 8px 12px; border: 1px solid var(--rule-soft, #E8E5DC); border-radius: 4px; background: var(--paper-2, #FFFFFF); } .ds-login-form input:focus-visible { outline: 2px solid var(--ink, #0A2540); outline-offset: 2px; border-color: var(--ink, #0A2540); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Summit Instrument",
+    "overview": "The panel reads as a calibrated instrument an experienced operator would mount in daylight: warm off-white paper, navy ink at near-black contrast, a single sliver of Persian-Teal that identifies live state and primary action. The peak/summit logo (a mountain with a teal apex dot) is the only place the brand metaphor surfaces decoratively; everywhere else the surface earns its space by carrying real numbers in honest typography. Density sits between Stripe Dashboard and Plausible: more data per row than Plausible permits, less analyst-grade builder UI than Mixpanel demands. Spacing is generous around section heads, tight inside tables, and never uniform — the rhythm tells the customer-viewer where to look.\n\nWhat this system rejects, on sight: SRE-dark with neon (Datadog, Grafana — the first-order observability training-data reflex), purple kitchen-sink with floating AI mascot (PostHog), marketing-cute green over sparse charts (Plausible / Fathom — the privacy-buddy register reads as undersized for a streaming-platform tenant), shocking gradients (Mixpanel / Amplitude), monochrome dark as the safe-second answer (Vercel / Linear), WordPress admin chrome (the sister statnive/ plugin lives in wp-admin and must not visually leak in here). Per the impeccable absolute bans: no side-stripe borders, no gradient text, no decorative glassmorphism, no hero-metric template, no identical card grids, no modal-as-first-thought. The panel never says \"self-hosted\" or \"privacy-first\" in marketing voice; sovereignty shows up in the details (first-party WOFF2 fonts, no CDN, no telemetry pixel, version + commit-sha in the footer).",
+    "keyCharacteristics": [
+      "Light paper (#FAFAF8), navy ink (#0A2540), one teal accent (#00A693) reserved for live state, primary CTA, the wordmark .live suffix, and the direct-channel chip",
+      "Sticky four-row chrome: TopBar (60px) -> DateBar (44px) -> Nav (48px) -> FilterStrip (40px) -> main",
+      "Three-family type system: Space Grotesk display, DM Sans body, JetBrains Mono labels — never a fourth",
+      "Flat by default; the only standing shadow is the Login card on full-bleed navy",
+      "Channel chips are reserved-role and lock to the 17-step internal/enrich/channel.go mapper",
+      "WCAG 2.2 AA floor on every text/background pair; v1.1-a11y slice extends to chart-mirror tables and motion-reduction",
+      "No per-component hex values: make brand-grep rejects hand-rolled colours in PRs"
+    ],
+    "rules": [
+      { "name": "The One Teal Rule", "body": "Persian Teal occupies <=10% of any single screen. Its rarity is the affordance — it identifies 'this is live' and 'this is the primary action you can take.' If three teal elements are visible at once, one of them is decorative and must be removed.", "section": "colors" },
+      { "name": "The Channel-Chip Lock", "body": "Channel chip colours are wired to internal/enrich/channel.go. A chip recolour requires the Go mapper to recolour. Visual changes follow data-shape changes, never the other way around.", "section": "colors" },
+      { "name": "The Amber-Means-Admin Rule", "body": "Amber #C47A0E appears only when the active route is Admin. It tells the user they are in a higher-privilege mode without copy. Forbidden anywhere else.", "section": "colors" },
+      { "name": "The Daylight Rule", "body": "No dark-mode toggle, no auto-switching to dark at night. The panel is for a customer-viewer in a daylight room; the operator's terminal-side surfaces (Health, audit log) live in their actual terminal, not in a colour-flipped dashboard.", "section": "colors" },
+      { "name": "The Three-Family Lock", "body": "Space Grotesk (display), DM Sans (body), JetBrains Mono (label). A fourth family is forbidden until a v1.1-rtl Persian face (Vazirmatn or Estedad WOFF2 subset) is added — and it counts as a Persian-language alternate, not a fourth display family.", "section": "typography" },
+      { "name": "The Mono-Means-System Rule", "body": "JetBrains Mono only renders for system-authored labels and metadata: column headers, KPI captions, version stamps, SOON pills, role chips. User-authored content (site names, page paths, source URLs) is never in mono. Mono in body copy reads as 'this is system speech,' not 'this is data.'", "section": "typography" },
+      { "name": "The Tabular-Nums Rule", "body": "Every numeric cell, KPI value, dual-bar value, DeltaPill value, and table count uses font-variant-numeric: tabular-nums. Numbers must be vertically alignable when stacked. No exceptions.", "section": "typography" },
+      { "name": "The Plain-Sentence Error Rule", "body": "Errors are full sentences in DM Sans 400 + Alert Red, never mono. Errors explain why and how to fix. Forbidden: 'Error 500. See logs.' Required: 'Couldn't load Sources for the last 7 days. ClickHouse is reachable but returned no rows for site 802 — check the date range or confirm the tracker is firing on the property.'", "section": "typography" },
+      { "name": "The Flat-Until-Earned Rule", "body": "Shadows appear only when an element is over a non-paper surface (e.g. Login card on navy). On any paper or surface background, the answer is a hairline border, not a shadow.", "section": "elevation" },
+      { "name": "The No-Glassmorphism Rule", "body": "backdrop-filter: blur() is forbidden on any standing surface. The sticky chrome is opaque paper-2 with a hairline rule beneath; readability survives high-contrast accessibility settings only because there is no blur layer.", "section": "elevation" },
+      { "name": "The Hover-Tone Rule", "body": "Hover state is communicated by tonal shift, not lift. Table rows hover to rule-hair background. Nav tabs hover to ink text + a soft border-bottom. Logout button hovers to ink text + ink border. No transform: translateY() on hover, no shadow grow.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do route every colour, font, spacing, and radius through var(--*) in tokens.css. make brand-grep rejects hand-rolled hex.",
+      "Do keep Persian Teal #00A693 to <=10% of any screen. Reserve it for primary CTA, LivePulse, the wordmark .live, the chart-revenue series, and the ch-direct chip.",
+      "Do lock channel chip colours to the 17-step internal/enrich/channel.go mapper. A chip recolour requires the Go mapper to recolour.",
+      "Do use Amber #C47A0E only when the user is on Admin. It is the affordance for 'you are in a higher-privilege mode.'",
+      "Do apply font-variant-numeric: tabular-nums to every numeric cell, KPI value, DeltaPill, and table count. Numbers must vertically align.",
+      "Do carry the +/-1% DeltaPill deadband. Render small changes as Flat; never as Up or Down.",
+      "Do render unimplemented panels as SOON pills. Never as faux charts with synthetic data.",
+      "Do use the dual-bar Visitors/Revenue idiom on Sources / Pages / Campaigns. Two adjacent bars per row.",
+      "Do lift the Login card with the existing two-layer shadow over the full-bleed navy backdrop. That is the system's only standing shadow.",
+      "Do carry full sentences in errors that explain why and how to fix. DM Sans 400, Alert Red, never mono.",
+      "Do pair every error / success / chart series with an icon prefix. Colour is never the only carrier.",
+      "Do honour prefers-reduced-motion: reduce on every transition. New motion lands disabled-under-reduced-motion by default.",
+      "Do keep all three font families bundled as first-party WOFF2 subsets under /app/assets/. CDN imports are forbidden by air-gap invariant.",
+      "Do keep the version + commit-sha in the footer. Sovereignty shows up in the details, not the copy."
+    ],
+    "donts": [
+      "Don't use border-left or border-right greater than 1px as a coloured accent on any card, list item, callout, or alert. (The existing Login.css demo-banner side-stripe is a known violation; rewrite to background tint + leading glyph.) Side-stripe borders are an impeccable absolute ban.",
+      "Don't use gradient text (background-clip: text over a gradient). Forbidden anywhere on the panel.",
+      "Don't use glassmorphism (backdrop-filter: blur()) on standing surfaces. Forbidden on the sticky chrome, KPI cards, modals.",
+      "Don't ship the hero-metric template (one giant number + small label + supporting stats + gradient accent). It is the SaaS cliche the panel rejects by construction.",
+      "Don't ship identical card grids. The KPI tier on Overview is intentionally two grids of different densities (primary tier 220px-min, secondary tier 160px-min). Sameness is monotony.",
+      "Don't reach for a modal as the first thought. Inline / progressive surfaces first; modal only when the action genuinely requires modal context.",
+      "Don't introduce a fourth font family. Three is the lock. (v1.1-rtl Persian Vazirmatn / Estedad is a locale alternate, not a fourth display family.)",
+      "Don't use mono in user-authored content (site names, page paths, source URLs). Mono is system speech only.",
+      "Don't read like Datadog / Grafana / New Relic. SRE-dark + neon is the first-order observability reflex; the panel is a customer-facing analytics product, not an oncall console.",
+      "Don't read like PostHog. No purple kitchen-sink, no AI-mascot floating chatbot, no session-replay sidebar. The frustration-signals Health panel is the deliberate substitute.",
+      "Don't read like Plausible / Fathom / Simple Analytics. Marketing-cute green over sparse charts under-sizes the product for a streaming-platform tenant.",
+      "Don't read like Mixpanel / Amplitude. No shocking gradients, no funnel-builder UI as primary navigation, no events-analyst vocabulary.",
+      "Don't read like Vercel / Linear monochrome dark. The 'we're greyscale because we're not Datadog' trap is the second-order observability reflex.",
+      "Don't read like WordPress admin. No .notice, no .button-primary, no Dashicons, no wp-admin chrome creep.",
+      "Don't ship dark mode. The panel is for a customer-viewer in a daylight room. (Operator surfaces live in the operator's actual terminal.)",
+      "Don't ship session-replay surfaces, autocapture-by-default UIs, AI-mascot chatbot, or remote agentic install wizards. All four are banned by privacy posture and PRODUCT.md.",
+      "Don't add a third-party telemetry pixel, analytics tag, intercom widget, or marketing iframe to the panel itself. The panel never phones home.",
+      "Don't use celebratory animation on routine state. Summit moments are rare, brand-coherent, customer-only, and never more than one per session.",
+      "Don't write copy with em dashes or '--'. Use commas, colons, semicolons, periods, parentheses.",
+      "Don't redefine a token value in a Preact component. Every colour, font, spacing, and radius routes through var(--*). PR review rejects regressions."
+    ]
+  }
+}

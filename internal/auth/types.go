@@ -19,6 +19,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/google/uuid"
 )
@@ -48,6 +49,10 @@ func (r Role) Valid() bool {
 // User is the operator-facing principal. password_hash is never exported
 // on the wire; it's a DB-only field. Disabled users cannot create new
 // sessions but existing sessions are revoked on disable.
+//
+// SiteID + Role are the single-site authorization fields. Sites is the
+// per-site role map populated by RequireSiteRole on admin requests via
+// LoadUserSites; nil on the dashboard hot path (no extra CH read).
 type User struct {
 	UserID    uuid.UUID
 	SiteID    uint32
@@ -57,6 +62,57 @@ type User struct {
 	Disabled  bool
 	CreatedAt int64 // unix seconds, UTC
 	UpdatedAt int64
+	Sites     map[uint32]Role
+}
+
+// CanAccessSite reports whether the user holds at least `required` role
+// on siteID. Lower Role enum value = higher privilege (admin=1 < viewer=2
+// < api=3); admin satisfies viewer and api. Fail-closed: nil receiver or
+// unhydrated Sites map returns false.
+func (u *User) CanAccessSite(siteID uint32, required Role) bool {
+	if u == nil || u.Sites == nil {
+		return false
+	}
+
+	got, ok := u.Sites[siteID]
+	if !ok {
+		return false
+	}
+
+	return roleRank(got) <= roleRank(required)
+}
+
+// SiteIDs returns the deterministic-sorted list of site_ids the user
+// holds any non-revoked grant on. Used by /api/sites + /api/admin/sites
+// to scope listing responses without leaking sites the user can't see.
+func (u *User) SiteIDs() []uint32 {
+	if u == nil || len(u.Sites) == 0 {
+		return nil
+	}
+
+	out := make([]uint32, 0, len(u.Sites))
+	for id := range u.Sites {
+		out = append(out, id)
+	}
+
+	slices.Sort(out)
+
+	return out
+}
+
+// roleRank maps a Role to its Enum8 numeric rank. Unknown roles fall
+// back to a very-weak rank so they never satisfy any privilege check.
+func roleRank(r Role) int {
+	switch r {
+	case RoleAdmin:
+		return 1
+	case RoleViewer:
+		return 2
+	case RoleAPI:
+		return 3
+	default:
+		return 99
+	}
 }
 
 // Session is the server-side record of one logged-in client. The raw
@@ -87,7 +143,24 @@ type ctxKey int
 const (
 	ctxKeyUser ctxKey = iota
 	ctxKeySession
+	ctxKeyActiveSiteID
 )
+
+// WithActiveSiteID stashes the request's active site_id in context so
+// admin handlers downstream of RequireSiteRole can read it back via
+// ActiveSiteIDFromContext. The middleware already authorized the actor
+// for this site_id; handlers MUST NOT re-derive site from session state.
+func WithActiveSiteID(ctx context.Context, siteID uint32) context.Context {
+	return context.WithValue(ctx, ctxKeyActiveSiteID, siteID)
+}
+
+// ActiveSiteIDFromContext returns the active site_id that
+// RequireSiteRole stashed. Returns 0, false when not present — handlers
+// that depend on a positive site_id treat that as 400 bad-request.
+func ActiveSiteIDFromContext(ctx context.Context) (uint32, bool) {
+	v, ok := ctx.Value(ctxKeyActiveSiteID).(uint32)
+	return v, ok && v > 0
+}
 
 // WithSession attaches the current user + session to the request context.
 // Middleware is the only caller; handlers read via UserFrom / SessionFrom.
