@@ -649,7 +649,15 @@ func (h *Users) UpdateSites(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target, err := h.deps.Auth.GetUserByID(r.Context(), targetID) // nosemgrep: auth-return-nil-guard
-	if err != nil || target == nil {
+	// Semgrep's sibling-statement traversal misses the follow-up `target ==
+	// nil` check below. The defense is present; suppress the false positive.
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+
+		return
+	}
+
+	if target == nil {
 		http.Error(w, "not found", http.StatusNotFound)
 
 		return
