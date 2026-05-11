@@ -59,8 +59,6 @@ func toGoalResponse(g *goals.Goal, hostname string) goalResponse {
 // When RequireSiteRole middleware ran (per_site_admin flag ON), the
 // site_id comes from ActiveSiteIDFromContext; otherwise falls back to
 // actor.SiteID (legacy single-site path).
-//
-//nolint:dupl // symmetric with Users.List but over a different entity.
 func (h *Goals) List(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {

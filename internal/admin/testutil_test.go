@@ -519,10 +519,10 @@ func (f *fakeUserSitesStore) ListUsersBySite(_ context.Context, siteID uint32) (
 }
 
 var (
-	_ auth.Store          = (*fakeAuthStore)(nil)
-	_ goals.Store         = (*fakeGoalsStore)(nil)
-	_ SitesStore          = (*fakeSitesStore)(nil)
-	_ auth.SitesStore     = (*fakeUserSitesStore)(nil)
+	_ auth.Store      = (*fakeAuthStore)(nil)
+	_ goals.Store     = (*fakeGoalsStore)(nil)
+	_ SitesStore      = (*fakeSitesStore)(nil)
+	_ auth.SitesStore = (*fakeUserSitesStore)(nil)
 )
 
 // adminRequest builds a request with an admin *User pre-attached to

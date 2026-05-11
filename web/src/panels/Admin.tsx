@@ -3,7 +3,6 @@ import { useSignal } from '@preact/signals';
 import {
   listUsers,
   createUser,
-  updateUserSites,
   disableUser,
   listGoals,
   createGoal,
@@ -17,7 +16,6 @@ import {
   type AdminUser,
   type AdminGoal,
   type AdminSite,
-  type AdminUserSiteRef,
   type SitePolicyPatch,
   type CurrencyOption,
   type TimezoneOption,
@@ -46,7 +44,7 @@ export default function Admin() {
       {activeSite ? (
         <div class="statnive-admin-context" data-testid="admin-active-site">
           <strong>Managing site:</strong> {activeSite.hostname}
-          {' '}<code>(site_id={activeSite.site_id})</code>
+          {' '}<code>(site_id={activeSite.id})</code>
         </div>
       ) : null}
 

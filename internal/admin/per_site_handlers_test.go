@@ -327,6 +327,7 @@ func TestSites_Create_AutoGrantsActor(t *testing.T) {
 	}
 
 	var resp siteAdminResponse
+
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 
 	// Actor should now have a user_sites grant on the new site.
