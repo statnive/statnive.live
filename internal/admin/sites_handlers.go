@@ -57,10 +57,12 @@ func toSiteResponse(s sites.SiteAdmin) siteAdminResponse {
 	}
 }
 
-// List handles GET /api/admin/sites — every registered site across all
-// tenants. Admins only; the router enforces that before dispatch.
+// List handles GET /api/admin/sites. When per_site_admin flag is ON,
+// returns only sites the actor holds any grant on; otherwise returns
+// every registered site (legacy global view for single-operator deploys).
 func (h *Sites) List(w http.ResponseWriter, r *http.Request) {
-	if auth.UserFrom(r.Context()) == nil {
+	actor := auth.UserFrom(r.Context())
+	if actor == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 
 		return
@@ -76,7 +78,13 @@ func (h *Sites) List(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]siteAdminResponse, 0, len(list))
 
+	// Per-site mode: filter to only the actor's accessible sites.
+	// Legacy mode (actor.Sites nil): all sites are returned as before.
 	for _, s := range list {
+		if actor.Sites != nil && !actor.CanAccessSite(s.ID, auth.RoleViewer) {
+			continue
+		}
+
 		out = append(out, toSiteResponse(s))
 	}
 
@@ -97,6 +105,8 @@ type createSiteRequest struct {
 // Create handles POST /api/admin/sites. Returns 201 with the full site
 // projection on success, 409 on hostname-taken or slug-taken, 400 on
 // invalid hostname or unknown field.
+//
+//nolint:gocyclo // switch over 7 distinct store error types; each must map to a specific HTTP status
 func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {
@@ -176,6 +186,12 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
+	}
+
+	// Auto-grant the creating actor admin on the new site so they can
+	// immediately manage it. No-op when UserSites is nil (legacy mode).
+	if h.deps.UserSites != nil {
+		_ = h.deps.UserSites.Grant(r.Context(), actor.UserID, siteID, auth.RoleAdmin)
 	}
 
 	h.emitSiteEvent(r, audit.EventAdminSiteCreated, actor, *created)

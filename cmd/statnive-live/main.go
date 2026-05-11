@@ -437,11 +437,15 @@ func run() error {
 	// Admin CRUD — admin-only. Viewers + api-tokens are rejected with
 	// 403 + auth.rbac.denied audit event by RequireRole.
 	//
-	// features.per_site_admin swaps the legacy single-site role check
-	// for RequireSiteRole(user_sites + ?site_id). Handlers don't need
-	// to know which path the request came through — both populate
-	// UserFrom(ctx) with an authorized admin.
-	userSitesStore := auth.NewClickHouseSitesStore(store.Conn(), cfg.ClickHouse.Database)
+	// UserSites is wired ONLY when per_site_admin is ON so that
+	// handlers' `deps.UserSites == nil` check correctly selects the
+	// legacy single-site path in flag-OFF builds. When nil, List/Create
+	// fall back to the pre-v0.0.10 actor.SiteID paths and the smoke
+	// harness (which has no user_sites rows) keeps working.
+	var userSitesStore auth.SitesStore
+	if cfg.Features.PerSiteAdmin {
+		userSitesStore = auth.NewClickHouseSitesStore(store.Conn(), cfg.ClickHouse.Database)
+	}
 
 	adminDeps := admin.Deps{
 		Auth:      authStore,
@@ -459,7 +463,7 @@ func run() error {
 		r.Use(apiTokenMW)
 		r.Use(requireAuthed)
 
-		if cfg.Features.PerSiteAdmin {
+		if cfg.Features.PerSiteAdmin && userSitesStore != nil {
 			r.Use(auth.RequireSiteRole(auditLog, userSitesStore, auth.RoleAdmin))
 		} else {
 			r.Use(auth.RequireRole(auditLog, auth.RoleAdmin))
