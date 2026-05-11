@@ -5,6 +5,12 @@ import { authSignal } from '../state/auth';
 // attached too when authSignal is non-empty (CI smoke path). All write
 // handlers go through POST / PATCH with a JSON body.
 
+export interface AdminUserSiteRef {
+  site_id: number;
+  hostname: string;
+  role: 'admin' | 'viewer' | 'api';
+}
+
 export interface AdminUser {
   user_id: string;
   site_id: number;
@@ -12,6 +18,8 @@ export interface AdminUser {
   username: string;
   role: 'admin' | 'viewer' | 'api';
   disabled: boolean;
+  /** Per-site role grants — populated when per_site_admin flag is ON. */
+  sites: AdminUserSiteRef[];
   created_at: number;
   updated_at: number;
 }
@@ -19,6 +27,8 @@ export interface AdminUser {
 export interface AdminGoal {
   goal_id: string;
   site_id: number;
+  /** Hostname of the owning site — populated when per_site_admin flag is ON. */
+  hostname: string;
   name: string;
   match_type: 'event_name_equals';
   pattern: string;
@@ -125,18 +135,28 @@ async function request<T>(
 
 // ---------------- Users ----------------
 
-export async function listUsers(): Promise<AdminUser[]> {
-  const res = await request<{ users: AdminUser[] }>('GET', '/api/admin/users');
+export async function listUsers(siteID: number): Promise<AdminUser[]> {
+  const res = await request<{ users: AdminUser[] }>('GET', `/api/admin/users?site_id=${siteID}`);
   return res.users ?? [];
 }
 
-export async function createUser(body: {
-  email: string;
-  username: string;
-  password: string;
-  role: AdminUser['role'];
-}): Promise<AdminUser> {
-  return request<AdminUser>('POST', '/api/admin/users', body);
+export async function createUser(
+  siteID: number,
+  body: {
+    email: string;
+    username: string;
+    password: string;
+    sites: { site_id: number; role: string }[];
+  },
+): Promise<AdminUser> {
+  return request<AdminUser>('POST', `/api/admin/users?site_id=${siteID}`, body);
+}
+
+export async function updateUserSites(
+  id: string,
+  sites: { site_id: number; role: string }[],
+): Promise<void> {
+  await request<void>('PATCH', `/api/admin/users/${id}/sites`, { sites });
 }
 
 export async function updateUser(
@@ -160,22 +180,26 @@ export async function enableUser(id: string): Promise<void> {
 
 // ---------------- Goals ----------------
 
-export async function listGoals(): Promise<AdminGoal[]> {
-  const res = await request<{ goals: AdminGoal[] }>('GET', '/api/admin/goals');
+export async function listGoals(siteID: number): Promise<AdminGoal[]> {
+  const res = await request<{ goals: AdminGoal[] }>('GET', `/api/admin/goals?site_id=${siteID}`);
   return res.goals ?? [];
 }
 
-export async function createGoal(body: {
-  name: string;
-  match_type: 'event_name_equals';
-  pattern: string;
-  value: number;
-  enabled: boolean;
-}): Promise<AdminGoal> {
-  return request<AdminGoal>('POST', '/api/admin/goals', body);
+export async function createGoal(
+  siteID: number,
+  body: {
+    name: string;
+    match_type: 'event_name_equals';
+    pattern: string;
+    value: number;
+    enabled: boolean;
+  },
+): Promise<AdminGoal> {
+  return request<AdminGoal>('POST', `/api/admin/goals?site_id=${siteID}`, body);
 }
 
 export async function updateGoal(
+  siteID: number,
   id: string,
   body: {
     name: string;
@@ -185,11 +209,11 @@ export async function updateGoal(
     enabled: boolean;
   },
 ): Promise<AdminGoal> {
-  return request<AdminGoal>('PATCH', `/api/admin/goals/${id}`, body);
+  return request<AdminGoal>('PATCH', `/api/admin/goals/${id}?site_id=${siteID}`, body);
 }
 
-export async function disableGoal(id: string): Promise<void> {
-  await request<void>('POST', `/api/admin/goals/${id}/disable`);
+export async function disableGoal(siteID: number, id: string): Promise<void> {
+  await request<void>('POST', `/api/admin/goals/${id}/disable?site_id=${siteID}`);
 }
 
 // ---------------- Sites ----------------

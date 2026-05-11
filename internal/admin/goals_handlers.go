@@ -30,6 +30,7 @@ func NewGoals(deps Deps) *Goals {
 type goalResponse struct {
 	GoalID    string `json:"goal_id"`
 	SiteID    uint32 `json:"site_id"`
+	Hostname  string `json:"hostname"`
 	Name      string `json:"name"`
 	MatchType string `json:"match_type"`
 	Pattern   string `json:"pattern"`
@@ -39,10 +40,11 @@ type goalResponse struct {
 	UpdatedAt int64  `json:"updated_at"`
 }
 
-func toGoalResponse(g *goals.Goal) goalResponse {
+func toGoalResponse(g *goals.Goal, hostname string) goalResponse {
 	return goalResponse{
 		GoalID:    g.GoalID.String(),
 		SiteID:    g.SiteID,
+		Hostname:  hostname,
 		Name:      g.Name,
 		MatchType: string(g.MatchType),
 		Pattern:   g.Pattern,
@@ -53,7 +55,10 @@ func toGoalResponse(g *goals.Goal) goalResponse {
 	}
 }
 
-// List handles GET /api/admin/goals — all goals for the actor's site.
+// List handles GET /api/admin/goals — all goals for the active site.
+// When RequireSiteRole middleware ran (per_site_admin flag ON), the
+// site_id comes from ActiveSiteIDFromContext; otherwise falls back to
+// actor.SiteID (legacy single-site path).
 //
 //nolint:dupl // symmetric with Users.List but over a different entity.
 func (h *Goals) List(w http.ResponseWriter, r *http.Request) {
@@ -64,13 +69,18 @@ func (h *Goals) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list, err := h.deps.Goals.List(r.Context(), actor.SiteID)
+	siteID := activeSiteOr(r.Context(), actor.SiteID)
+
+	list, err := h.deps.Goals.List(r.Context(), siteID)
 	if err != nil {
 		h.deps.emitDashboardError(r, "list_goals", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
 	}
+
+	// One hostname lookup per List — all goals share the same site_id.
+	hostname := hostnameFor(r.Context(), h.deps.Sites, siteID)
 
 	out := make([]goalResponse, 0, len(list))
 
@@ -79,7 +89,7 @@ func (h *Goals) List(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		out = append(out, toGoalResponse(g))
+		out = append(out, toGoalResponse(g, hostname))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"goals": out})
@@ -116,7 +126,7 @@ func (h *Goals) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	g := &goals.Goal{
-		SiteID:    actor.SiteID, // session context — NEVER body
+		SiteID:    activeSiteOr(r.Context(), actor.SiteID), // middleware or session
 		Name:      strings.TrimSpace(req.Name),
 		MatchType: goals.MatchType(req.MatchType),
 		Pattern:   strings.TrimSpace(req.Pattern),
@@ -140,7 +150,8 @@ func (h *Goals) Create(w http.ResponseWriter, r *http.Request) {
 
 	h.reloadSnapshot(r.Context())
 	h.emitGoalEvent(r, audit.EventAdminGoalCreated, actor, g)
-	writeJSON(w, http.StatusCreated, toGoalResponse(g))
+	hostname := hostnameFor(r.Context(), h.deps.Sites, g.SiteID)
+	writeJSON(w, http.StatusCreated, toGoalResponse(g, hostname))
 }
 
 // updateGoalRequest — editable fields. site_id / goal_id come from
@@ -180,7 +191,7 @@ func (h *Goals) Update(w http.ResponseWriter, r *http.Request) {
 
 	g := &goals.Goal{
 		GoalID:    goalID,
-		SiteID:    actor.SiteID, // session-scoped — cross-tenant update impossible
+		SiteID:    activeSiteOr(r.Context(), actor.SiteID), // middleware or session
 		Name:      strings.TrimSpace(req.Name),
 		MatchType: goals.MatchType(req.MatchType),
 		Pattern:   strings.TrimSpace(req.Pattern),
@@ -205,7 +216,8 @@ func (h *Goals) Update(w http.ResponseWriter, r *http.Request) {
 
 	h.reloadSnapshot(r.Context())
 	h.emitGoalEvent(r, audit.EventAdminGoalUpdated, actor, g)
-	writeJSON(w, http.StatusOK, toGoalResponse(g))
+	hostname := hostnameFor(r.Context(), h.deps.Sites, g.SiteID)
+	writeJSON(w, http.StatusOK, toGoalResponse(g, hostname))
 }
 
 // Disable handles POST /api/admin/goals/{id}/disable. Soft delete —
@@ -226,7 +238,8 @@ func (h *Goals) Disable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.deps.Goals.Disable(r.Context(), actor.SiteID, goalID); err != nil {
+	siteID := activeSiteOr(r.Context(), actor.SiteID)
+	if err := h.deps.Goals.Disable(r.Context(), siteID, goalID); err != nil {
 		if errors.Is(err, goals.ErrNotFound) {
 			http.Error(w, "not found", http.StatusNotFound)
 
@@ -241,7 +254,7 @@ func (h *Goals) Disable(w http.ResponseWriter, r *http.Request) {
 
 	h.reloadSnapshot(r.Context())
 	h.emitGoalEvent(r, audit.EventAdminGoalDisabled, actor,
-		&goals.Goal{GoalID: goalID, SiteID: actor.SiteID})
+		&goals.Goal{GoalID: goalID, SiteID: siteID})
 	w.WriteHeader(http.StatusNoContent)
 }
 

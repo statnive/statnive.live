@@ -24,6 +24,8 @@ export interface CurrentUser {
   username: string;
   role: 'admin' | 'viewer' | 'api';
   site_id: number;
+  /** Per-site role map from /api/user (populated when per_site_admin flag is ON). */
+  sites?: Record<string, string>;
   demo_banner?: string;
 }
 

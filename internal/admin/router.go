@@ -16,6 +16,7 @@ import (
 //	GET    /api/admin/users
 //	POST   /api/admin/users
 //	PATCH  /api/admin/users/{id}
+//	PATCH  /api/admin/users/{id}/sites   (per-site grants)
 //	POST   /api/admin/users/{id}/password
 //	POST   /api/admin/users/{id}/disable
 //	POST   /api/admin/users/{id}/enable
@@ -37,6 +38,7 @@ func Mount(r chi.Router, deps Deps) {
 	r.Method(http.MethodGet, "/api/admin/users", http.HandlerFunc(users.List))
 	r.Method(http.MethodPost, "/api/admin/users", http.HandlerFunc(users.Create))
 	r.Method(http.MethodPatch, "/api/admin/users/{id}", http.HandlerFunc(users.Update))
+	r.Method(http.MethodPatch, "/api/admin/users/{id}/sites", http.HandlerFunc(users.UpdateSites))
 	r.Method(http.MethodPost, "/api/admin/users/{id}/password", http.HandlerFunc(users.ResetPassword))
 	r.Method(http.MethodPost, "/api/admin/users/{id}/disable", http.HandlerFunc(users.Disable))
 	r.Method(http.MethodPost, "/api/admin/users/{id}/enable", http.HandlerFunc(users.Enable))

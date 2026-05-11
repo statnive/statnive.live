@@ -3,6 +3,7 @@ import { useSignal } from '@preact/signals';
 import {
   listUsers,
   createUser,
+  updateUserSites,
   disableUser,
   listGoals,
   createGoal,
@@ -16,10 +17,12 @@ import {
   type AdminUser,
   type AdminGoal,
   type AdminSite,
+  type AdminUserSiteRef,
   type SitePolicyPatch,
   type CurrencyOption,
   type TimezoneOption,
 } from '../api/admin';
+import { activeSiteSignal } from '../state/site';
 import './Admin.css';
 
 // Admin panel — single lazy chunk, tabbed between Users + Goals.
@@ -36,9 +39,17 @@ const FALLBACK_TIMEZONE = 'Europe/Berlin';
 
 export default function Admin() {
   const tab = useSignal<Tab>('sites');
+  const activeSite = activeSiteSignal.value;
 
   return (
     <section class="statnive-admin">
+      {activeSite ? (
+        <div class="statnive-admin-context" data-testid="admin-active-site">
+          <strong>Managing site:</strong> {activeSite.hostname}
+          {' '}<code>(site_id={activeSite.site_id})</code>
+        </div>
+      ) : null}
+
       <div class="statnive-admin-tabs" role="tablist">
         <button
           type="button"
@@ -79,10 +90,13 @@ export default function Admin() {
 function UsersTab() {
   const [rows, setRows] = useState<AdminUser[] | null>(null);
   const [err, setErr] = useState<string>('');
+  const activeSite = activeSiteSignal.value;
+  const siteID = activeSite?.site_id ?? 0;
 
   async function refresh() {
+    if (!siteID) return;
     try {
-      setRows(await listUsers());
+      setRows(await listUsers(siteID));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
@@ -90,7 +104,8 @@ function UsersTab() {
 
   useEffect(() => {
     void refresh();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteID]);
 
   async function onDisable(id: string) {
     try {
@@ -103,7 +118,7 @@ function UsersTab() {
 
   return (
     <div class="statnive-admin-users">
-      <NewUserForm onCreated={refresh} onError={setErr} />
+      <NewUserForm siteID={siteID} onCreated={refresh} onError={setErr} />
 
       {err ? <p class="statnive-admin-error" role="alert">{err}</p> : null}
 
@@ -117,7 +132,7 @@ function UsersTab() {
             <tr>
               <th>Email</th>
               <th>Username</th>
-              <th>Role</th>
+              <th>Sites + Roles</th>
               <th>Status</th>
               <th></th>
             </tr>
@@ -127,7 +142,17 @@ function UsersTab() {
               <tr key={u.user_id}>
                 <td>{u.email}</td>
                 <td>{u.username}</td>
-                <td>{u.role}</td>
+                <td>
+                  {u.sites?.length > 0 ? (
+                    u.sites.map((s) => (
+                      <span key={s.site_id} class="statnive-site-chip">
+                        {s.hostname} <em>({s.role})</em>
+                      </span>
+                    ))
+                  ) : (
+                    <em>{u.role} @ site {u.site_id}</em>
+                  )}
+                </td>
                 <td>{u.disabled ? 'disabled' : 'active'}</td>
                 <td>
                   {u.disabled ? null : (
@@ -146,9 +171,11 @@ function UsersTab() {
 }
 
 function NewUserForm({
+  siteID,
   onCreated,
   onError,
 }: {
+  siteID: number;
   onCreated: () => void | Promise<void>;
   onError: (msg: string) => void;
 }) {
@@ -163,7 +190,12 @@ function NewUserForm({
     if (busy) return;
     setBusy(true);
     try {
-      await createUser({ email, username, password, role });
+      await createUser(siteID, {
+        email,
+        username,
+        password,
+        sites: siteID > 0 ? [{ site_id: siteID, role }] : [],
+      });
       setEmail('');
       setUsername('');
       setPassword('');
@@ -192,7 +224,7 @@ function NewUserForm({
         <input type="password" required value={password} onInput={(e) => setPassword((e.target as HTMLInputElement).value)} />
       </label>
       <label>
-        Role
+        Role on this site
         <select
           value={role}
           onChange={(e) => setRole((e.target as HTMLSelectElement).value as AdminUser['role'])}
@@ -214,10 +246,13 @@ function NewUserForm({
 function GoalsTab() {
   const [rows, setRows] = useState<AdminGoal[] | null>(null);
   const [err, setErr] = useState<string>('');
+  const activeSite = activeSiteSignal.value;
+  const siteID = activeSite?.site_id ?? 0;
 
   async function refresh() {
+    if (!siteID) return;
     try {
-      setRows(await listGoals());
+      setRows(await listGoals(siteID));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
@@ -225,11 +260,12 @@ function GoalsTab() {
 
   useEffect(() => {
     void refresh();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteID]);
 
-  async function onDisable(id: string) {
+  async function onDisable(g: AdminGoal) {
     try {
-      await disableGoal(id);
+      await disableGoal(g.site_id, g.goal_id);
       await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -238,37 +274,40 @@ function GoalsTab() {
 
   return (
     <div class="statnive-admin-goals">
-      <NewGoalForm onCreated={refresh} onError={setErr} />
+      <EventApiHelpCard />
+      <NewGoalForm siteID={siteID} onCreated={refresh} onError={setErr} />
 
       {err ? <p class="statnive-admin-error" role="alert">{err}</p> : null}
 
       {rows === null ? (
         <p>Loading…</p>
       ) : rows.length === 0 ? (
-        <p>No goals yet.</p>
+        <p>No goals yet for this site.</p>
       ) : (
         <table class="statnive-admin-table" data-testid="admin-goals-table">
           <thead>
             <tr>
+              <th>Site</th>
               <th>Name</th>
-              <th>Match</th>
-              <th>Pattern</th>
+              <th>Pattern (event_name)</th>
               <th>Value</th>
               <th>Enabled</th>
+              <th>Snippet</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((g) => (
               <tr key={g.goal_id}>
+                <td>{g.hostname || '—'} <code>({g.site_id})</code></td>
                 <td>{g.name}</td>
-                <td>{g.match_type}</td>
                 <td><code>{g.pattern}</code></td>
                 <td>{g.value}</td>
                 <td>{g.enabled ? 'yes' : 'no'}</td>
+                <td><GoalSnippetButton goal={g} /></td>
                 <td>
                   {g.enabled ? (
-                    <button type="button" onClick={() => void onDisable(g.goal_id)}>
+                    <button type="button" onClick={() => void onDisable(g)}>
                       Disable
                     </button>
                   ) : null}
@@ -282,10 +321,76 @@ function GoalsTab() {
   );
 }
 
+function EventApiHelpCard() {
+  return (
+    <details class="statnive-admin-help-card">
+      <summary><strong>How to fire custom events</strong></summary>
+      <div>
+        <p>Every visit fires a pageview automatically. For a custom event (click, form submit, video play):</p>
+        <pre><code>{`window.statniveLive.track(name, props, value)`}</code></pre>
+        <ul>
+          <li><strong>name</strong> — required string. Becomes <code>event_name</code>.</li>
+          <li><strong>props</strong> — optional object. Default <code>{'{}'}</code>.</li>
+          <li><strong>value</strong> — optional integer. Defaults to <code>0</code>.</li>
+        </ul>
+        <p><strong>When is an event also a goal?</strong> Define a goal below. When <code>event_name</code> matches a goal pattern, the server sets <code>is_goal=1</code> and overwrites <code>event_value</code> with the goal's value. The revenue card sums goal events.</p>
+        <p><strong>Edge cases:</strong></p>
+        <ul>
+          <li>No matching goal → stored as a regular custom event (<code>is_goal=0</code>). Not in the revenue card.</li>
+          <li>Disabled goal → behaves as if it doesn't exist. Re-enabling does NOT backfill past events.</li>
+          <li>Tracker loaded on an unregistered hostname → server returns 204, event silently dropped.</li>
+        </ul>
+      </div>
+    </details>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function onCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard unavailable — content is visible; user can select-copy
+    }
+  }
+
+  return (
+    <button type="button" class="statnive-chip" onClick={() => void onCopy()}>
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  );
+}
+
+function GoalSnippetButton({ goal }: { goal: AdminGoal }) {
+  const [open, setOpen] = useState(false);
+
+  const snippet = `// Direct call:\nwindow.statniveLive.track('${goal.pattern}', {\n  page: window.location.pathname,\n});\n\n// Delegated click listener (install once):\ndocument.addEventListener('click', function (e) {\n  var a = e.target.closest('[data-statnive-goal="${goal.pattern}"]');\n  if (!a || !window.statniveLive) return;\n  window.statniveLive.track('${goal.pattern}', {\n    page: window.location.pathname,\n    href: a.href || '',\n  });\n}, true);\n\n// Mark your element:\n// <a href="..." data-statnive-goal="${goal.pattern}">Click me</a>`;
+
+  return (
+    <span>
+      <button type="button" class="statnive-chip" onClick={() => setOpen(!open)}>
+        {open ? 'Hide' : 'Show snippet'}
+      </button>
+      {open ? (
+        <span class="statnive-admin-snippet">
+          <pre><code>{snippet}</code></pre>
+          <CopyButton text={snippet} />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function NewGoalForm({
+  siteID,
   onCreated,
   onError,
 }: {
+  siteID: number;
   onCreated: () => void | Promise<void>;
   onError: (msg: string) => void;
 }) {
@@ -299,7 +404,7 @@ function NewGoalForm({
     if (busy) return;
     setBusy(true);
     try {
-      await createGoal({
+      await createGoal(siteID, {
         name,
         match_type: 'event_name_equals',
         pattern,

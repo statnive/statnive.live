@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -288,6 +289,12 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 
 // Me handles GET /api/user — returns the current authenticated user
 // so the SPA can bootstrap. Requires a session; otherwise 401.
+//
+// sites is a map[site_id_string]role — populated when per_site_admin
+// flag is ON (RequireSiteRole middleware hydrates u.Sites before the
+// dashboard routes for admin callers). Empty map when flag is OFF or
+// user is not an admin. Frontend uses this to build the admin site
+// picker without a separate round-trip.
 func (h *Handlers) Me(w http.ResponseWriter, r *http.Request) {
 	u := UserFrom(r.Context())
 	if u == nil {
@@ -296,19 +303,27 @@ func (h *Handlers) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Convert Sites map[uint32]Role → map[string]string for JSON.
+	sitesJSON := make(map[string]string, len(u.Sites))
+	for id, role := range u.Sites {
+		sitesJSON[strconv.FormatUint(uint64(id), 10)] = string(role)
+	}
+
 	resp := struct {
-		UserID     string `json:"user_id"`
-		Email      string `json:"email"`
-		Username   string `json:"username"`
-		Role       Role   `json:"role"`
-		SiteID     uint32 `json:"site_id"`
-		DemoBanner string `json:"demo_banner,omitempty"`
+		UserID     string            `json:"user_id"`
+		Email      string            `json:"email"`
+		Username   string            `json:"username"`
+		Role       Role              `json:"role"`
+		SiteID     uint32            `json:"site_id"`
+		Sites      map[string]string `json:"sites"`
+		DemoBanner string            `json:"demo_banner,omitempty"`
 	}{
 		UserID:     u.UserID.String(),
 		Email:      u.Email,
 		Username:   u.Username,
 		Role:       u.Role,
 		SiteID:     u.SiteID,
+		Sites:      sitesJSON,
 		DemoBanner: h.cfg.DemoBanner,
 	}
 

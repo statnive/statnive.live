@@ -458,10 +458,71 @@ func (f *fakeSitesStore) ListAdmin(_ context.Context) ([]sites.SiteAdmin, error)
 	return out, nil
 }
 
+// fakeUserSitesStore is a minimal auth.SitesStore for handler tests.
+// Distinct from fakeSitesStore (which implements admin.SitesStore).
+type fakeUserSitesStore struct {
+	mu     sync.Mutex
+	grants map[uuid.UUID]map[uint32]auth.Role
+}
+
+func newFakeUserSitesStore() *fakeUserSitesStore {
+	return &fakeUserSitesStore{grants: map[uuid.UUID]map[uint32]auth.Role{}}
+}
+
+func (f *fakeUserSitesStore) LoadUserSites(_ context.Context, userID uuid.UUID) (map[uint32]auth.Role, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := make(map[uint32]auth.Role, len(f.grants[userID]))
+	for k, v := range f.grants[userID] {
+		out[k] = v
+	}
+
+	return out, nil
+}
+
+func (f *fakeUserSitesStore) Grant(_ context.Context, userID uuid.UUID, siteID uint32, role auth.Role) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.grants[userID] == nil {
+		f.grants[userID] = map[uint32]auth.Role{}
+	}
+
+	f.grants[userID][siteID] = role
+
+	return nil
+}
+
+func (f *fakeUserSitesStore) Revoke(_ context.Context, userID uuid.UUID, siteID uint32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	delete(f.grants[userID], siteID)
+
+	return nil
+}
+
+func (f *fakeUserSitesStore) ListUsersBySite(_ context.Context, siteID uint32) ([]auth.UserSiteGrant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := make([]auth.UserSiteGrant, 0, 4)
+
+	for userID, sites := range f.grants {
+		if r, ok := sites[siteID]; ok {
+			out = append(out, auth.UserSiteGrant{UserID: userID, Role: r})
+		}
+	}
+
+	return out, nil
+}
+
 var (
-	_ auth.Store  = (*fakeAuthStore)(nil)
-	_ goals.Store = (*fakeGoalsStore)(nil)
-	_ SitesStore  = (*fakeSitesStore)(nil)
+	_ auth.Store          = (*fakeAuthStore)(nil)
+	_ goals.Store         = (*fakeGoalsStore)(nil)
+	_ SitesStore          = (*fakeSitesStore)(nil)
+	_ auth.SitesStore     = (*fakeUserSitesStore)(nil)
 )
 
 // adminRequest builds a request with an admin *User pre-attached to
@@ -484,4 +545,32 @@ func adminRequest(t *testing.T, method, target, body string, admin *auth.User, p
 	}
 
 	return r.WithContext(ctx)
+}
+
+// adminRequestWithSite builds an authenticated request with the active
+// site_id injected into context (the RequireSiteRole middleware does
+// this in production). Use for testing the per_site_admin code path.
+func adminRequestWithSite(
+	t *testing.T, method, target, body string,
+	admin *auth.User, siteID uint32, pathParams map[string]string,
+) *http.Request {
+	t.Helper()
+
+	r := adminRequest(t, method, target, body, admin, pathParams)
+	ctx := auth.WithActiveSiteID(r.Context(), siteID)
+
+	return r.WithContext(ctx)
+}
+
+// newTestAdminWithSites creates a test admin with the Sites map
+// pre-populated, simulating what RequireSiteRole middleware does.
+func newTestAdminWithSites(siteIDs ...uint32) *auth.User {
+	u := newTestAdmin()
+	u.Sites = make(map[uint32]auth.Role, len(siteIDs))
+
+	for _, id := range siteIDs {
+		u.Sites[id] = auth.RoleAdmin
+	}
+
+	return u
 }
