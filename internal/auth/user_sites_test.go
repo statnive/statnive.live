@@ -230,6 +230,7 @@ func (errorSitesStore) ListUsersBySite(context.Context, uint32) ([]UserSiteGrant
 // the middleware stashed it correctly.
 func nextOK(w http.ResponseWriter, r *http.Request) {
 	siteID, _ := ActiveSiteIDFromContext(r.Context())
+
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("active=" + strconv.FormatUint(uint64(siteID), 10)))
 }

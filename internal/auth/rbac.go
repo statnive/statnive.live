@@ -150,4 +150,3 @@ func parseSiteID(raw string) (uint32, error) {
 
 	return uint32(n), nil
 }
-
