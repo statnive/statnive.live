@@ -201,12 +201,13 @@ type createUserRequest struct {
 	Sites    []siteRoleReq `json:"sites"`
 }
 
-//nolint:gocyclo // multi-error-case handler; complexity is inherent in the per-site + legacy paths + grant validation
 // Create handles POST /api/admin/users. Supports two modes:
 //   - per_site_admin ON: body carries sites:[{site_id,role}]; actor
 //     must have admin on every requested site; user_sites grants are
 //     written after user creation.
 //   - legacy: body carries role; user inherits actor.SiteID.
+//
+//nolint:gocyclo // multi-error-case handler; complexity is inherent in the per-site + legacy paths + grant validation
 func (h *Users) Create(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {
@@ -607,11 +608,12 @@ type updateUserSitesRequest struct {
 	Sites []siteRoleReq `json:"sites"`
 }
 
-//nolint:gocyclo // access-check + diff + grant + revoke loops; inherently branchy; extracted sub-helpers would fragment the audit trail
 // UpdateSites handles PATCH /api/admin/users/{id}/sites. Diffs the
 // requested grants against the current user_sites rows: inserts new /
 // changed grants, revokes removed grants. Validates every site_id
 // against the actor's own grants so a viewer cannot elevate themselves.
+//
+//nolint:gocyclo // access-check + diff + grant + revoke loops; inherently branchy; extracted sub-helpers would fragment the audit trail
 func (h *Users) UpdateSites(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {

@@ -89,7 +89,7 @@ function UsersTab() {
   const [rows, setRows] = useState<AdminUser[] | null>(null);
   const [err, setErr] = useState<string>('');
   const activeSite = activeSiteSignal.value;
-  const siteID = activeSite?.site_id ?? 0;
+  const siteID = activeSite?.id ?? 0;
 
   async function refresh() {
     if (!siteID) return;
@@ -245,7 +245,7 @@ function GoalsTab() {
   const [rows, setRows] = useState<AdminGoal[] | null>(null);
   const [err, setErr] = useState<string>('');
   const activeSite = activeSiteSignal.value;
-  const siteID = activeSite?.site_id ?? 0;
+  const siteID = activeSite?.id ?? 0;
 
   async function refresh() {
     if (!siteID) return;

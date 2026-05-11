@@ -102,10 +102,11 @@ type createSiteRequest struct {
 	Currency string `json:"currency"`
 }
 
-//nolint:gocyclo // switch over 7 distinct store error types; each must map to a specific HTTP status
 // Create handles POST /api/admin/sites. Returns 201 with the full site
 // projection on success, 409 on hostname-taken or slug-taken, 400 on
 // invalid hostname or unknown field.
+//
+//nolint:gocyclo // switch over 7 distinct store error types; each must map to a specific HTTP status
 func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {
