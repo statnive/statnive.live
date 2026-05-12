@@ -171,3 +171,69 @@ func TestRenderMigration_010_SplitsCleanly(t *testing.T) {
 		t.Fatalf("third statement should be operator-bootstrap INSERT, got: %s", stmts[2])
 	}
 }
+
+// TestRenderMigration_011_RollupTTL pins the three ALTER statements of
+// migration 011 and the cluster-template branch. Order-agnostic — the
+// rollup column (hour vs day) is asserted alongside the table name.
+func TestRenderMigration_011_RollupTTL(t *testing.T) {
+	t.Parallel()
+
+	body, err := Migrations.ReadFile("migrations/011_rollup_ttl.sql")
+	if err != nil {
+		t.Fatalf("read migration 011: %v", err)
+	}
+
+	t.Run("single-node renders three plain ALTERs", func(t *testing.T) {
+		t.Parallel()
+
+		got, renderErr := RenderMigrationWith("011_rollup_ttl.sql", body, MigrationData{})
+		if renderErr != nil {
+			t.Fatalf("render: %v", renderErr)
+		}
+
+		stmts := SplitStatements(got)
+		if len(stmts) != 3 {
+			t.Fatalf("SplitStatements returned %d, want 3 (one ALTER per rollup)", len(stmts))
+		}
+
+		joined := strings.Join(stmts, "\n")
+
+		if strings.Contains(joined, "ON CLUSTER") {
+			t.Fatalf("single-node statements must not contain ON CLUSTER")
+		}
+
+		for _, want := range []string{
+			"statnive.hourly_visitors",
+			"statnive.daily_pages",
+			"statnive.daily_sources",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("missing ALTER for %s", want)
+			}
+		}
+
+		// hour column for hourly_visitors, day for the two daily rollups.
+		if !strings.Contains(joined, "MODIFY TTL hour + INTERVAL 750 DAY DELETE") {
+			t.Errorf("hourly_visitors TTL clause missing")
+		}
+		if strings.Count(joined, "MODIFY TTL day + INTERVAL 750 DAY DELETE") != 2 {
+			t.Errorf("expected day-column TTL twice (daily_pages + daily_sources)")
+		}
+	})
+
+	t.Run("cluster mode emits ON CLUSTER three times", func(t *testing.T) {
+		t.Parallel()
+
+		got, renderErr := RenderMigrationWith("011_rollup_ttl.sql", body, MigrationData{
+			Cluster: "statnive_cluster",
+		})
+		if renderErr != nil {
+			t.Fatalf("render: %v", renderErr)
+		}
+
+		joined := strings.Join(SplitStatements(got), "\n")
+		if strings.Count(joined, "ON CLUSTER statnive_cluster") != 3 {
+			t.Fatalf("cluster mode should emit ON CLUSTER 3 times, got:\n%s", joined)
+		}
+	})
+}
