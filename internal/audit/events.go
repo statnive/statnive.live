@@ -149,7 +149,7 @@ const (
 // attached — site_id only.
 const (
 	EventLIAViewed           EventName = "legal.lia_viewed"
-	EventDPADownloaded       EventName = "legal.dpa_downloaded"
+	EventDPAViewed           EventName = "legal.dpa_viewed"
 	EventPrivacyPolicyViewed EventName = "legal.privacy_policy_viewed"
 )
 

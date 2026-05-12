@@ -23,7 +23,7 @@ func TestPrivacyAndLegalConstants_DottedLowercase(t *testing.T) {
 		audit.EventConsentGiven,
 		audit.EventConsentWithdrawn,
 		audit.EventLIAViewed,
-		audit.EventDPADownloaded,
+		audit.EventDPAViewed,
 		audit.EventPrivacyPolicyViewed,
 	}
 	for _, name := range got {

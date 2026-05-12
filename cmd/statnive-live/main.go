@@ -507,6 +507,12 @@ func run() error {
 	// to the audit emission (lang only).
 	router.Method(http.MethodGet, "/legal/lia", legal.LIAHandler(auditLog))
 
+	// /legal/dpa — customer-facing Data Processing Agreement template
+	// (English). Embedded from docs/dpa-draft.md via go:embed; a
+	// test-time drift guard pins the embedded copy to the canonical
+	// doc. Phase 11a hard gate per PLAN.md.
+	router.Method(http.MethodGet, "/legal/dpa", legal.DPAHandler(auditLog))
+
 	// First-party tracker — bytes embedded via go:embed in internal/tracker.
 	// Sits outside the dashboard auth + rate-limit groups; serves a static
 	// blob that's safe to hand back unauthenticated under any traffic.
