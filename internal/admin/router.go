@@ -29,11 +29,13 @@ import (
 //	PATCH  /api/admin/sites/{id}
 //	GET    /api/admin/currencies
 //	GET    /api/admin/timezones
+//	GET    /api/admin/event-audit?site_id=N  (consent-free cap status)
 func Mount(r chi.Router, deps Deps) {
 	users := NewUsers(deps)
 	goalsH := NewGoals(deps)
 	sitesH := NewSites(deps)
 	options := NewOptions(deps)
+	eventAudit := NewEventAudit(deps)
 
 	r.Method(http.MethodGet, "/api/admin/users", http.HandlerFunc(users.List))
 	r.Method(http.MethodPost, "/api/admin/users", http.HandlerFunc(users.Create))
@@ -54,4 +56,6 @@ func Mount(r chi.Router, deps Deps) {
 
 	r.Method(http.MethodGet, "/api/admin/currencies", http.HandlerFunc(options.Currencies))
 	r.Method(http.MethodGet, "/api/admin/timezones", http.HandlerFunc(options.Timezones))
+
+	r.Method(http.MethodGet, "/api/admin/event-audit", eventAudit)
 }

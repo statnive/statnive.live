@@ -455,13 +455,14 @@ func run() error {
 	}
 
 	adminDeps := admin.Deps{
-		Auth:      authStore,
-		Goals:     goalStore,
-		Snapshot:  goalSnapshot,
-		Sites:     registry,
-		UserSites: userSitesStore,
-		Audit:     auditLog,
-		Logger:    logger,
+		Auth:       authStore,
+		Goals:      goalStore,
+		Snapshot:   goalSnapshot,
+		Sites:      registry,
+		UserSites:  userSitesStore,
+		EventAudit: store,
+		Audit:      auditLog,
+		Logger:     logger,
 	}
 
 	router.Group(func(r chi.Router) {
