@@ -375,9 +375,9 @@ func TestRequireSiteRole_NoSiteID_PassesThrough(t *testing.T) {
 
 	// Hit a global-scope admin route without ?site_id.
 	cases := []string{
-		"/api/admin/sites",                 // listing (returns actor's sites)
-		"/api/admin/currencies",            // global config
-		"/api/admin/timezones",             // global config
+		"/api/admin/sites",                  // listing (returns actor's sites)
+		"/api/admin/currencies",             // global config
+		"/api/admin/timezones",              // global config
 		"/api/admin/users/abc-uuid/disable", // operates on user-by-UUID
 	}
 

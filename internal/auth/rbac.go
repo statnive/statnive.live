@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/google/uuid"
+
 	"github.com/statnive/statnive.live/internal/audit"
 )
 
@@ -97,11 +99,21 @@ func RequireSiteRole(
 				return
 			}
 
-			grants, loadErr := sitesStore.LoadUserSites(r.Context(), u.UserID)
-			if loadErr != nil {
-				http.Error(w, "internal error", http.StatusInternalServerError)
+			// API-token users (synthetic, UserID=uuid.Nil) have no
+			// user_sites rows by construction. Skip the lookup; floor
+			// check below will 403 them on every admin route — which is
+			// the documented contract for the `api` role.
+			grants := map[uint32]Role{}
 
-				return
+			if u.UserID != uuid.Nil {
+				loaded, loadErr := sitesStore.LoadUserSites(r.Context(), u.UserID)
+				if loadErr != nil {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+
+					return
+				}
+
+				grants = loaded
 			}
 
 			// Floor check: actor must have at least one grant satisfying

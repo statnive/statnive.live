@@ -84,20 +84,7 @@ func Bootstrap(
 		return fmt.Errorf("bootstrap create: %w", createErr)
 	}
 
-	// Per-site grant: when SitesStore is wired, give the bootstrap admin
-	// an admin grant on their bootstrap site_id. Without this, flipping
-	// STATNIVE_FEATURES_PER_SITE_ADMIN=true would 403 every admin call
-	// because RequireSiteRole's floor check sees zero grants for this
-	// user. Failure here is non-fatal — log but continue, since the user
-	// row was created and an operator can grant manually via SQL.
-	if cfg.SitesStore != nil {
-		if grantErr := cfg.SitesStore.Grant(ctx, u.UserID, cfg.SiteID, RoleAdmin); grantErr != nil {
-			logger.Warn("auth bootstrap user_sites grant failed — operator must add grant manually",
-				"site_id", cfg.SiteID,
-				"err", grantErr,
-			)
-		}
-	}
+	grantBootstrapSite(ctx, cfg, u.UserID, logger)
 
 	if auditLog != nil {
 		auditLog.Event(ctx, audit.EventAuthBootstrap,
@@ -116,4 +103,25 @@ func Bootstrap(
 	)
 
 	return nil
+}
+
+// grantBootstrapSite gives the bootstrap admin an admin grant on their
+// bootstrap site_id in user_sites — required so flipping
+// STATNIVE_FEATURES_PER_SITE_ADMIN=true works on fresh deploys without
+// a manual SQL insert. Failure is non-fatal: the user row already exists
+// and the operator can add the grant manually via SQL. Hoisted out of
+// Bootstrap so the function stays under gocyclo's complexity floor.
+func grantBootstrapSite(
+	ctx context.Context, cfg BootstrapConfig, userID uuid.UUID, logger *slog.Logger,
+) {
+	if cfg.SitesStore == nil {
+		return
+	}
+
+	if err := cfg.SitesStore.Grant(ctx, userID, cfg.SiteID, RoleAdmin); err != nil {
+		logger.Warn("auth bootstrap user_sites grant failed — operator must add grant manually",
+			"site_id", cfg.SiteID,
+			"err", err,
+		)
+	}
 }
