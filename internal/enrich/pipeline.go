@@ -209,24 +209,37 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 	// Matching only runs on non-bot, non-pageview shape events
 	// (pageviews aren't goal candidates in v1 per doc 17 row 17).
 	if p.deps.Goals != nil && ev.IsBot == 0 {
-		if gID, val, matched := p.deps.Goals.Match(ev.SiteID, ev.EventName); matched {
-			ev.IsGoal = 1
-
-			if val > 0 {
-				ev.EventValue = val
-			}
-
-			if p.deps.Audit != nil {
-				p.deps.Audit.Event(context.Background(), audit.EventAdminGoalFired,
-					slog.Uint64("site_id", uint64(ev.SiteID)),
-					slog.String("target_goal_id", gID.String()),
-					slog.String("visitor_hash", hex.EncodeToString(visitorHash[:])),
-				)
-			}
-		}
+		p.applyGoalMatch(&ev, visitorHash)
 	}
 
 	return ev, true
+}
+
+// applyGoalMatch is Stage 7 hoisted out of Enrich so the nestif linter
+// stays under threshold. Sets is_goal + overrides event_value when the
+// configured goal value > 0; preserves the tracker-supplied value when
+// goal value = 0 (passthrough mode for dynamic e-commerce pricing).
+func (p *Pipeline) applyGoalMatch(ev *ingest.EnrichedEvent, visitorHash [16]byte) {
+	gID, val, matched := p.deps.Goals.Match(ev.SiteID, ev.EventName)
+	if !matched {
+		return
+	}
+
+	ev.IsGoal = 1
+
+	if val > 0 {
+		ev.EventValue = val
+	}
+
+	if p.deps.Audit == nil {
+		return
+	}
+
+	p.deps.Audit.Event(context.Background(), audit.EventAdminGoalFired,
+		slog.Uint64("site_id", uint64(ev.SiteID)),
+		slog.String("target_goal_id", gID.String()),
+		slog.String("visitor_hash", hex.EncodeToString(visitorHash[:])),
+	)
 }
 
 func boolU8(b bool) uint8 {
