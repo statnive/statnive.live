@@ -164,7 +164,7 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 		Pathname: raw.Pathname,
 		Title:    raw.Title,
 
-		Referrer:     raw.Referrer,
+		Referrer:     extractHostLower(raw.Referrer),
 		ReferrerName: channel.ReferrerName,
 		Channel:      channel.Channel,
 		UTMSource:    raw.UTMSource,
