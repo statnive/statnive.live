@@ -133,6 +133,26 @@ const (
 	EventGeoIPReloadFailed EventName = "geoip.reload_failed"
 )
 
+// Privacy events. Emitted by internal/privacy/* handlers. The only
+// per-event attribute carrying visitor identity is cookie_id_hash —
+// SHA-256 of the visitor's _statnive cookie, never raw (Privacy Rule 4).
+const (
+	EventOptOutReceived      EventName = "privacy.opt_out_received"
+	EventDSARAccessRequested EventName = "privacy.dsar_access_requested"
+	EventDSAREraseRequested  EventName = "privacy.dsar_erase_requested"
+	EventConsentGiven        EventName = "privacy.consent_given"
+	EventConsentWithdrawn    EventName = "privacy.consent_withdrawn"
+)
+
+// Legal disclosure events. Emitted by internal/legal/* handlers when a
+// visitor views the LIA / DPA / privacy-policy pages. No visitor PII
+// attached — site_id only.
+const (
+	EventLIAViewed           EventName = "legal.lia_viewed"
+	EventDPADownloaded       EventName = "legal.dpa_downloaded"
+	EventPrivacyPolicyViewed EventName = "legal.privacy_policy_viewed"
+)
+
 // Alert event names live in internal/alerts (not here) — alerts are a
 // separate JSONL sink with a different schema than audit. The audit
 // package owns completed-action events; alerts own ops-should-know-now
