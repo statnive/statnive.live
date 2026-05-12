@@ -237,3 +237,43 @@ func TestRenderMigration_011_RollupTTL(t *testing.T) {
 		}
 	})
 }
+
+// TestRenderMigration_012_ScrubCookieID pins the one-shot mutation that
+// clears legacy raw-UUID cookie_id values. The filter `NOT LIKE 'h:%'`
+// is what makes this idempotent — re-running matches zero rows.
+func TestRenderMigration_012_ScrubCookieID(t *testing.T) {
+	t.Parallel()
+
+	body, err := Migrations.ReadFile("migrations/012_scrub_unhashed_cookieid.sql")
+	if err != nil {
+		t.Fatalf("read migration 012: %v", err)
+	}
+
+	got, err := RenderMigrationWith("012_scrub_unhashed_cookieid.sql", body, MigrationData{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	stmts := SplitStatements(got)
+	if len(stmts) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(stmts))
+	}
+
+	joined := strings.Join(stmts, "\n")
+
+	for _, want := range []string{
+		"ALTER TABLE statnive.events_raw",
+		"UPDATE cookie_id = ''",
+		"cookie_id NOT LIKE 'h:%'",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q in rendered SQL", want)
+		}
+	}
+
+	// The migration deliberately omits mutations_sync so the runner
+	// doesn't block on a multi-GB rewrite (header comment explains why).
+	if strings.Contains(joined, "mutations_sync") {
+		t.Errorf("migration must not set mutations_sync (would stall startup)")
+	}
+}
