@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -139,9 +138,16 @@ func (m *SaltManager) saltFor(siteID uint32, date string) string {
 	return salt
 }
 
+// derive feeds the HMAC the same siteIDBytes encoding that UserIDHash
+// uses. Flipping salt.derive alone would silently break same-day
+// deduplication while leaving the cross-day user_id_hash intact, and
+// rewriting the on-disk user_id_hash to recover is impossible (raw
+// user_id is not stored).
 func (m *SaltManager) derive(siteID uint32, date string) string {
 	mac := hmac.New(sha256.New, m.masterSecret)
-	_, _ = fmt.Fprintf(mac, "%d||%s", siteID, date)
+	_, _ = mac.Write(siteIDBytes(siteID))
+	_, _ = mac.Write([]byte("||"))
+	_, _ = mac.Write([]byte(date))
 
 	return hex.EncodeToString(mac.Sum(nil))
 }
