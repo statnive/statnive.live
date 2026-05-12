@@ -80,8 +80,6 @@ func NewPipeline(deps Deps) *Pipeline {
 // burst guard rejects the event (caller drops it without sending to
 // WAL). Order MUST stay identity → burst → bloom → geo → ua → bot →
 // channel (CLAUDE.md Architecture Rule 6).
-//
-//nolint:gocyclo // PR D2 added the track_bots gate (extra branch + audit + metrics) which bumped cyclomatic complexity from 14 to 15. The 6-stage order is load-bearing per Architecture Rule 6 and pinned by integration tests; splitting stages into helpers would obscure the rule.
 func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 	// Stage 1 — identity (BLAKE3 keyed by today's salt).
 	saltToday := p.deps.Salt.CurrentSalt(raw.SiteID)
@@ -197,28 +195,49 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 		IsBot:         boolU8(isBot),
 	}
 
-	// Stage 7 — goal matching. Server-authoritative on event_value:
-	// /api/event has no request signature (CLAUDE.md Security #3), so
-	// a client-supplied event_value is untrusted. When a goal matches,
-	// the admin-configured value wins over whatever the tracker sent.
+	// Stage 7 — goal matching. Server-authoritative on event_value when
+	// the goal config carries a non-zero `value` (signup/lead style:
+	// admin pins the revenue per goal hit). When `value = 0`, the goal
+	// is "passthrough" — the tracker-supplied event_value flows through
+	// untouched, enabling per-purchase dynamic pricing in customer
+	// e-commerce (window.statniveLive.track('purchase', {...}, price)).
+	// /api/event has no request signature (CLAUDE.md Security #3); the
+	// per-event value is therefore untrusted but bounded by the tracker
+	// payload validator (8KB MaxBytesReader + field length limits).
 	// Matching only runs on non-bot, non-pageview shape events
 	// (pageviews aren't goal candidates in v1 per doc 17 row 17).
 	if p.deps.Goals != nil && ev.IsBot == 0 {
-		if gID, val, matched := p.deps.Goals.Match(ev.SiteID, ev.EventName); matched {
-			ev.IsGoal = 1
-			ev.EventValue = val
-
-			if p.deps.Audit != nil {
-				p.deps.Audit.Event(context.Background(), audit.EventAdminGoalFired,
-					slog.Uint64("site_id", uint64(ev.SiteID)),
-					slog.String("target_goal_id", gID.String()),
-					slog.String("visitor_hash", hex.EncodeToString(visitorHash[:])),
-				)
-			}
-		}
+		p.applyGoalMatch(&ev, visitorHash)
 	}
 
 	return ev, true
+}
+
+// applyGoalMatch is Stage 7 hoisted out of Enrich so the nestif linter
+// stays under threshold. Sets is_goal + overrides event_value when the
+// configured goal value > 0; preserves the tracker-supplied value when
+// goal value = 0 (passthrough mode for dynamic e-commerce pricing).
+func (p *Pipeline) applyGoalMatch(ev *ingest.EnrichedEvent, visitorHash [16]byte) {
+	gID, val, matched := p.deps.Goals.Match(ev.SiteID, ev.EventName)
+	if !matched {
+		return
+	}
+
+	ev.IsGoal = 1
+
+	if val > 0 {
+		ev.EventValue = val
+	}
+
+	if p.deps.Audit == nil {
+		return
+	}
+
+	p.deps.Audit.Event(context.Background(), audit.EventAdminGoalFired,
+		slog.Uint64("site_id", uint64(ev.SiteID)),
+		slog.String("target_goal_id", gID.String()),
+		slog.String("visitor_hash", hex.EncodeToString(visitorHash[:])),
+	)
 }
 
 func boolU8(b bool) uint8 {

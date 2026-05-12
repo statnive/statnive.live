@@ -331,7 +331,12 @@ function EventApiHelpCard() {
           <li><strong>props</strong> — optional object. Default <code>{'{}'}</code>.</li>
           <li><strong>value</strong> — optional integer. Defaults to <code>0</code>.</li>
         </ul>
-        <p><strong>When is an event also a goal?</strong> Define a goal below. When <code>event_name</code> matches a goal pattern, the server sets <code>is_goal=1</code> and overwrites <code>event_value</code> with the goal's value. The revenue card sums goal events.</p>
+        <p><strong>When is an event also a goal?</strong> Define a goal below. When <code>event_name</code> matches a goal pattern, the server sets <code>is_goal=1</code>. The revenue card sums goal events.</p>
+        <p><strong>Goal value — fixed vs dynamic:</strong></p>
+        <ul>
+          <li><strong>Value &gt; 0</strong> (e.g. <code>1</code> for a signup, <code>50</code> for a lead) → fixed-revenue goal. Server overrides whatever the tracker sent; every goal hit counts the same.</li>
+          <li><strong>Value = 0</strong> → dynamic / passthrough. The tracker-supplied value flows through untouched. Use this for e-commerce: <code>{`window.statniveLive.track('purchase', {order_id: 'X-1234'}, 4999)`}</code> records $49.99 in revenue (send minor units / integer to keep cents).</li>
+        </ul>
         <p><strong>Edge cases:</strong></p>
         <ul>
           <li>No matching goal → stored as a regular custom event (<code>is_goal=0</code>). Not in the revenue card.</li>
