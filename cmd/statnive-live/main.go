@@ -310,12 +310,18 @@ func run() error {
 		cfg.Auth.Session.CacheTTL,
 	)
 
+	// Wire the per-site SitesStore so Bootstrap can grant the seeded
+	// admin on their bootstrap site_id — required for the per_site_admin
+	// flag to work after a fresh deploy without a manual SQL insert.
+	bootstrapSitesStore := auth.NewClickHouseSitesStore(store.Conn(), cfg.ClickHouse.Database)
+
 	if bootErr := auth.Bootstrap(rootCtx, authStore, auth.BootstrapConfig{
 		Email:      os.Getenv("STATNIVE_BOOTSTRAP_ADMIN_EMAIL"),
 		Password:   os.Getenv("STATNIVE_BOOTSTRAP_ADMIN_PASSWORD"),
 		Username:   cfg.Auth.Bootstrap.Username,
 		SiteID:     cfg.Auth.Bootstrap.SiteID,
 		BcryptCost: cfg.Auth.BcryptCost,
+		SitesStore: bootstrapSitesStore,
 	}, auditLog, logger); bootErr != nil {
 		return fmt.Errorf("auth bootstrap: %w", bootErr)
 	}

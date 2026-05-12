@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/google/uuid"
+
 	"github.com/statnive/statnive.live/internal/audit"
 )
 
@@ -67,24 +69,24 @@ func emitRBACDenied(r *http.Request, auditLog *audit.Logger, extra ...slog.Attr)
 
 // RequireSiteRole is the per-site authorization middleware. Replaces
 // RequireRole on /api/admin/* when the per_site_admin feature flag is
-// on. Reads ?site_id=<n> from the request, loads the actor's fresh
-// per-site grants from user_sites (no session-cache window), verifies
-// the actor has at least `required` role on that site, then stashes
-// (a) the active site_id in context and (b) a User-clone with the
-// Sites map populated so handlers can call actor.CanAccessSite for
-// defence-in-depth on resource loads.
+// on. Always loads the actor's fresh per-site grants from user_sites
+// (no session-cache window) and rejects requests where the actor has
+// no qualifying grant on ANY site. When ?site_id=<n> is present, also
+// validates the actor's grant on that specific site and stashes it in
+// context for downstream handlers; routes that don't carry ?site_id
+// (e.g. /api/admin/sites listing, /api/admin/currencies, per-user
+// operations by UUID path-param) pass through without the per-site
+// check — defence-in-depth then runs in the handler.
 //
 // Errors:
 //
-//   - 400 if site_id is missing, non-numeric, or zero.
-//   - 401 if the request is unauthenticated (must compose AFTER
-//     RequireAuthenticated).
-//   - 403 if the actor has no qualifying grant. Identical response
-//     for both "site doesn't exist" and "site exists but no grant"
-//     to avoid tenant enumeration (see plan § 6.10).
+//   - 400 if site_id is non-numeric or zero (when present).
+//   - 401 if the request is unauthenticated.
+//   - 403 if the actor has no qualifying admin grant on any site, or
+//     no grant on the specific ?site_id when one is supplied.
 //
-// Stash latency: one CH FINAL read over a tiny table (≤ users ×
-// sites rows). ~50µs on the SaaS box.
+// Latency: one CH FINAL read over a tiny table (≤ users × sites rows).
+// ~50µs on the SaaS box.
 func RequireSiteRole(
 	auditLog *audit.Logger, sitesStore SitesStore, required Role,
 ) func(http.Handler) http.Handler {
@@ -97,31 +99,29 @@ func RequireSiteRole(
 				return
 			}
 
-			siteID, parseErr := parseSiteID(r.URL.Query().Get("site_id"))
-			if parseErr != nil {
-				http.Error(w, "bad site_id", http.StatusBadRequest)
+			// API-token users (synthetic, UserID=uuid.Nil) have no
+			// user_sites rows by construction. Skip the lookup; floor
+			// check below will 403 them on every admin route — which is
+			// the documented contract for the `api` role.
+			grants := map[uint32]Role{}
 
-				return
+			if u.UserID != uuid.Nil {
+				loaded, loadErr := sitesStore.LoadUserSites(r.Context(), u.UserID)
+				if loadErr != nil {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+
+					return
+				}
+
+				grants = loaded
 			}
 
-			grants, loadErr := sitesStore.LoadUserSites(r.Context(), u.UserID)
-			if loadErr != nil {
-				http.Error(w, "internal error", http.StatusInternalServerError)
-
-				return
-			}
-
-			// Shallow-copy the cached User to attach grants without
-			// mutating the pointer CachedStore hands out. Safe today
-			// because User has no slice fields (types.go) — if that
-			// changes this becomes a deep-copy site.
-			scoped := *u
-			scoped.Sites = grants
-
-			if !scoped.CanAccessSite(siteID, required) {
+			// Floor check: actor must have at least one grant satisfying
+			// `required` SOMEWHERE. Blocks users with revoked-everywhere
+			// state from touching /api/admin/* regardless of which route.
+			if !hasAnyRole(grants, required) {
 				emitRBACDenied(r, auditLog,
 					slog.String("required_role", string(required)),
-					slog.Uint64("site_id", uint64(siteID)),
 					slog.String("actor_user_id", u.UserID.String()),
 				)
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -129,11 +129,56 @@ func RequireSiteRole(
 				return
 			}
 
+			// Shallow-copy the cached User to attach grants without
+			// mutating the pointer CachedStore hands out. Safe today
+			// because User has no slice fields (types.go).
+			scoped := *u
+			scoped.Sites = grants
+
 			ctx := WithSession(r.Context(), &scoped, SessionFrom(r.Context()))
-			ctx = WithActiveSiteID(ctx, siteID)
+
+			// Optional site_id validation. Missing query param is fine —
+			// the route is a global / resource-by-id surface and the
+			// handler authorizes the resource itself. When supplied,
+			// it must be valid AND the actor must have role on that site.
+			if raw := r.URL.Query().Get("site_id"); raw != "" {
+				siteID, parseErr := parseSiteID(raw)
+				if parseErr != nil {
+					http.Error(w, "bad site_id", http.StatusBadRequest)
+
+					return
+				}
+
+				if !scoped.CanAccessSite(siteID, required) {
+					emitRBACDenied(r, auditLog,
+						slog.String("required_role", string(required)),
+						slog.Uint64("site_id", uint64(siteID)),
+						slog.String("actor_user_id", u.UserID.String()),
+					)
+					http.Error(w, "forbidden", http.StatusForbidden)
+
+					return
+				}
+
+				ctx = WithActiveSiteID(ctx, siteID)
+			}
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// hasAnyRole reports whether the actor has at least one active grant
+// satisfying `required` (lower roleRank = higher privilege; admin=1
+// satisfies viewer=2 and api=3).
+func hasAnyRole(grants map[uint32]Role, required Role) bool {
+	for _, r := range grants {
+		if roleRank(r) <= roleRank(required) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // parseSiteID parses ?site_id=<n> as a uint32. Empty / non-numeric /

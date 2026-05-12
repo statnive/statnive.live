@@ -15,12 +15,17 @@ import (
 // Password is empty the bootstrap is skipped — the operator can still
 // create users later via the admin API (Phase 3c). When a value is
 // supplied, Bootstrap is idempotent: existing users skip the insert.
+// SitesStore is optional; when non-nil, the freshly-created admin gets
+// an admin grant on SiteID in user_sites so the per_site_admin flag
+// can be flipped on without a manual SQL insert (fixes the "bad site_id /
+// 403 on first admin probe" smoke regression).
 type BootstrapConfig struct {
 	Email      string
 	Password   string
 	Username   string // defaults to "admin" if empty
 	SiteID     uint32
 	BcryptCost int
+	SitesStore SitesStore // optional — when set, also writes user_sites grant
 }
 
 // Bootstrap creates the first admin user if the users table is empty
@@ -79,6 +84,8 @@ func Bootstrap(
 		return fmt.Errorf("bootstrap create: %w", createErr)
 	}
 
+	grantBootstrapSite(ctx, cfg, u.UserID, logger)
+
 	if auditLog != nil {
 		auditLog.Event(ctx, audit.EventAuthBootstrap,
 			slog.String("email_hash", hashForAudit(cfg.Email)),
@@ -96,4 +103,25 @@ func Bootstrap(
 	)
 
 	return nil
+}
+
+// grantBootstrapSite gives the bootstrap admin an admin grant on their
+// bootstrap site_id in user_sites — required so flipping
+// STATNIVE_FEATURES_PER_SITE_ADMIN=true works on fresh deploys without
+// a manual SQL insert. Failure is non-fatal: the user row already exists
+// and the operator can add the grant manually via SQL. Hoisted out of
+// Bootstrap so the function stays under gocyclo's complexity floor.
+func grantBootstrapSite(
+	ctx context.Context, cfg BootstrapConfig, userID uuid.UUID, logger *slog.Logger,
+) {
+	if cfg.SitesStore == nil {
+		return
+	}
+
+	if err := cfg.SitesStore.Grant(ctx, userID, cfg.SiteID, RoleAdmin); err != nil {
+		logger.Warn("auth bootstrap user_sites grant failed — operator must add grant manually",
+			"site_id", cfg.SiteID,
+			"err", err,
+		)
+	}
 }

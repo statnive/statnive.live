@@ -297,15 +297,24 @@ func (h *Users) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write user_sites grants when per_site_admin is active.
-	if h.deps.UserSites != nil && len(req.Sites) > 0 {
-		for _, s := range req.Sites {
-			sr := auth.Role(s.Role)
-			if !sr.Valid() {
-				sr = auth.RoleViewer
-			}
+	// Write user_sites grants when per_site_admin is active. Either:
+	//   - body carries an explicit `sites` array → write one grant per entry
+	//   - legacy body (role only) → write one grant on the resolved siteID
+	//     so the user shows up on the per-site GET /api/admin/users list
+	//     and the smoke harness / operator scripts work without rewriting
+	//     to the new body shape.
+	if h.deps.UserSites != nil {
+		if len(req.Sites) > 0 {
+			for _, s := range req.Sites {
+				sr := auth.Role(s.Role)
+				if !sr.Valid() {
+					sr = auth.RoleViewer
+				}
 
-			_ = h.deps.UserSites.Grant(r.Context(), u.UserID, s.SiteID, sr)
+				_ = h.deps.UserSites.Grant(r.Context(), u.UserID, s.SiteID, sr)
+			}
+		} else {
+			_ = h.deps.UserSites.Grant(r.Context(), u.UserID, siteID, role)
 		}
 	}
 

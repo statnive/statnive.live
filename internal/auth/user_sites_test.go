@@ -312,25 +312,35 @@ func TestRequireSiteRole_ViewerOnAdminEndpoint_403(t *testing.T) {
 	}
 }
 
+// TestRequireSiteRole_BadSiteID_400 covers the case where ?site_id IS
+// supplied but invalid (zero / non-numeric). Missing site_id is NOT a
+// 400 — it's a valid passthrough for global-scope routes
+// (/api/admin/sites listing, /api/admin/currencies, etc.). That
+// passthrough is pinned by TestRequireSiteRole_NoSiteID_PassesThrough.
 func TestRequireSiteRole_BadSiteID_400(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeSitesStore()
+	uid := uuid.New()
+
+	// Actor needs at least one admin grant somewhere so the floor check
+	// passes and we exercise parseSiteID specifically.
+	_ = store.Grant(context.Background(), uid, 5, RoleAdmin)
+
 	mw := RequireSiteRole(nil, store, RoleAdmin)
 	handler := mw(http.HandlerFunc(nextOK))
 
 	cases := []string{
-		"/api/admin/goals",            // missing param
-		"/api/admin/goals?site_id=",   // empty
-		"/api/admin/goals?site_id=0",  // zero
+		"/api/admin/goals?site_id=0",  // zero (rejected: forbid site_id=0)
 		"/api/admin/goals?site_id=ab", // non-numeric
+		"/api/admin/goals?site_id=-1", // negative (uint32 parse fails)
 	}
 
 	for _, path := range cases {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 
-			u := &User{UserID: uuid.New()}
+			u := &User{UserID: uid}
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req = req.WithContext(WithSession(req.Context(), u, &Session{}))
 
@@ -341,6 +351,77 @@ func TestRequireSiteRole_BadSiteID_400(t *testing.T) {
 				t.Fatalf("%s status = %d, want 400", path, rec.Code)
 			}
 		})
+	}
+}
+
+// TestRequireSiteRole_NoSiteID_PassesThrough pins the regression-class
+// fix for "bad site_id" appearing on the admin SPA. Routes that don't
+// carry ?site_id (e.g. /api/admin/sites listing, /api/admin/currencies,
+// per-user UUID-path operations) must reach the downstream handler so
+// long as the actor has at least one admin grant. Without this test
+// the middleware reverts to "always require site_id" and breaks the
+// admin panel boot — pinning explicitly so future refactors don't
+// silently re-introduce the bug.
+func TestRequireSiteRole_NoSiteID_PassesThrough(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSitesStore()
+	uid := uuid.New()
+
+	_ = store.Grant(context.Background(), uid, 5, RoleAdmin)
+
+	mw := RequireSiteRole(nil, store, RoleAdmin)
+	handler := mw(http.HandlerFunc(nextOK))
+
+	// Hit a global-scope admin route without ?site_id.
+	cases := []string{
+		"/api/admin/sites",                  // listing (returns actor's sites)
+		"/api/admin/currencies",             // global config
+		"/api/admin/timezones",              // global config
+		"/api/admin/users/abc-uuid/disable", // operates on user-by-UUID
+	}
+
+	for _, path := range cases {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+
+			u := &User{UserID: uid}
+			req := httptest.NewRequest(http.MethodPost, path, nil)
+			req = req.WithContext(WithSession(req.Context(), u, &Session{}))
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s status = %d, want 200 (middleware should pass through when no ?site_id); body=%s",
+					path, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestRequireSiteRole_NoGrantsAnywhere_403 pins the floor check: an
+// authenticated user who has zero admin grants on ANY site cannot
+// reach /api/admin/*, regardless of whether the route requires
+// ?site_id or not. Without the floor check, a revoked-everywhere user
+// could still hit global-scope routes via the no-site-id passthrough.
+func TestRequireSiteRole_NoGrantsAnywhere_403(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSitesStore() // empty — no grants
+	mw := RequireSiteRole(nil, store, RoleAdmin)
+	handler := mw(http.HandlerFunc(nextOK))
+
+	u := &User{UserID: uuid.New()}
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/sites", nil)
+	req = req.WithContext(WithSession(req.Context(), u, &Session{}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("no-grants user status = %d, want 403 (floor check); body=%s",
+			rec.Code, rec.Body.String())
 	}
 }
 
