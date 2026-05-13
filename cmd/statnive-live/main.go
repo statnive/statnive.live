@@ -43,6 +43,7 @@ import (
 	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/ingest"
 	"github.com/statnive/statnive.live/internal/landing"
+	"github.com/statnive/statnive.live/internal/legal"
 	"github.com/statnive/statnive.live/internal/metrics"
 	"github.com/statnive/statnive.live/internal/ratelimit"
 	"github.com/statnive/statnive.live/internal/sites"
@@ -454,13 +455,14 @@ func run() error {
 	}
 
 	adminDeps := admin.Deps{
-		Auth:      authStore,
-		Goals:     goalStore,
-		Snapshot:  goalSnapshot,
-		Sites:     registry,
-		UserSites: userSitesStore,
-		Audit:     auditLog,
-		Logger:    logger,
+		Auth:       authStore,
+		Goals:      goalStore,
+		Snapshot:   goalSnapshot,
+		Sites:      registry,
+		UserSites:  userSitesStore,
+		EventAudit: store,
+		Audit:      auditLog,
+		Logger:     logger,
 	}
 
 	router.Group(func(r chi.Router) {
@@ -498,6 +500,19 @@ func run() error {
 	// landing meta strip can't drift against each other.
 	buildInfo := readBuildInfo()
 	router.Method(http.MethodGet, "/api/about", about.Handler(buildInfo, about.DefaultAttributions()))
+
+	// /legal/lia — public LIA template (EN + DE). Operators rely on this
+	// surface when documenting Art. 6(1)(f) legitimate interest under
+	// the GDPR; content is embedded via go:embed so it ships air-gap
+	// clean. Read-only, no auth required, no per-visitor PII attached
+	// to the audit emission (lang only).
+	router.Method(http.MethodGet, "/legal/lia", legal.LIAHandler(auditLog))
+
+	// /legal/dpa — customer-facing Data Processing Agreement template
+	// (English). Embedded from docs/dpa-draft.md via go:embed; a
+	// test-time drift guard pins the embedded copy to the canonical
+	// doc. Phase 11a hard gate per PLAN.md.
+	router.Method(http.MethodGet, "/legal/dpa", legal.DPAHandler(auditLog))
 
 	// First-party tracker — bytes embedded via go:embed in internal/tracker.
 	// Sits outside the dashboard auth + rate-limit groups; serves a static

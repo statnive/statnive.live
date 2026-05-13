@@ -10,11 +10,13 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/goals"
 	"github.com/statnive/statnive.live/internal/sites"
+	"github.com/statnive/statnive.live/internal/storage"
 )
 
 // SitesStore is the minimum interface admin sites_handlers needs. The
@@ -30,18 +32,27 @@ type SitesStore interface {
 	ListAdmin(ctx context.Context) ([]sites.SiteAdmin, error)
 }
 
+// EventAuditStore is the narrow contract the /api/admin/event-audit
+// handler needs. The production impl is *storage.ClickHouseStore;
+// tests inject a fake. Kept package-local so callers can't take a hot-
+// path dep on raw ClickHouse from the admin surface.
+type EventAuditStore interface {
+	EventNameCardinality(ctx context.Context, siteID uint32, from, to time.Time) ([]storage.EventNameCount, error)
+}
+
 // Deps bundles the dependencies every admin handler shares. One
 // construction point (cmd/statnive-live/main.go), one source of truth.
 // Every field is non-nil in production; tests may pass a subset where
 // the handler doesn't touch the missing dep.
 type Deps struct {
-	Auth      auth.Store
-	Goals     goals.Store
-	Snapshot  *goals.Snapshot // for post-write Reload()
-	Sites     SitesStore
-	UserSites auth.SitesStore
-	Audit     *audit.Logger
-	Logger    *slog.Logger
+	Auth       auth.Store
+	Goals      goals.Store
+	Snapshot   *goals.Snapshot // for post-write Reload()
+	Sites      SitesStore
+	UserSites  auth.SitesStore
+	EventAudit EventAuditStore // nil disables /api/admin/event-audit
+	Audit      *audit.Logger
+	Logger     *slog.Logger
 }
 
 // emitDashboardError emits a single audit record for a handler that

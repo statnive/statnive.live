@@ -71,6 +71,56 @@ func TestHexUserIDHash_EmptyStaysEmpty(t *testing.T) {
 	}
 }
 
+const testCookieID = "550e8400-e29b-41d4-a716-446655440000"
+
+func TestCookieIDHash_NonRotating(t *testing.T) {
+	t.Parallel()
+
+	master := []byte(testSecret)
+
+	// Same input across two calls must always produce the same hash —
+	// the hash is non-rotating so DSAR / erase queries can match a
+	// visitor's row across days.
+	a := identity.CookieIDHash(master, 7, testCookieID)
+	b := identity.CookieIDHash(master, 7, testCookieID)
+
+	if a != b {
+		t.Errorf("non-rotating hash diverged: %x vs %x", a, b)
+	}
+}
+
+func TestCookieIDHash_TenantSeparation(t *testing.T) {
+	t.Parallel()
+
+	master := []byte(testSecret)
+
+	a := identity.CookieIDHash(master, 1, testCookieID)
+	b := identity.CookieIDHash(master, 2, testCookieID)
+
+	if a == b {
+		t.Errorf("same cookie across tenants → same hash: %x", a)
+	}
+}
+
+func TestHexCookieIDHash_PrefixAndIdempotency(t *testing.T) {
+	t.Parallel()
+
+	got := identity.HexCookieIDHash([]byte(testSecret), 7, testCookieID)
+
+	if !strings.HasPrefix(got, "h:") {
+		t.Errorf("expected h: prefix, got %q", got)
+	}
+
+	// hex of 32-byte SHA-256 = 64 chars, plus "h:" = 66.
+	if len(got) != 66 {
+		t.Errorf("expected len 66 (h: + 64-char hex), got %d (%q)", len(got), got)
+	}
+
+	if empty := identity.HexCookieIDHash([]byte(testSecret), 7, ""); empty != "" {
+		t.Errorf("empty cookieID → %q, want \"\"", empty)
+	}
+}
+
 func TestSaltManager_SiteSeparation(t *testing.T) {
 	t.Parallel()
 

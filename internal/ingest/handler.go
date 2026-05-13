@@ -94,15 +94,15 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 		cfg.Now = time.Now
 	}
 
-	hashUserID := len(cfg.MasterSecret) > 0
+	hashIdentity := len(cfg.MasterSecret) > 0
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serve(w, r, cfg, hashUserID)
+		serve(w, r, cfg, hashIdentity)
 	})
 }
 
-//nolint:gocyclo // PR D2 added per-site policy lookup + lazy cookie gate inside the events loop, bumping cyclomatic complexity from 12 to 14. Splitting helpers out would force several params (cfg, hashUserID, cookieID) through call sites that don't need them and obscure the linear request flow.
-func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID bool) {
+//nolint:gocyclo // PR D2 added per-site policy lookup + lazy cookie gate inside the events loop, bumping cyclomatic complexity from 12 to 14. Splitting helpers out would force several params (cfg, hashIdentity, cookieID) through call sites that don't need them and obscure the linear request flow.
+func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashIdentity bool) {
 	// FastRejectMiddleware enforces POST-only + the prefetch/UA-shape
 	// fast-reject before any downstream middleware. By the time we get
 	// here the request has passed both checks and the rate limiter.
@@ -177,18 +177,29 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashUserID
 			cookieID = readOrSetCookieID(w, r)
 		}
 
-		raw.CookieID = cookieID
+		// _statnive cookie hashed before the pipeline / WAL / batch
+		// writer can see it. The raw UUID stays in the Set-Cookie
+		// response so cross-session continuity in the browser still
+		// works; only the at-rest events_raw.cookie_id carries the
+		// SHA-256 hash. hashIdentity=false (master secret absent —
+		// tests only) wipes the field rather than leaking the raw UUID,
+		// matching the user_id path below.
+		if hashIdentity && cookieID != "" {
+			raw.CookieID = identity.HexCookieIDHash(cfg.MasterSecret, raw.SiteID, cookieID)
+		} else {
+			raw.CookieID = ""
+		}
 
 		// Hash user_id with the per-tenant key material, then wipe the
 		// raw value before it can reach the pipeline / WAL / batch
 		// writer. Privacy Rule 4: only SHA-256(master_secret || site_id
 		// || user_id) ever lands in events_raw.user_id_hash. If
-		// hashUserID is false (no master_secret configured), the raw
+		// hashIdentity is false (no master_secret configured), the raw
 		// value is still cleared — silently dropping the uid is the
 		// stricter privacy stance. allowIdentity gates hashing per
 		// Privacy Rule 9 (Sec-GPC + consent decline short-circuit
 		// BEFORE hash computation, not after).
-		if hashUserID && allowIdentity && raw.UserID != "" {
+		if hashIdentity && allowIdentity && raw.UserID != "" {
 			raw.UserIDHash = identity.HexUserIDHash(cfg.MasterSecret, raw.SiteID, raw.UserID)
 		}
 

@@ -37,20 +37,10 @@ func VisitorHash(ip, userAgent, salt string) [16]byte {
 	return out
 }
 
-// UserIDHash returns SHA-256(masterSecret || site_id || user_id) — the only
-// representation of the customer's user_id that ever reaches ClickHouse
-// (Privacy Rule 4). The site_id is encoded little-endian so two tenants
-// sharing a (masterSecret, user_id) pair land on different hashes.
+// UserIDHash returns the per-tenant hash of the customer-supplied user_id
+// (Privacy Rule 4). Drives events_raw.user_id_hash.
 func UserIDHash(masterSecret []byte, siteID uint32, userID string) [32]byte {
-	h := sha256.New()
-	_, _ = h.Write(masterSecret)
-	_, _ = h.Write(siteIDBytes(siteID))
-	_, _ = h.Write([]byte(userID))
-
-	var out [32]byte
-	copy(out[:], h.Sum(nil))
-
-	return out
+	return tenantScopedSHA256(masterSecret, siteID, userID)
 }
 
 // HexUserIDHash is the hex-encoded form expected by events_raw.user_id_hash
@@ -64,6 +54,46 @@ func HexUserIDHash(masterSecret []byte, siteID uint32, userID string) string {
 	sum := UserIDHash(masterSecret, siteID, userID)
 
 	return hex.EncodeToString(sum[:])
+}
+
+// CookieIDHash returns the per-tenant hash of the visitor's _statnive
+// cookie. The cookie value the tracker sees stays a raw UUID; only
+// events_raw.cookie_id is hashed. Non-rotating — same input always
+// yields the same output, preserving cross-day continuity for DSAR /
+// erase queries that key off cookie_id.
+func CookieIDHash(masterSecret []byte, siteID uint32, cookieID string) [32]byte {
+	return tenantScopedSHA256(masterSecret, siteID, cookieID)
+}
+
+// HexCookieIDHash is the on-disk form: "h:" + hex(CookieIDHash). The "h:"
+// prefix marks already-hashed rows so the backfill migration is
+// idempotent (rerunning hex-prefixed rows is a no-op). Returns "" for
+// empty cookieID — visitors who refused the cookie carry an empty value.
+func HexCookieIDHash(masterSecret []byte, siteID uint32, cookieID string) string {
+	if cookieID == "" {
+		return ""
+	}
+
+	sum := CookieIDHash(masterSecret, siteID, cookieID)
+
+	return "h:" + hex.EncodeToString(sum[:])
+}
+
+// tenantScopedSHA256 is the shared primitive both UserIDHash and
+// CookieIDHash route through: SHA-256(masterSecret || siteIDBytes(siteID)
+// || value). Keeping one body locks the (masterSecret, siteID, value)
+// shape so a future encoding change (e.g. siteIDBytes endian) cannot
+// drift between the two on-disk hashes.
+func tenantScopedSHA256(masterSecret []byte, siteID uint32, value string) [32]byte {
+	h := sha256.New()
+	_, _ = h.Write(masterSecret)
+	_, _ = h.Write(siteIDBytes(siteID))
+	_, _ = h.Write([]byte(value))
+
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+
+	return out
 }
 
 func siteIDBytes(siteID uint32) []byte {

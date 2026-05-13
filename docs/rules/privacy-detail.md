@@ -89,6 +89,14 @@ func (r *Rotator) rotate(now time.Time) error {
 
 Unit test: `TestRotate_DeletesPreviousFile` asserts the previous file path does not exist after rotation.
 
+## Referrer column — host-only at write time
+
+`internal/enrich/pipeline.go` writes `events_raw.referrer` as the lowercase host of the inbound `Referer:` header — query strings, paths, fragments, userinfo, and port are stripped via the same `extractHostLower` helper that the channel mapper has used since v0.0.1 (`internal/enrich/channel.go:484`). Query strings can carry session tokens (`?session=…`), search terms, or reset-password tokens; the host alone is what a privacy-first analytics product has a legal-basis claim to.
+
+**Mixed-format compatibility window.** Rows written before the cutover (≤ 2026-05-12) may still contain full URLs in `events_raw.referrer`. The natural 180-day TTL clears them by 2026-11-12. Any query surfacing the raw column (debug exports, custom SQL) must tolerate both shapes until then; the dashboard surface is unaffected because channel attribution already lazy-extracts the host on read.
+
+**Backfill — none.** Existing rows are not rewritten. An `ALTER TABLE … UPDATE` to strip historical query strings would be a multi-hour mutation against a 180-day-deep table; the TTL gives the same outcome at zero risk.
+
 ## Cross-references
 
 - [`CLAUDE.md § Privacy Rules`](../../CLAUDE.md#privacy-rules-non-negotiable) — rule statements
