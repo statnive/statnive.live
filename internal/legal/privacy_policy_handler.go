@@ -25,6 +25,7 @@ func PrivacyPolicyHandler(auditLog *audit.Logger) http.Handler {
 		lang := chi.URLParam(r, "lang")
 
 		var body []byte
+
 		switch lang {
 		case "en":
 			body = privacyPolicyEN

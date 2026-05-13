@@ -19,43 +19,36 @@ func makeRouted() *chi.Mux {
 	return r
 }
 
-func TestPrivacyPolicyHandler_ServesEN(t *testing.T) {
+func TestPrivacyPolicyHandler_ServesPerLang(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodGet, "/legal/privacy-policy/en", nil)
-	rec := httptest.NewRecorder()
-	makeRouted().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+	cases := []struct {
+		lang   string
+		marker string
+	}{
+		{"en", "Privacy notice"},
+		{"de", "Datenschutzhinweis"},
 	}
+	for _, c := range cases {
+		t.Run(c.lang, func(t *testing.T) {
+			t.Parallel()
 
-	if got := rec.Header().Get("Content-Language"); got != "en" {
-		t.Errorf("Content-Language = %q, want en", got)
-	}
+			req := httptest.NewRequest(http.MethodGet, "/legal/privacy-policy/"+c.lang, nil)
+			rec := httptest.NewRecorder()
+			makeRouted().ServeHTTP(rec, req)
 
-	if !strings.Contains(rec.Body.String(), "Privacy notice") {
-		t.Errorf("body missing English marker")
-	}
-}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
 
-func TestPrivacyPolicyHandler_ServesDE(t *testing.T) {
-	t.Parallel()
+			if got := rec.Header().Get("Content-Language"); got != c.lang {
+				t.Errorf("Content-Language = %q, want %s", got, c.lang)
+			}
 
-	req := httptest.NewRequest(http.MethodGet, "/legal/privacy-policy/de", nil)
-	rec := httptest.NewRecorder()
-	makeRouted().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-
-	if got := rec.Header().Get("Content-Language"); got != "de" {
-		t.Errorf("Content-Language = %q, want de", got)
-	}
-
-	if !strings.Contains(rec.Body.String(), "Datenschutzhinweis") {
-		t.Errorf("body missing German marker")
+			if !strings.Contains(rec.Body.String(), c.marker) {
+				t.Errorf("body missing marker %q", c.marker)
+			}
+		})
 	}
 }
 

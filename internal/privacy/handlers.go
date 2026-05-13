@@ -240,7 +240,7 @@ func requestHost(r *http.Request) string {
 		host = r.URL.Host
 	}
 
-	for i := 0; i < len(host); i++ {
+	for i := range len(host) {
 		if host[i] == ':' {
 			return host[:i]
 		}

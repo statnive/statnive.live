@@ -32,6 +32,7 @@ func newTestHandlers(t *testing.T) *Handlers {
 	if err != nil {
 		t.Fatalf("suppression: %v", err)
 	}
+
 	t.Cleanup(func() { _ = supp.Close() })
 
 	h, err := NewHandlers(Config{
@@ -53,6 +54,7 @@ func TestOptOut_SetsCookieAndSuppresses(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/api/privacy/opt-out", nil)
 	req.AddCookie(&http.Cookie{Name: "_statnive", Value: "550e8400-e29b-41d4-a716-446655440000"})
+
 	rec := httptest.NewRecorder()
 
 	h.OptOut(rec, req)
@@ -62,6 +64,7 @@ func TestOptOut_SetsCookieAndSuppresses(t *testing.T) {
 	}
 
 	var optoutCookie *http.Cookie
+
 	for _, c := range rec.Result().Cookies() {
 		if c.Name == "_statnive_optout" {
 			optoutCookie = c
@@ -70,7 +73,8 @@ func TestOptOut_SetsCookieAndSuppresses(t *testing.T) {
 	}
 
 	if optoutCookie == nil {
-		t.Fatalf("missing _statnive_optout cookie in response")
+		t.Fatal("missing _statnive_optout cookie in response")
+		return // unreachable; staticcheck SA5011 doesn't see t.Fatal as terminal
 	}
 
 	if optoutCookie.Value != "v1" {
@@ -108,6 +112,7 @@ func TestOptOut_RejectsUnknownHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("suppression: %v", err)
 	}
+
 	t.Cleanup(func() { _ = supp.Close() })
 
 	h, _ := NewHandlers(Config{
@@ -118,6 +123,7 @@ func TestOptOut_RejectsUnknownHost(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "https://unknown.example/api/privacy/opt-out", nil)
 	req.AddCookie(&http.Cookie{Name: "_statnive", Value: "v"})
+
 	rec := httptest.NewRecorder()
 
 	h.OptOut(rec, req)
@@ -134,6 +140,7 @@ func TestAccess_AcknowledgesRequest(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/api/privacy/access", nil)
 	req.AddCookie(&http.Cookie{Name: "_statnive", Value: "550e8400-e29b-41d4-a716-446655440000"})
+
 	rec := httptest.NewRecorder()
 
 	h.Access(rec, req)
@@ -163,6 +170,7 @@ func TestErase_NotConfiguredReturns503(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/api/privacy/erase", nil)
 	req.AddCookie(&http.Cookie{Name: "_statnive", Value: "v"})
+
 	rec := httptest.NewRecorder()
 
 	h.Erase(rec, req)
@@ -179,6 +187,7 @@ func TestNewHandlers_RequiresDeps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("suppression: %v", err)
 	}
+
 	t.Cleanup(func() { _ = supp.Close() })
 
 	cases := []struct {
@@ -190,7 +199,6 @@ func TestNewHandlers_RequiresDeps(t *testing.T) {
 		{"missing suppression", Config{Sites: &fakeSitesResolver{}, MasterSecret: []byte("x")}},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 

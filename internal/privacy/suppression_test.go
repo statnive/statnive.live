@@ -10,10 +10,12 @@ func TestSuppressionList_AddIsSuppressed(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+
 	list, err := NewSuppressionList(filepath.Join(dir, "suppression.wal"))
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
+
 	t.Cleanup(func() { _ = list.Close() })
 
 	const hash = "h:abcdef0123456789"
@@ -65,6 +67,7 @@ func TestSuppressionList_ReplayOnReopen(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reopen: %v", err)
 		}
+
 		t.Cleanup(func() { _ = list.Close() })
 
 		if !list.IsSuppressed(hash) {
@@ -80,6 +83,7 @@ func TestSuppressionList_RejectsEmptyHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
+
 	t.Cleanup(func() { _ = list.Close() })
 
 	if err := list.Add(""); err == nil {
@@ -98,6 +102,7 @@ func TestSuppressionList_RecordCarriesTimestamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
+
 	t.Cleanup(func() { _ = list.Close() })
 
 	fixed := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)

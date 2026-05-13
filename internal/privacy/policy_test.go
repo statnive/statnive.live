@@ -1,6 +1,7 @@
 package privacy
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -14,7 +15,7 @@ import (
 func TestPolicyToMode_StubReturnsCurrent(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest("GET", "/privacy", nil)
+	req := httptest.NewRequest(http.MethodGet, "/privacy", nil)
 
 	cases := []sites.SitePolicy{
 		{RespectDNT: false, RespectGPC: false, TrackBots: true},

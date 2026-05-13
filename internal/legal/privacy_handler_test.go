@@ -32,6 +32,7 @@ func TestPrivacyHandler_RendersPageAndIssuesCSRFCookie(t *testing.T) {
 
 	// CSRF cookie issued.
 	var csrf *http.Cookie
+
 	for _, c := range rec.Result().Cookies() {
 		if c.Name == middleware.CSRFCookieName {
 			csrf = c
@@ -41,6 +42,7 @@ func TestPrivacyHandler_RendersPageAndIssuesCSRFCookie(t *testing.T) {
 
 	if csrf == nil {
 		t.Fatalf("CSRF cookie not set")
+		return // unreachable; staticcheck SA5011 doesn't see t.Fatalf as terminal
 	}
 
 	if !csrf.HttpOnly {

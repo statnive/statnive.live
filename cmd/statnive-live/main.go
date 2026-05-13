@@ -298,12 +298,15 @@ func run() error {
 	// list is unused; the ingest gate handles a nil Suppression
 	// gracefully.
 	var suppressionList *privacy.SuppressionList
+
 	if cfg.Privacy.PrivacyAPI {
 		var supErr error
+
 		suppressionList, supErr = privacy.NewSuppressionList(cfg.Privacy.SuppressionWALPath)
 		if supErr != nil {
 			return fmt.Errorf("privacy: open suppression wal: %w", supErr)
 		}
+
 		defer func() { _ = suppressionList.Close() }()
 	}
 
@@ -412,6 +415,7 @@ func run() error {
 			OnSample: walFillAlertEmitter(alertsSink),
 			Metrics:  metricsReg,
 		}))
+
 		var ingestSuppression ingest.SuppressionChecker
 		if suppressionList != nil {
 			ingestSuppression = suppressionList

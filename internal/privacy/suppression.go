@@ -59,7 +59,7 @@ func NewSuppressionList(walPath string) (*SuppressionList, error) {
 		return nil, fmt.Errorf("suppression: replay: %w", err)
 	}
 
-	f, err := os.OpenFile(walPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
+	f, err := os.OpenFile(walPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640) //nolint:gosec // walPath is operator-controlled config (privacy.suppression_wal_path), validated empty above
 	if err != nil {
 		return nil, fmt.Errorf("suppression: open %s: %w", walPath, err)
 	}
@@ -82,6 +82,7 @@ func (s *SuppressionList) replay(walPath string) error {
 
 		return err
 	}
+
 	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)

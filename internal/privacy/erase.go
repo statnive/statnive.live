@@ -2,11 +2,14 @@ package privacy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
+
+var errEraseEmptyHash = errors.New("erase: empty cookie hash")
 
 // EraseEnumerator runs the visitor-erase mutation across every base
 // MergeTree table that carries a cookie_id column. Materialized views
@@ -51,7 +54,7 @@ type EraseResult struct {
 // Stage-1 PR #3. Empty hash is rejected (would match every visitor).
 func (e *EraseEnumerator) EraseByCookieID(ctx context.Context, cookieIDHash string) ([]EraseResult, error) {
 	if cookieIDHash == "" {
-		return nil, fmt.Errorf("erase: empty cookie hash")
+		return nil, errEraseEmptyHash
 	}
 
 	tables, err := e.discoverTablesWithCookieID(ctx)
@@ -102,6 +105,7 @@ func (e *EraseEnumerator) discoverTablesWithCookieID(ctx context.Context) ([]str
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() { _ = rows.Close() }()
 
 	var tables []string

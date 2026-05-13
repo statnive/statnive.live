@@ -12,6 +12,7 @@ func TestIssueCSRFToken_WritesCookie(t *testing.T) {
 	t.Parallel()
 
 	rec := httptest.NewRecorder()
+
 	token, err := IssueCSRFToken(rec, false)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
@@ -22,9 +23,11 @@ func TestIssueCSRFToken_WritesCookie(t *testing.T) {
 	}
 
 	res := rec.Result()
+
 	defer func() { _ = res.Body.Close() }()
 
 	var got *http.Cookie
+
 	for _, c := range res.Cookies() {
 		if c.Name == CSRFCookieName {
 			got = c
@@ -34,6 +37,7 @@ func TestIssueCSRFToken_WritesCookie(t *testing.T) {
 
 	if got == nil {
 		t.Fatalf("no %s cookie set", CSRFCookieName)
+		return // unreachable; staticcheck SA5011 doesn't see t.Fatalf as terminal
 	}
 
 	if got.Value != token {
@@ -69,7 +73,6 @@ func TestVerifyCSRF(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -77,6 +80,7 @@ func TestVerifyCSRF(t *testing.T) {
 			if !c.skipCookie {
 				req.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: c.cookieVal})
 			}
+
 			if c.headerVal != "" {
 				req.Header.Set(CSRFHeader, c.headerVal)
 			}
@@ -133,6 +137,7 @@ func TestRequireCSRF_POSTWithValidTokenPasses(t *testing.T) {
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
+
 		w.WriteHeader(http.StatusOK)
 	})
 
