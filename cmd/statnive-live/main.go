@@ -431,6 +431,9 @@ func run() error {
 			ConsentRequired: cfg.Consent.Required,
 			Metrics:         metricsReg,
 			Suppression:     ingestSuppression,
+			Mode: func(r *http.Request, p sites.SitePolicy) ingest.Mode {
+				return privacy.PolicyToMode(r, p)
+			},
 		}))
 	})
 
@@ -482,15 +485,18 @@ func run() error {
 		userSitesStore = auth.NewClickHouseSitesStore(store.Conn(), cfg.ClickHouse.Database)
 	}
 
+	jurisdictionNoticeStore := auth.NewClickHouseStore(store.Conn(), cfg.ClickHouse.Database)
+
 	adminDeps := admin.Deps{
-		Auth:       authStore,
-		Goals:      goalStore,
-		Snapshot:   goalSnapshot,
-		Sites:      registry,
-		UserSites:  userSitesStore,
-		EventAudit: store,
-		Audit:      auditLog,
-		Logger:     logger,
+		Auth:               authStore,
+		Goals:              goalStore,
+		Snapshot:           goalSnapshot,
+		Sites:              registry,
+		UserSites:          userSitesStore,
+		EventAudit:         store,
+		JurisdictionNotice: jurisdictionNoticeStore,
+		Audit:              auditLog,
+		Logger:             logger,
 	}
 
 	router.Group(func(r chi.Router) {
@@ -574,6 +580,7 @@ func run() error {
 			r.Method(http.MethodPost, "/api/privacy/opt-out", http.HandlerFunc(privacyHandlers.OptOut))
 			r.Method(http.MethodGet, "/api/privacy/access", http.HandlerFunc(privacyHandlers.Access))
 			r.Method(http.MethodPost, "/api/privacy/erase", http.HandlerFunc(privacyHandlers.Erase))
+			r.Method(http.MethodPost, "/api/privacy/consent", http.HandlerFunc(privacyHandlers.Consent))
 		})
 	}
 

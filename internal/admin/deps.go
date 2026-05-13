@@ -45,14 +45,15 @@ type EventAuditStore interface {
 // Every field is non-nil in production; tests may pass a subset where
 // the handler doesn't touch the missing dep.
 type Deps struct {
-	Auth       auth.Store
-	Goals      goals.Store
-	Snapshot   *goals.Snapshot // for post-write Reload()
-	Sites      SitesStore
-	UserSites  auth.SitesStore
-	EventAudit EventAuditStore // nil disables /api/admin/event-audit
-	Audit      *audit.Logger
-	Logger     *slog.Logger
+	Auth               auth.Store
+	Goals              goals.Store
+	Snapshot           *goals.Snapshot // for post-write Reload()
+	Sites              SitesStore
+	UserSites          auth.SitesStore
+	EventAudit         EventAuditStore              // nil disables /api/admin/event-audit
+	JurisdictionNotice auth.JurisdictionNoticeStore // nil disables /api/admin/jurisdiction-notice
+	Audit              *audit.Logger
+	Logger             *slog.Logger
 }
 
 // emitDashboardError emits a single audit record for a handler that

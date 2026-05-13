@@ -193,11 +193,15 @@ probe_tracker() {
     nosniff=$(_header_value "${tmp}.h" "x-content-type-options")
     size=$(wc -c < "$tmp" | tr -d ' ')
 
+    # Tracker bundle ceiling bumped to 2100 in Stage 3 alongside
+    # Makefile tracker-size + internal/tracker/tracker_test.go (the GPC
+    # client-probe + statniveLive.acceptConsent/withdrawConsent helpers
+    # added ~500 B).
     local cond=1
     if [ "$status" = "200" ] \
         && echo "$ctype" | grep -q 'application/javascript' \
         && echo "$nosniff" | grep -q 'nosniff' \
-        && [ "$size" -gt 0 ] && [ "$size" -le 2000 ] \
+        && [ "$size" -gt 0 ] && [ "$size" -le 2100 ] \
         && head -c 10 "$tmp" | grep -q '^!function'; then
         cond=0
     fi

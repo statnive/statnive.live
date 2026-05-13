@@ -48,6 +48,21 @@
   var src = script && script.src;
   var derived = src && src.match(/^(.+?)\/tracker\.js(?:\?.*)?$/);
   var endpoint = attr || (derived && derived[1] + '/api/event') || '/api/event';
+  // base is the origin the consent endpoints share with /api/event so
+  // statniveLive.acceptConsent() / withdrawConsent() reach the same
+  // tenant. Derived once at boot; static across the page lifetime.
+  var base = endpoint.replace(/\/api\/event.*$/, '');
+  // GPC opt-in: when ANY script tag on the page sets data-statnive-honour-gpc=1
+  // AND the visitor's browser sends `Sec-GPC: 1`, client-side short-
+  // circuit suppresses ALL tracker activity. The independent query
+  // (not the endpoint-discovery chain) means the operator can put the
+  // attribute on a separate <script> tag that doesn't need a src — a
+  // common shape when the tracker is injected lazily.
+  if (w.navigator && w.navigator.globalPrivacyControl === true &&
+      d.querySelector('script[data-statnive-honour-gpc="1"]')) {
+    w.statniveLive = { track: function () {}, identify: function () {}, acceptConsent: function () {}, withdrawConsent: function () {} };
+    return;
+  }
   var pv = 'pageview';
   var userId = '';
   // Cached UTM params — re-parsed on every history change since the
@@ -99,9 +114,25 @@
   // fast bouncer who unloads before our script finishes evaluating.
   w.addEventListener('pagehide', pageview);
 
+  // Consent helpers — invoke from the operator's consent banner JS.
+  // The visitor MUST have visited /privacy first to seed the CSRF
+  // cookie (and the meta-tag echo); the operator's banner reads the
+  // token from that meta tag and passes it here. Returns the Promise
+  // the operator can chain UI feedback on.
+  function consent(action, csrfToken) {
+    return w.fetch(base + '/api/privacy/consent', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
+      body: JSON.stringify({ action: action }),
+    });
+  }
+
   w.statniveLive = {
     track: function (name, props, value) { send(name, props, value); },
     identify: function (uid) { userId = String(uid || ''); },
+    acceptConsent: function (csrfToken) { return consent('give', csrfToken); },
+    withdrawConsent: function (csrfToken) { return consent('withdraw', csrfToken); },
   };
   pageview();
 })(window, document);

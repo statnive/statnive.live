@@ -49,6 +49,38 @@ Interessenabwägung ist öffentlich unter `/legal/lia` einsehbar.
 - Aggregierte Tages-/Stunden-Rollups: 750 Tage (~24,6 Monate).
 - Audit-Log: nach logrotate-Policy des Betreibers.
 
+## Hybrid-Einwilligung (wenn der Betreiber sie aktiviert)
+
+Einige `statnive.live`-Bereitstellungen nutzen den **Hybrid-Modus**,
+in dem die Analyse vor und nach Ihrer Einwilligung unterschiedlich
+verarbeitet wird:
+
+- **Vor Ihrer Einwilligung** (oder ohne Einwilligung): wir erheben
+  ausschließlich anonyme aggregierte Zählwerte. Es wird **kein**
+  `_statnive`-Identifikations-Cookie gesetzt, Ihr `Sec-GPC: 1`-Header
+  wird beachtet, Zählerstände im Dashboard werden auf die nächste
+  10 gerundet, und nur die drei Ereignis-Typen aus der
+  Allow-Liste des Betreibers werden akzeptiert. Aus den
+  gespeicherten Besucherzahlen lässt sich Ihr Einzelbesuch nicht
+  rekonstruieren.
+- **Nach Ihrer Einwilligung** setzen wir ein datenschutzfreundliches
+  `_statnive`-Cookie (gespeichert wird ausschließlich ein
+  tenant-spezifischer SHA-256-Hash; das Cookie selbst verlässt
+  Ihren Browser nie als unverschlüsselter Identifier), damit
+  wiederkehrende Besuche innerhalb von 13 Monaten erkennbar sind.
+  Die Zählwerte werden exakt, und jeder vom Betreiber instrumentierte
+  Ereignistyp wird akzeptiert.
+- **Widerruf der Einwilligung** löscht beide Cookies und fügt
+  Ihren Besucher der serverseitigen Suppression-Liste hinzu —
+  folgende Ereignisse aus Ihrem Browser werden unbemerkt verworfen.
+  Vergangene Daten werden **nicht** automatisch gelöscht; nutzen
+  Sie hierfür den Löschungs-Endpunkt unten.
+
+Einwilligung erteilen oder widerrufen Sie über
+`POST /api/privacy/consent` mit dem JSON-Body
+`{"action": "give"}` bzw. `{"action": "withdraw"}`. Üblicherweise
+exponiert das UI des Betreibers eine Schaltfläche hierfür.
+
 ## Ihre Rechte
 
 - **Widerspruch** (Art. 21): `POST /api/privacy/opt-out` — setzt

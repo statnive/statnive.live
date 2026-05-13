@@ -91,6 +91,11 @@ type HandlerConfig struct {
 	// the check, which is the correct posture for the Iran-self-hosted
 	// tier that never serves /api/privacy/opt-out.
 	Suppression SuppressionChecker
+
+	// Mode resolves the per-request consent posture (Stage 3). nil
+	// disables every mode-derived gate — the handler behaves like
+	// Stage-2 ModeCurrent. Production wires privacy.PolicyToMode.
+	Mode ModeResolver
 }
 
 // SuppressionChecker is the minimum interface the ingest gate calls
@@ -100,6 +105,50 @@ type HandlerConfig struct {
 // privacy package can grow without dragging ingest into a cycle.
 type SuppressionChecker interface {
 	IsSuppressed(hash string) bool
+}
+
+// ModeResolver maps a request + policy to the consent posture under
+// which the event should be ingested. Production uses
+// privacy.PolicyToMode; tests inject a fixed-Mode stub. Mode itself
+// is an interface so the ingest package doesn't take a hard import
+// dep on internal/privacy (and so the surface stays narrow — only
+// the two predicates the gate actually queries).
+type ModeResolver func(r *http.Request, p sites.SitePolicy) Mode
+
+// Mode is the consent posture the ingest gate queries. privacy.Mode
+// satisfies this shape at the call site in cmd/statnive-live/main.go.
+type Mode interface {
+	AllowsIdentifier() bool
+	EnforcesEventAllowlist() bool
+}
+
+// eventNameFor returns the effective event_name for an event, falling
+// back to event_type when the tracker omitted event_name (matches the
+// enrich pipeline's eventName-or-eventType collapse).
+func eventNameFor(e *RawEvent) string {
+	if e.EventName != "" {
+		return e.EventName
+	}
+
+	return e.EventType
+}
+
+// eventNameAllowed reports whether name appears in the allow-list.
+// Empty allow-list is treated as "no enforcement" so a misconfigured
+// site can't lose every event silently (Privacy-Rule-9 style: fail
+// open at ingest, fail loud in admin UI).
+func eventNameAllowed(name string, allowlist []string) bool {
+	if len(allowlist) == 0 {
+		return true
+	}
+
+	for _, a := range allowlist {
+		if a == name {
+			return true
+		}
+	}
+
+	return false
 }
 
 // NewHandler returns the http.Handler wired for POST /api/event.
@@ -179,13 +228,33 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashIdenti
 
 		raw.SiteID = siteID
 
+		// Stage-3 consent-mode gate. Mode is derived from the site's
+		// SitePolicy + the request's _statnive_consent cookie /
+		// X-Statnive-Consent header. The Mode predicates encapsulate
+		// every Stage-3 enforcement rule so this handler stays
+		// hostname → policy → mode → ingest, no inline switch.
+		var mode Mode
+		if cfg.Mode != nil {
+			mode = cfg.Mode(r, policy)
+		}
+
 		// Per-site consent gate. Sec-GPC / DNT short-circuit per
 		// statnive.sites.respect_gpc / respect_dnt (default 0 — opt-in
 		// per CLAUDE.md Privacy Rule 6). When the operator's site is
 		// EU-strict (respect_gpc=1) and the visitor sends Sec-GPC: 1,
 		// identity is suppressed but the visit still ingests anonymously.
+		//
+		// Layered on top: when Mode says AllowsIdentifier()=false
+		// (consent-free, consent-required without consent, hybrid
+		// pre-consent) the cookie is refused regardless of the legacy
+		// per-site flags. allowIdentity is the AND of both gates so
+		// the stricter rule always wins.
 		allowIdentity := !consentDenied(r, policy) &&
 			(!cfg.ConsentRequired || consentGiven(r))
+
+		if mode != nil && !mode.AllowsIdentifier() {
+			allowIdentity = false
+		}
 
 		if allowIdentity && cookieID == "" {
 			cookieID = readOrSetCookieID(w, r)
@@ -212,6 +281,20 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashIdenti
 		// identical to a normal "accepted" path.
 		if cfg.Suppression != nil && raw.CookieID != "" && cfg.Suppression.IsSuppressed(raw.CookieID) {
 			cfg.Metrics.IncDropped(metrics.ReasonOptedOut)
+
+			continue
+		}
+
+		// Stage-3 event-allowlist gate. When Mode says
+		// EnforcesEventAllowlist()=true (consent-free, hybrid pre-
+		// consent) only event_name values in policy.EventAllowlist
+		// are accepted — matches the CNIL audience-measurement
+		// exemption (Sheet n°16) 3-event ceiling. Drop is silent
+		// for the same reason as opt-out: the visitor must not be
+		// able to enumerate the operator's allow-list.
+		if mode != nil && mode.EnforcesEventAllowlist() &&
+			!eventNameAllowed(eventNameFor(raw), policy.EventAllowlist) {
+			cfg.Metrics.IncDropped(metrics.ReasonEventNotAllowed)
 
 			continue
 		}

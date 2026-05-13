@@ -55,13 +55,21 @@ export interface AdminSite {
   respect_dnt: boolean;
   respect_gpc: boolean;
   track_bots: boolean;
+  // Stage-3 compliance policy (migration 013). Optional in the
+  // response when the site predates the migration; the Compliance
+  // card renders "OTHER-NON-EU + permissive" as the safe default
+  // until the operator flips it.
+  jurisdiction?: Jurisdiction;
+  consent_mode?: ConsentMode;
+  event_allowlist?: string[];
 }
 
 // SitePolicyPatch is the shape the admin UI sends to PATCH
 // /api/admin/sites/{id} when toggling any settable field. Every key
 // is optional so the server can distinguish "field omitted" (no
 // change) from "field present" (apply it). Currency + tz join the
-// privacy flags as PATCH-able attributes.
+// privacy flags as PATCH-able attributes; Stage-3 adds the jurisdiction
+// trio.
 export interface SitePolicyPatch {
   enabled?: boolean;
   respect_dnt?: boolean;
@@ -69,6 +77,85 @@ export interface SitePolicyPatch {
   track_bots?: boolean;
   currency?: string;
   tz?: string;
+  jurisdiction?: Jurisdiction;
+  consent_mode?: ConsentMode;
+  event_allowlist?: string[];
+}
+
+// Jurisdiction mirrors internal/sites/sites.go validJurisdictions —
+// the closed 11-value set the SitePolicy.Validate Go-side guard
+// enforces. The Compliance card surfaces these as a dropdown.
+export type Jurisdiction =
+  | 'DE'
+  | 'FR'
+  | 'IT'
+  | 'ES'
+  | 'NL'
+  | 'BE'
+  | 'IE'
+  | 'UK'
+  | 'OTHER-EU'
+  | 'OTHER-NON-EU'
+  | 'IR';
+
+// ConsentMode mirrors internal/sites/sites.go validConsentModes — the
+// four Stage-3 enum values that drive privacy.PolicyToMode.
+export type ConsentMode =
+  | 'permissive'
+  | 'consent-free'
+  | 'consent-required'
+  | 'hybrid';
+
+// jurisdictionLabel returns the operator-friendly display string for a
+// jurisdiction code. The Compliance dropdown renders these next to
+// each option so an operator unfamiliar with the codes still picks the
+// right value.
+export function jurisdictionLabel(j: Jurisdiction): string {
+  switch (j) {
+    case 'DE': return 'Germany (DE)';
+    case 'FR': return 'France (FR)';
+    case 'IT': return 'Italy (IT)';
+    case 'ES': return 'Spain (ES)';
+    case 'NL': return 'Netherlands (NL)';
+    case 'BE': return 'Belgium (BE)';
+    case 'IE': return 'Ireland (IE)';
+    case 'UK': return 'United Kingdom (UK)';
+    case 'OTHER-EU': return 'Other EU member state';
+    case 'OTHER-NON-EU': return 'Other (non-EU)';
+    case 'IR': return 'Iran (IR)';
+  }
+}
+
+// derivedConsentMode mirrors sites.DerivedConsentMode: the recommended
+// fresh-site default based on the operator's chosen jurisdiction.
+// Never returns 'hybrid' — hybrid is opt-in only.
+export function derivedConsentMode(j: Jurisdiction): ConsentMode {
+  if (j === 'IR' || j === 'OTHER-NON-EU') return 'permissive';
+  return 'consent-free';
+}
+
+// JURISDICTIONS is the ordered list the Compliance dropdown renders.
+// Sort: EU jurisdictions first (alphabetised), then OTHER-EU,
+// OTHER-NON-EU, IR. Matches the relative compliance-strictness order
+// operators tend to think in.
+export const JURISDICTIONS: readonly Jurisdiction[] = [
+  'DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'IE', 'UK',
+  'OTHER-EU', 'OTHER-NON-EU', 'IR',
+];
+
+// CONSENT_MODES is the ordered list the Compliance dropdown renders.
+// Matches the strictness gradient: server-only → opt-in → operator
+// flag → operator default.
+export const CONSENT_MODES: readonly ConsentMode[] = [
+  'consent-free', 'hybrid', 'consent-required', 'permissive',
+];
+
+// JurisdictionNotice mirrors the GET /api/admin/jurisdiction-notice
+// response — a one-time admin prompt asking the operator to pick a
+// jurisdiction consciously (rather than living on the safe-default
+// OTHER-NON-EU + permissive forever).
+export interface JurisdictionNotice {
+  dismissed: boolean;
 }
 
 // CurrencyOption mirrors internal/sites/currencies.go. Returned by
@@ -228,6 +315,13 @@ export async function createSite(body: {
   slug?: string;
   tz?: string;
   currency?: string;
+  // Stage-3 — optional jurisdiction + consent-mode at creation time.
+  // When omitted, the server backfills with OTHER-NON-EU + permissive.
+  // When jurisdiction is supplied without consent_mode, the server
+  // derives the mode via sites.DerivedConsentMode.
+  jurisdiction?: Jurisdiction;
+  consent_mode?: ConsentMode;
+  event_allowlist?: string[];
 }): Promise<AdminSite> {
   return request<AdminSite>('POST', '/api/admin/sites', body);
 }
@@ -267,4 +361,14 @@ export async function listTimezones(): Promise<TimezoneOption[]> {
     '/api/admin/timezones',
   );
   return res.timezones ?? [];
+}
+
+// ---------------- Stage-3 jurisdiction notice ----------------
+
+export async function getJurisdictionNotice(): Promise<JurisdictionNotice> {
+  return request<JurisdictionNotice>('GET', '/api/admin/jurisdiction-notice');
+}
+
+export async function dismissJurisdictionNotice(): Promise<void> {
+  await request<void>('POST', '/api/admin/jurisdiction-notice/dismiss');
 }

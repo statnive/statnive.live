@@ -22,9 +22,14 @@ import (
 // so the previous 700 gz reading was stale). Doc-comment header
 // expansion (LEARN.md Lesson 24 attribution) is comment-only and
 // stripped at minification — minified size was unaffected.
+//
+// Bumped again 1500 → 2100 / 750 → 1000 in Stage 3: the consent-free
+// flow added a GPC client-probe (gated by data-statnive-honour-gpc=1)
+// plus statniveLive.acceptConsent / withdrawConsent helpers. ~500 B
+// min / ~190 B gz net. Matches the Makefile tracker-size gate.
 const (
-	maxMinifiedBytes = 1500
-	maxGzippedBytes  = 750
+	maxMinifiedBytes = 2100
+	maxGzippedBytes  = 1000
 )
 
 func TestHandler_ServesEmbeddedTracker(t *testing.T) {

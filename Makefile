@@ -432,12 +432,19 @@ tracker-test: tracker-install
 ## landed; that PR shipped without regenerating dist, so the previous 700 gz reading
 ## was stale). Doc-comment header expansion (LEARN.md Lesson 24 attribution) is
 ## comment-only and stripped at minification — minified size was unaffected.
+##
+## Bumped again 1500 → 2100 / 750 → 1000 in Stage 3: the consent-free
+## flow added a GPC client-probe (gated by data-statnive-honour-gpc=1)
+## plus statniveLive.acceptConsent / withdrawConsent helpers that POST
+## to /api/privacy/consent. ~500 B min / ~190 B gz net. Revisit in v1.1
+## if the bundle keeps growing — gating the consent helpers behind a
+## second data attribute would let permissive sites stay smaller.
 tracker-size:
 	@SIZE=$$(stat -f%z internal/tracker/dist/tracker.js 2>/dev/null || stat -c%s internal/tracker/dist/tracker.js); \
 	GZIP=$$(gzip -c -9 internal/tracker/dist/tracker.js | wc -c | tr -d ' '); \
-	echo "tracker.js: $$SIZE B min / $$GZIP B gz (budget: 1500 / 750)"; \
-	if [ $$SIZE -gt 1500 ] || [ $$GZIP -gt 750 ]; then \
-	  echo "FAIL: tracker bundle over budget (1500 B min / 750 B gz)"; exit 1; \
+	echo "tracker.js: $$SIZE B min / $$GZIP B gz (budget: 2100 / 1000)"; \
+	if [ $$SIZE -gt 2100 ] || [ $$GZIP -gt 1000 ]; then \
+	  echo "FAIL: tracker bundle over budget (2100 B min / 1000 B gz)"; exit 1; \
 	fi
 
 ## airgap-test: MANUAL — run the binary under iptables OUTPUT DROP and

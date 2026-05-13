@@ -57,12 +57,92 @@ func (m Mode) String() string {
 	}
 }
 
-// PolicyToMode resolves the consent posture for a request. Stage 2
-// stubs this to ModeCurrent for every site; Stage 3 replaces the body
-// to switch on sites.SitePolicy.ConsentMode + the request's consent
-// signal. The signature already takes *http.Request so the Stage 3
-// hasValidConsent check (cookie + header) can land without touching
-// any caller.
-func PolicyToMode(_ *http.Request, _ sites.SitePolicy) Mode {
-	return ModeCurrent
+// PolicyToMode resolves the consent posture for a request. Stage 3
+// switches on sites.SitePolicy.ConsentMode + the request's consent
+// signal. An empty ConsentMode (a row that pre-dates migration 013 or
+// the backfill default itself) falls through to ModeCurrent so the 3
+// live operators keep byte-for-byte identical behaviour until they
+// consciously flip jurisdiction or mode via the admin UI.
+//
+// Hybrid splits two ways:
+//   - Visitor sent _statnive_consent=v1 or X-Statnive-Consent: given
+//     → ModeHybridPostConsent (mirrors ModePermissive enforcement).
+//   - Otherwise → ModeHybridPreConsent (mirrors ModeConsentFree
+//     enforcement: no cookie, round-to-10, event-allowlist gate).
+//
+// consent-required treats a present consent signal the same way:
+// visitors who never accepted stay in the strict mode; visitors who
+// did get the permissive treatment.
+func PolicyToMode(r *http.Request, p sites.SitePolicy) Mode {
+	switch p.ConsentMode {
+	case sites.ConsentModeConsentFree:
+		return ModeConsentFree
+	case sites.ConsentModePermissive:
+		return ModePermissive
+	case sites.ConsentModeConsentRequired:
+		if hasValidConsent(r) {
+			return ModePermissive
+		}
+
+		return ModeConsentRequired
+	case sites.ConsentModeHybrid:
+		if hasValidConsent(r) {
+			return ModeHybridPostConsent
+		}
+
+		return ModeHybridPreConsent
+	default:
+		// Empty / unrecognised — preserve the legacy posture so a
+		// fresh deploy with a half-applied migration doesn't flip
+		// every site to permissive (which would silently widen the
+		// data surface on every existing operator).
+		return ModeCurrent
+	}
+}
+
+// hasValidConsent reports whether the visitor has accepted analytics
+// in the hybrid / consent-required flow. The strictly-necessary
+// _statnive_consent cookie is the canonical store; the
+// X-Statnive-Consent header is a server-rendered escape hatch for
+// pages that submit through the operator's own consent banner.
+func hasValidConsent(r *http.Request) bool {
+	if c, err := r.Cookie("_statnive_consent"); err == nil && c.Value == "v1" {
+		return true
+	}
+
+	return r.Header.Get("X-Statnive-Consent") == "given"
+}
+
+// AnonymousCount reports whether the Mode's storage profile treats
+// per-visitor counts as anonymous-only — i.e. dashboard surfaces
+// must round to nearest 10 (CNIL guidance for the audience-
+// measurement exemption). True for ConsentFree + HybridPreConsent;
+// false for every other mode (Current, Permissive, ConsentRequired
+// post-consent, HybridPostConsent).
+func (m Mode) AnonymousCount() bool {
+	return m == ModeConsentFree || m == ModeHybridPreConsent
+}
+
+// AllowsIdentifier reports whether the Mode permits the _statnive
+// identifier cookie to be set + the hashed cookie_id to land in
+// events_raw. False for consent-free + consent-required (pre-consent)
+// + hybrid pre-consent; true for current + permissive + hybrid
+// post-consent.
+func (m Mode) AllowsIdentifier() bool {
+	switch m {
+	case ModeCurrent, ModePermissive, ModeHybridPostConsent:
+		return true
+	case ModeConsentFree, ModeConsentRequired, ModeHybridPreConsent:
+		return false
+	}
+
+	return false
+}
+
+// EnforcesEventAllowlist reports whether the Mode requires every
+// ingested event_name to be a member of the site's
+// SitePolicy.EventAllowlist. True for consent-free + hybrid
+// pre-consent; false elsewhere.
+func (m Mode) EnforcesEventAllowlist() bool {
+	return m == ModeConsentFree || m == ModeHybridPreConsent
 }
