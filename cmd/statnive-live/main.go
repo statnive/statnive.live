@@ -431,6 +431,9 @@ func run() error {
 			ConsentRequired: cfg.Consent.Required,
 			Metrics:         metricsReg,
 			Suppression:     ingestSuppression,
+			Mode: func(r *http.Request, p sites.SitePolicy) ingest.Mode {
+				return privacy.PolicyToMode(r, p)
+			},
 		}))
 	})
 
