@@ -13,12 +13,20 @@ import {
   updateSitePolicy,
   listCurrencies,
   listTimezones,
+  dismissJurisdictionNotice,
+  getJurisdictionNotice,
+  JURISDICTIONS,
+  CONSENT_MODES,
+  derivedConsentMode,
+  jurisdictionLabel,
   type AdminUser,
   type AdminGoal,
   type AdminSite,
   type SitePolicyPatch,
   type CurrencyOption,
   type TimezoneOption,
+  type ConsentMode,
+  type Jurisdiction,
 } from '../api/admin';
 import { activeSiteSignal } from '../state/site';
 import './Admin.css';
@@ -510,6 +518,8 @@ function SitesTab() {
 
   return (
     <div class="statnive-admin-sites">
+      <JurisdictionNoticeBanner />
+
       <NewSiteForm
         currencies={currencies}
         timezones={timezones}
@@ -536,6 +546,7 @@ function SitesTab() {
               <th title="Honor Sec-GPC: 1 (suppresses identity for visitors who send the header). EU operators must enable.">GPC</th>
               <th title="Honor DNT: 1 (suppresses identity for visitors who send the header). EU operators must enable.">DNT</th>
               <th title="Track bots (default on; off drops bot events at the pipeline).">Bots</th>
+              <th title="Stage-3 — jurisdiction enum + consent mode that drives the consent-free / hybrid flow.">Compliance</th>
               <th>Tracker snippet</th>
               <th></th>
             </tr>
@@ -552,6 +563,7 @@ function SitesTab() {
                 <PolicyCell site={s} field="respect_gpc" label="respect Sec-GPC" onPatch={onPatchPolicy} />
                 <PolicyCell site={s} field="respect_dnt" label="respect DNT"     onPatch={onPatchPolicy} />
                 <PolicyCell site={s} field="track_bots"  label="track bots"      onPatch={onPatchPolicy} />
+                <ComplianceCell site={s} onPatch={onPatchPolicy} />
                 <td><TrackerSnippet /></td>
                 <td>
                   <button type="button" onClick={() => void onToggleEnabled(s)}>
@@ -671,6 +683,144 @@ function PolicyCell({
           [field]: (e.target as HTMLInputElement).checked,
         })}
       />
+    </td>
+  );
+}
+
+// JurisdictionNoticeBanner is the one-time Stage-3 prompt that asks
+// the operator to consciously pick a jurisdiction (so the 3 live
+// operators don't sit on the OTHER-NON-EU + permissive backfill
+// forever without realising). Fetches dismissal state once on mount;
+// renders nothing if already dismissed or if the fetch fails (the
+// banner is informational, not load-bearing).
+function JurisdictionNoticeBanner() {
+  const [visible, setVisible] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await getJurisdictionNotice();
+        if (alive) setVisible(!res.dismissed);
+      } catch {
+        // Treat any fetch failure as "don't show the banner" — the
+        // operator can still configure jurisdiction from the Sites
+        // table without the prompt.
+        if (alive) setVisible(false);
+      }
+    })();
+
+    return () => { alive = false; };
+  }, []);
+
+  if (!visible) return null;
+
+  async function onDismiss() {
+    setVisible(false);
+    try {
+      await dismissJurisdictionNotice();
+    } catch {
+      // No state revert — the SPA already hid the banner; a stale
+      // server-side flag will re-surface it on next login but
+      // bouncing back NOW would be jarring.
+    }
+  }
+
+  return (
+    <aside class="statnive-admin-notice" role="status">
+      <p>
+        <strong>Set your jurisdiction.</strong> This site runs in the
+        legacy <code>OTHER-NON-EU + permissive</code> backfill — every
+        visit is counted, identifier cookies are set, no rounding. To
+        operate under the EU consent-free / hybrid flow, pick a
+        jurisdiction in the <em>Compliance</em> column of the Sites
+        table below. See{' '}
+        <a href="/legal/lia" target="_blank" rel="noopener">/legal/lia</a>{' '}
+        and{' '}
+        <a href="/legal/privacy-policy/en" target="_blank" rel="noopener">/legal/privacy-policy</a>{' '}
+        for the disclosure surfaces that pair with each mode.
+      </p>
+      <button type="button" onClick={() => void onDismiss()}>
+        Got it — don't show again
+      </button>
+    </aside>
+  );
+}
+
+// ComplianceCell renders the Stage-3 jurisdiction + consent-mode +
+// event-allowlist controls for one site. Three inline controls so the
+// operator can flip any axis without leaving the Sites table. When the
+// operator changes jurisdiction, the displayed consent_mode auto-
+// updates to the derived default (sites.DerivedConsentMode mirror) so
+// the right combination lands in one PATCH. Hybrid is never auto-
+// applied — the operator picks it from the consent_mode dropdown.
+function ComplianceCell({
+  site,
+  onPatch,
+}: {
+  site: AdminSite;
+  onPatch: (siteID: number, patch: SitePolicyPatch) => void | Promise<void>;
+}) {
+  // The server backfills migrated rows with OTHER-NON-EU + permissive;
+  // empty strings only show up if the binary is at Stage 3 but the
+  // migration hasn't applied yet. Treat empties as the safe default so
+  // the UI renders something coherent.
+  const currentJ: Jurisdiction = (site.jurisdiction ?? 'OTHER-NON-EU') as Jurisdiction;
+  const currentM: ConsentMode = (site.consent_mode ?? 'permissive') as ConsentMode;
+  const currentList = site.event_allowlist ?? [];
+
+  function onChangeJurisdiction(next: Jurisdiction) {
+    // Flipping jurisdiction implies a sensible consent_mode default;
+    // explicit hybrid is preserved when the operator already picked it.
+    const nextMode: ConsentMode = currentM === 'hybrid' ? 'hybrid' : derivedConsentMode(next);
+    void onPatch(site.site_id, {
+      jurisdiction: next,
+      consent_mode: nextMode,
+    });
+  }
+
+  function onChangeMode(next: ConsentMode) {
+    void onPatch(site.site_id, { consent_mode: next });
+  }
+
+  function onChangeAllowlist(raw: string) {
+    // Comma-separated free-text → trimmed array. Empty input → empty
+    // list (no enforcement). Validate hits the server.
+    const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    void onPatch(site.site_id, { event_allowlist: parts });
+  }
+
+  const showAllowlist = currentM === 'consent-free' || currentM === 'hybrid';
+
+  return (
+    <td class="statnive-admin-compliance">
+      <select
+        aria-label={`jurisdiction for ${site.hostname}`}
+        value={currentJ}
+        onChange={(e) => onChangeJurisdiction((e.target as HTMLSelectElement).value as Jurisdiction)}
+      >
+        {JURISDICTIONS.map((j) => (
+          <option key={j} value={j}>{jurisdictionLabel(j)}</option>
+        ))}
+      </select>
+      <select
+        aria-label={`consent mode for ${site.hostname}`}
+        value={currentM}
+        onChange={(e) => onChangeMode((e.target as HTMLSelectElement).value as ConsentMode)}
+      >
+        {CONSENT_MODES.map((m) => (
+          <option key={m} value={m}>{m}</option>
+        ))}
+      </select>
+      {showAllowlist ? (
+        <input
+          type="text"
+          aria-label={`event allowlist for ${site.hostname}`}
+          placeholder="pageview, click, scroll"
+          value={currentList.join(', ')}
+          onBlur={(e) => onChangeAllowlist((e.target as HTMLInputElement).value)}
+        />
+      ) : null}
     </td>
   );
 }

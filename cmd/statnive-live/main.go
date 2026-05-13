@@ -485,15 +485,18 @@ func run() error {
 		userSitesStore = auth.NewClickHouseSitesStore(store.Conn(), cfg.ClickHouse.Database)
 	}
 
+	jurisdictionNoticeStore := auth.NewClickHouseStore(store.Conn(), cfg.ClickHouse.Database)
+
 	adminDeps := admin.Deps{
-		Auth:       authStore,
-		Goals:      goalStore,
-		Snapshot:   goalSnapshot,
-		Sites:      registry,
-		UserSites:  userSitesStore,
-		EventAudit: store,
-		Audit:      auditLog,
-		Logger:     logger,
+		Auth:               authStore,
+		Goals:              goalStore,
+		Snapshot:           goalSnapshot,
+		Sites:              registry,
+		UserSites:          userSitesStore,
+		EventAudit:         store,
+		JurisdictionNotice: jurisdictionNoticeStore,
+		Audit:              auditLog,
+		Logger:             logger,
 	}
 
 	router.Group(func(r chi.Router) {

@@ -341,3 +341,32 @@ func TestRenderMigration_013_SitesJurisdiction(t *testing.T) {
 		}
 	})
 }
+
+// TestRenderMigration_014_UsersJurisdictionNotice pins the one-column
+// addition that drives the Stage-3 one-time admin notice dismissal.
+// Default 0 = not dismissed, so every existing admin sees the prompt
+// exactly once after Stage 3 lands.
+func TestRenderMigration_014_UsersJurisdictionNotice(t *testing.T) {
+	t.Parallel()
+
+	body, err := Migrations.ReadFile("migrations/014_users_jurisdiction_notice.sql")
+	if err != nil {
+		t.Fatalf("read migration 014: %v", err)
+	}
+
+	got, renderErr := RenderMigrationWith("014_users_jurisdiction_notice.sql", body, MigrationData{})
+	if renderErr != nil {
+		t.Fatalf("render: %v", renderErr)
+	}
+
+	joined := strings.Join(SplitStatements(got), "\n")
+
+	for _, want := range []string{
+		"ALTER TABLE statnive.users",
+		"ADD COLUMN IF NOT EXISTS jurisdiction_notice_dismissed UInt8 DEFAULT 0",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q in rendered SQL", want)
+		}
+	}
+}
