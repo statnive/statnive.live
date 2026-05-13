@@ -1230,7 +1230,12 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("privacy.privacy_page", true)
 	v.SetDefault("privacy.privacy_api", true)
 	v.SetDefault("privacy.legal_routes", true)
-	v.SetDefault("privacy.suppression_wal_path", "./suppression.wal")
+	// Intentionally empty — post-load fallback below sets this to
+	// {ingest.wal_dir}/suppression.wal so it lives in the same
+	// writable directory systemd already grants the binary. The
+	// initial v0.0.13 default "./suppression.wal" failed-stop boot
+	// under ProtectSystem=strict on the Netcup VPS (read-only CWD).
+	v.SetDefault("privacy.suppression_wal_path", "")
 
 	if readErr := v.ReadInConfig(); readErr != nil {
 		var notFound viper.ConfigFileNotFoundError
@@ -1308,6 +1313,17 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.Privacy.PrivacyAPI = v.GetBool("privacy.privacy_api")
 	cfg.Privacy.LegalRoutes = v.GetBool("privacy.legal_routes")
 	cfg.Privacy.SuppressionWALPath = strings.TrimSpace(v.GetString("privacy.suppression_wal_path"))
+
+	// Derive the suppression WAL path from the (already writable)
+	// ingest.wal_dir when the operator didn't override. Initial v0.0.13
+	// shipped with a "./suppression.wal" default that resolved to the
+	// systemd ProtectSystem=strict read-only working directory and
+	// failed-stop the boot. Co-locating under ingest.wal_dir reuses
+	// the same systemd RuntimeDirectory / StateDirectory the writer
+	// already trusts.
+	if cfg.Privacy.SuppressionWALPath == "" && cfg.Ingest.WALDir != "" {
+		cfg.Privacy.SuppressionWALPath = filepath.Join(cfg.Ingest.WALDir, "suppression.wal")
+	}
 
 	// Validate operator email format when set. The value flows into
 	// migration 010 as a string literal in the SQL template; reject
