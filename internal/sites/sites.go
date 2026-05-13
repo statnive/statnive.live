@@ -559,14 +559,44 @@ func (r *Registry) UpdateSitePolicy(ctx context.Context, siteID uint32, policy S
 		return ErrUnknownHostname
 	}
 
-	if err := r.conn.Exec(ctx,
-		`ALTER TABLE statnive.sites
-		 UPDATE respect_dnt = ?, respect_gpc = ?, track_bots = ?
-		 WHERE site_id = ?
-		 SETTINGS mutations_sync = 2`,
+	sets := []string{"respect_dnt = ?", "respect_gpc = ?", "track_bots = ?"}
+	args := []any{
 		boolU8(policy.RespectDNT), boolU8(policy.RespectGPC), boolU8(policy.TrackBots),
-		siteID,
-	); err != nil {
+	}
+
+	// Stage-3 columns. Empty strings are treated as "no change" so
+	// existing callers that only know about the three privacy bools
+	// (PR D2 / migration 006) keep working unchanged. The admin
+	// handler explicitly populates these fields when the operator
+	// patches them.
+	if policy.Jurisdiction != "" {
+		sets = append(sets, "jurisdiction = ?")
+		args = append(args, policy.Jurisdiction)
+	}
+
+	if policy.ConsentMode != "" {
+		sets = append(sets, "consent_mode = ?")
+		args = append(args, policy.ConsentMode)
+	}
+
+	if policy.EventAllowlist != nil {
+		buf, err := json.Marshal(policy.EventAllowlist)
+		if err != nil {
+			return fmt.Errorf("sites marshal event_allowlist: %w", err)
+		}
+
+		sets = append(sets, "event_allowlist = ?")
+		args = append(args, string(buf))
+	}
+
+	args = append(args, siteID)
+
+	stmt := fmt.Sprintf(
+		`ALTER TABLE statnive.sites UPDATE %s WHERE site_id = ? SETTINGS mutations_sync = 2`,
+		strings.Join(sets, ", "),
+	)
+
+	if err := r.conn.Exec(ctx, stmt, args...); err != nil {
 		return fmt.Errorf("sites update policy: %w", err)
 	}
 

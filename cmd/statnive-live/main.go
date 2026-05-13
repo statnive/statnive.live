@@ -577,6 +577,7 @@ func run() error {
 			r.Method(http.MethodPost, "/api/privacy/opt-out", http.HandlerFunc(privacyHandlers.OptOut))
 			r.Method(http.MethodGet, "/api/privacy/access", http.HandlerFunc(privacyHandlers.Access))
 			r.Method(http.MethodPost, "/api/privacy/erase", http.HandlerFunc(privacyHandlers.Erase))
+			r.Method(http.MethodPost, "/api/privacy/consent", http.HandlerFunc(privacyHandlers.Consent))
 		})
 	}
 

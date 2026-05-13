@@ -28,32 +28,38 @@ func NewSites(deps Deps) *Sites {
 }
 
 type siteAdminResponse struct {
-	SiteID     uint32 `json:"site_id"`
-	Hostname   string `json:"hostname"`
-	Slug       string `json:"slug"`
-	Plan       string `json:"plan"`
-	Enabled    bool   `json:"enabled"`
-	TZ         string `json:"tz"`
-	Currency   string `json:"currency"`
-	CreatedAt  int64  `json:"created_at"`
-	RespectDNT bool   `json:"respect_dnt"`
-	RespectGPC bool   `json:"respect_gpc"`
-	TrackBots  bool   `json:"track_bots"`
+	SiteID         uint32   `json:"site_id"`
+	Hostname       string   `json:"hostname"`
+	Slug           string   `json:"slug"`
+	Plan           string   `json:"plan"`
+	Enabled        bool     `json:"enabled"`
+	TZ             string   `json:"tz"`
+	Currency       string   `json:"currency"`
+	CreatedAt      int64    `json:"created_at"`
+	RespectDNT     bool     `json:"respect_dnt"`
+	RespectGPC     bool     `json:"respect_gpc"`
+	TrackBots      bool     `json:"track_bots"`
+	Jurisdiction   string   `json:"jurisdiction,omitempty"`
+	ConsentMode    string   `json:"consent_mode,omitempty"`
+	EventAllowlist []string `json:"event_allowlist,omitempty"`
 }
 
 func toSiteResponse(s sites.SiteAdmin) siteAdminResponse {
 	return siteAdminResponse{
-		SiteID:     s.ID,
-		Hostname:   s.Hostname,
-		Slug:       s.Slug,
-		Plan:       s.Plan,
-		Enabled:    s.Enabled,
-		TZ:         s.TZ,
-		Currency:   s.Currency,
-		CreatedAt:  s.CreatedAt,
-		RespectDNT: s.RespectDNT,
-		RespectGPC: s.RespectGPC,
-		TrackBots:  s.TrackBots,
+		SiteID:         s.ID,
+		Hostname:       s.Hostname,
+		Slug:           s.Slug,
+		Plan:           s.Plan,
+		Enabled:        s.Enabled,
+		TZ:             s.TZ,
+		Currency:       s.Currency,
+		CreatedAt:      s.CreatedAt,
+		RespectDNT:     s.RespectDNT,
+		RespectGPC:     s.RespectGPC,
+		TrackBots:      s.TrackBots,
+		Jurisdiction:   s.Jurisdiction,
+		ConsentMode:    s.ConsentMode,
+		EventAllowlist: s.EventAllowlist,
 	}
 }
 
@@ -200,17 +206,20 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 
 // updateSiteRequest — Phase 6 supports enable/disable. PR D2 adds the
 // per-site privacy + bot policy (CLAUDE.md Privacy Rule 6 + migration
-// 006). Per-site-currency PR adds Currency + TZ. Pointer fields so the
-// handler can distinguish "field omitted" (no change) from "field set
-// to zero value" (apply it). Slug + plan mutations still land when
-// operator demand justifies them.
+// 006). Per-site-currency PR adds Currency + TZ. Stage 3 adds the
+// jurisdiction + consent-mode + event-allowlist trio (migration 013).
+// Pointer fields so the handler can distinguish "field omitted" (no
+// change) from "field set to zero value" (apply it).
 type updateSiteRequest struct {
-	Enabled    *bool   `json:"enabled,omitempty"`
-	RespectDNT *bool   `json:"respect_dnt,omitempty"`
-	RespectGPC *bool   `json:"respect_gpc,omitempty"`
-	TrackBots  *bool   `json:"track_bots,omitempty"`
-	Currency   *string `json:"currency,omitempty"`
-	TZ         *string `json:"tz,omitempty"`
+	Enabled        *bool     `json:"enabled,omitempty"`
+	RespectDNT     *bool     `json:"respect_dnt,omitempty"`
+	RespectGPC     *bool     `json:"respect_gpc,omitempty"`
+	TrackBots      *bool     `json:"track_bots,omitempty"`
+	Currency       *string   `json:"currency,omitempty"`
+	TZ             *string   `json:"tz,omitempty"`
+	Jurisdiction   *string   `json:"jurisdiction,omitempty"`
+	ConsentMode    *string   `json:"consent_mode,omitempty"`
+	EventAllowlist *[]string `json:"event_allowlist,omitempty"`
 }
 
 // Update handles PATCH /api/admin/sites/{id}. Payload may include any
@@ -236,14 +245,15 @@ func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 	var req updateSiteRequest
 	if err := httpjson.DecodeAllowed(r, &req, []string{
 		"enabled", "respect_dnt", "respect_gpc", "track_bots", "currency", "tz",
+		"jurisdiction", "consent_mode", "event_allowlist",
 	}); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 
 		return
 	}
 
-	if status := h.applyPolicyPatch(r, siteID, req); status != 0 {
-		http.Error(w, http.StatusText(status), status)
+	if status, body := h.applyPolicyPatch(r, siteID, req); status != 0 {
+		http.Error(w, body, status)
 
 		return
 	}
@@ -283,26 +293,30 @@ func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "not found", http.StatusNotFound)
 }
 
-// applyPolicyPatch read-modify-writes the per-site DNT/GPC/track_bots
-// policy when at least one of those fields is present in req. Returns
-// 0 on success / no-op (no policy fields), or an HTTP status code on
-// failure (404 for unknown site, 500 otherwise). Splits the
-// ListAdmin-free read + UpdateSitePolicy write out of Update so the
-// caller stays under the gocyclo threshold.
-func (h *Sites) applyPolicyPatch(r *http.Request, siteID uint32, req updateSiteRequest) int {
-	if req.RespectDNT == nil && req.RespectGPC == nil && req.TrackBots == nil {
-		return 0
+// applyPolicyPatch read-modify-writes the per-site policy (DNT / GPC /
+// track_bots from migration 006 + jurisdiction / consent_mode /
+// event_allowlist from migration 013) when at least one of those
+// fields is present in req. Returns (0, "") on success / no-op, or an
+// HTTP status code + response body on failure: 404 unknown site, 400
+// + Validate's verbatim message on invariant violation, 500 otherwise.
+// Validates the resulting SitePolicy through sites.SitePolicy.Validate
+// so the DE-permissive / hybrid-outside-EU rejections happen here,
+// not in ClickHouse.
+func (h *Sites) applyPolicyPatch(r *http.Request, siteID uint32, req updateSiteRequest) (int, string) {
+	if req.RespectDNT == nil && req.RespectGPC == nil && req.TrackBots == nil &&
+		req.Jurisdiction == nil && req.ConsentMode == nil && req.EventAllowlist == nil {
+		return 0, ""
 	}
 
 	current, lookupErr := h.deps.Sites.LookupSiteByID(r.Context(), siteID)
 	if lookupErr != nil {
 		if errors.Is(lookupErr, sites.ErrUnknownHostname) {
-			return http.StatusNotFound
+			return http.StatusNotFound, http.StatusText(http.StatusNotFound)
 		}
 
 		h.deps.emitDashboardError(r, "lookup_for_update", lookupErr)
 
-		return http.StatusInternalServerError
+		return http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)
 	}
 
 	policy := current.SitePolicy
@@ -318,13 +332,32 @@ func (h *Sites) applyPolicyPatch(r *http.Request, siteID uint32, req updateSiteR
 		policy.TrackBots = *req.TrackBots
 	}
 
+	if req.Jurisdiction != nil {
+		policy.Jurisdiction = *req.Jurisdiction
+	}
+
+	if req.ConsentMode != nil {
+		policy.ConsentMode = *req.ConsentMode
+	}
+
+	if req.EventAllowlist != nil {
+		policy.EventAllowlist = *req.EventAllowlist
+	}
+
+	if err := policy.Validate(); err != nil {
+		// Validate already prefixes "sites: " for log readability;
+		// surface the rejection text verbatim so the admin UI can
+		// render it.
+		return http.StatusBadRequest, err.Error()
+	}
+
 	if err := h.deps.Sites.UpdateSitePolicy(r.Context(), siteID, policy); err != nil {
 		h.deps.emitDashboardError(r, "update_site_policy", err)
 
-		return http.StatusInternalServerError
+		return http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)
 	}
 
-	return 0
+	return 0, ""
 }
 
 // applyAttributesPatch read-modify-writes the per-site display
