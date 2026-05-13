@@ -47,7 +47,7 @@ func (s *ClickHouseStore) IsJurisdictionNoticeDismissed(
 		// is the user sees the notice once more, which is graceful
 		// next to a 500. Connection failures still surface through
 		// the request-level health gates.
-		return false, nil
+		return false, nil //nolint:nilerr // intentional graceful fallback documented above
 	}
 
 	return flag != 0, nil

@@ -86,9 +86,11 @@ func TestMode_BehaviourPredicates(t *testing.T) {
 		if got := c.m.AnonymousCount(); got != c.anonymous {
 			t.Errorf("%v.AnonymousCount() = %v, want %v", c.m, got, c.anonymous)
 		}
+
 		if got := c.m.AllowsIdentifier(); got != c.allows {
 			t.Errorf("%v.AllowsIdentifier() = %v, want %v", c.m, got, c.allows)
 		}
+
 		if got := c.m.EnforcesEventAllowlist(); got != c.allowlist {
 			t.Errorf("%v.EnforcesEventAllowlist() = %v, want %v", c.m, got, c.allowlist)
 		}

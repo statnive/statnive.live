@@ -85,7 +85,6 @@ func TestSitePolicy_Validate_PinsTheKeyInvariants(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -94,6 +93,7 @@ func TestSitePolicy_Validate_PinsTheKeyInvariants(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
+
 				return
 			}
 

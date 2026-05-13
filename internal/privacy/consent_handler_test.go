@@ -29,6 +29,7 @@ func TestConsent_GiveSetsCookie(t *testing.T) {
 	}
 
 	var consent *http.Cookie
+
 	for _, c := range rec.Result().Cookies() {
 		if c.Name == "_statnive_consent" {
 			consent = c
@@ -38,6 +39,7 @@ func TestConsent_GiveSetsCookie(t *testing.T) {
 
 	if consent == nil {
 		t.Fatalf("_statnive_consent cookie not set")
+		return // unreachable; staticcheck SA5011 doesn't see t.Fatalf as terminal
 	}
 
 	if consent.Value != "v1" {

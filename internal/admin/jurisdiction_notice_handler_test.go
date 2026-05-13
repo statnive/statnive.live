@@ -13,10 +13,10 @@ import (
 )
 
 type fakeJurisdictionNoticeStore struct {
-	dismissed atomic.Bool
-	getErr    error
-	setErr    error
-	dismissed_for uuid.UUID
+	dismissed    atomic.Bool
+	getErr       error
+	setErr       error
+	dismissedFor uuid.UUID
 }
 
 func (f *fakeJurisdictionNoticeStore) IsJurisdictionNoticeDismissed(
@@ -37,7 +37,7 @@ func (f *fakeJurisdictionNoticeStore) DismissJurisdictionNotice(
 	}
 
 	f.dismissed.Store(true)
-	f.dismissed_for = id
+	f.dismissedFor = id
 
 	return nil
 }
@@ -57,6 +57,7 @@ func TestJurisdictionNotice_GetReportsFalseInitially(t *testing.T) {
 	}
 
 	var body jurisdictionNoticeResponse
+
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
 
 	if body.Dismissed {
@@ -88,6 +89,7 @@ func TestJurisdictionNotice_DismissFlipsFlag(t *testing.T) {
 	h.Get(rec2, req2)
 
 	var body jurisdictionNoticeResponse
+
 	_ = json.Unmarshal(rec2.Body.Bytes(), &body)
 
 	if !body.Dismissed {
@@ -109,6 +111,7 @@ func TestJurisdictionNotice_NilStoreGetIsGracefulFalse(t *testing.T) {
 	}
 
 	var body jurisdictionNoticeResponse
+
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
 
 	if body.Dismissed {

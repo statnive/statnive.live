@@ -120,7 +120,7 @@ type createSiteRequest struct {
 // projection on success, 409 on hostname-taken or slug-taken, 400 on
 // invalid hostname or unknown field.
 //
-//nolint:gocyclo // switch over 7 distinct store error types; each must map to a specific HTTP status
+//nolint:gocyclo,funlen // switch over 7 distinct store error types + Stage-3 jurisdiction pre-validate + post-CreateSite policy write; splitting them obscures the linear create flow
 func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {
@@ -360,6 +360,8 @@ func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 // Validates the resulting SitePolicy through sites.SitePolicy.Validate
 // so the DE-permissive / hybrid-outside-EU rejections happen here,
 // not in ClickHouse.
+//
+//nolint:gocyclo // 6 pointer-field merges + Validate + UpdateSitePolicy; splitting them obscures the read-modify-write flow.
 func (h *Sites) applyPolicyPatch(r *http.Request, siteID uint32, req updateSiteRequest) (int, string) {
 	if req.RespectDNT == nil && req.RespectGPC == nil && req.TrackBots == nil &&
 		req.Jurisdiction == nil && req.ConsentMode == nil && req.EventAllowlist == nil {

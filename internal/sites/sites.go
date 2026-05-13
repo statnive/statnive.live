@@ -42,6 +42,11 @@ var ErrInvalidCurrency = errors.New("sites: invalid currency")
 // that fails time.LoadLocation). Maps to HTTP 400.
 var ErrInvalidTimezone = errors.New("sites: invalid timezone")
 
+// errDEPermissiveForbidden is the rejection text the admin UI surfaces
+// verbatim. TDDDG § 25 forbids unconditional client storage on a
+// DE-targeted site, so permissive is hard-rejected at write time.
+var errDEPermissiveForbidden = errors.New("sites: jurisdiction=DE requires consent_mode in {consent-free, hybrid, consent-required}, got permissive")
+
 // Site is the JSON-serialized row the dashboard's site-switcher consumes.
 // TZ is an IANA zone name — the dashboard's date picker renders midnight
 // boundaries in this zone (default Europe/Berlin for SaaS, operator-set
@@ -80,17 +85,17 @@ type SitePolicy struct {
 // alias) so the admin POST/PATCH JSON decode stays simple — Validate
 // catches the bad strings.
 const (
-	JurisdictionDE          = "DE"
-	JurisdictionFR          = "FR"
-	JurisdictionIT          = "IT"
-	JurisdictionES          = "ES"
-	JurisdictionNL          = "NL"
-	JurisdictionBE          = "BE"
-	JurisdictionIE          = "IE"
-	JurisdictionUK          = "UK"
-	JurisdictionOtherEU     = "OTHER-EU"
-	JurisdictionOtherNonEU  = "OTHER-NON-EU"
-	JurisdictionIR          = "IR"
+	JurisdictionDE         = "DE"
+	JurisdictionFR         = "FR"
+	JurisdictionIT         = "IT"
+	JurisdictionES         = "ES"
+	JurisdictionNL         = "NL"
+	JurisdictionBE         = "BE"
+	JurisdictionIE         = "IE"
+	JurisdictionUK         = "UK"
+	JurisdictionOtherEU    = "OTHER-EU"
+	JurisdictionOtherNonEU = "OTHER-NON-EU"
+	JurisdictionIR         = "IR"
 )
 
 // ConsentMode enum values. Same string-not-typed-alias rationale.
@@ -154,7 +159,7 @@ func (p SitePolicy) Validate() error {
 	// (consent-gated upgrade) are the only safe defaults; explicit
 	// permissive on a DE site is a hard reject.
 	if p.Jurisdiction == JurisdictionDE && p.ConsentMode == ConsentModePermissive {
-		return fmt.Errorf("sites: jurisdiction=DE requires consent_mode in {consent-free, hybrid, consent-required}, got permissive")
+		return errDEPermissiveForbidden
 	}
 
 	// Hybrid only makes sense in jurisdictions where consent has a

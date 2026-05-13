@@ -8,13 +8,13 @@ func TestRoundToTen(t *testing.T) {
 	cases := []struct{ in, want int64 }{
 		{-5, 0},
 		{0, 0},
-		{1, 10},   // sub-10 rounds up to 10
-		{4, 10},   // upper boundary of sub-10
+		{1, 10}, // sub-10 rounds up to 10
+		{4, 10}, // upper boundary of sub-10
 		{9, 10},
 		{10, 10},
-		{11, 10},  // round-half-up: 11 → 10
+		{11, 10}, // round-half-up: 11 → 10
 		{14, 10},
-		{15, 20},  // round-half-up: 15 → 20
+		{15, 20}, // round-half-up: 15 → 20
 		{16, 20},
 		{99, 100},
 		{100, 100},

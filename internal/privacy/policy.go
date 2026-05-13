@@ -132,6 +132,8 @@ func (m Mode) AllowsIdentifier() bool {
 	switch m {
 	case ModeCurrent, ModePermissive, ModeHybridPostConsent:
 		return true
+	case ModeConsentFree, ModeConsentRequired, ModeHybridPreConsent:
+		return false
 	}
 
 	return false
