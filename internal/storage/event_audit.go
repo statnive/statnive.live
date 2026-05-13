@@ -2,8 +2,14 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+)
+
+var (
+	errEventAuditZeroSiteID    = errors.New("event_audit: site_id is zero")
+	errEventAuditWindowInverse = errors.New("event_audit: from must be before to")
 )
 
 // EventNameCount is one row of the event-name cardinality audit.
@@ -28,11 +34,11 @@ func (s *ClickHouseStore) EventNameCardinality(
 	from, to time.Time,
 ) ([]EventNameCount, error) {
 	if siteID == 0 {
-		return nil, fmt.Errorf("event_audit: site_id is zero")
+		return nil, errEventAuditZeroSiteID
 	}
 
 	if !from.Before(to) {
-		return nil, fmt.Errorf("event_audit: from must be before to")
+		return nil, errEventAuditWindowInverse
 	}
 
 	rows, err := s.conn.Query(ctx, `
@@ -49,6 +55,7 @@ func (s *ClickHouseStore) EventNameCardinality(
 	if err != nil {
 		return nil, fmt.Errorf("event_audit query: %w", err)
 	}
+
 	defer func() { _ = rows.Close() }()
 
 	out := make([]EventNameCount, 0, 8)

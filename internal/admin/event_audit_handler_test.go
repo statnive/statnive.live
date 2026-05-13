@@ -89,6 +89,7 @@ func TestEventAudit_OverWithFourEventNames(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	var body eventAuditResponse
+
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
 
 	if body.CapStatus != eventAuditCapStatusOver {
@@ -134,7 +135,7 @@ func TestEventAudit_CacheHitOnSecondCall(t *testing.T) {
 
 	handler := NewEventAudit(Deps{EventAudit: store})
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		req := adminRequest(t, http.MethodGet, "/api/admin/event-audit?site_id=42", "", newTestAdmin(), nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)

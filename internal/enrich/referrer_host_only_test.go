@@ -23,9 +23,9 @@ func TestExtractHostLower_StripsPathQueryFragment(t *testing.T) {
 		{"", ""},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.in, func(t *testing.T) {
 			t.Parallel()
+
 			if got := extractHostLower(c.in); got != c.want {
 				t.Errorf("extractHostLower(%q) = %q, want %q", c.in, got, c.want)
 			}

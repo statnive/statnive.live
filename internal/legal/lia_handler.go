@@ -7,10 +7,9 @@ package legal
 import (
 	"context"
 	_ "embed"
+	"log/slog"
 	"net/http"
 	"strings"
-
-	"log/slog"
 
 	"github.com/statnive/statnive.live/internal/audit"
 )

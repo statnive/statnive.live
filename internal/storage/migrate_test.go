@@ -216,6 +216,7 @@ func TestRenderMigration_011_RollupTTL(t *testing.T) {
 		if !strings.Contains(joined, "MODIFY TTL hour + INTERVAL 750 DAY DELETE") {
 			t.Errorf("hourly_visitors TTL clause missing")
 		}
+
 		if strings.Count(joined, "MODIFY TTL day + INTERVAL 750 DAY DELETE") != 2 {
 			t.Errorf("expected day-column TTL twice (daily_pages + daily_sources)")
 		}

@@ -71,17 +71,18 @@ func TestHexUserIDHash_EmptyStaysEmpty(t *testing.T) {
 	}
 }
 
+const testCookieID = "550e8400-e29b-41d4-a716-446655440000"
+
 func TestCookieIDHash_NonRotating(t *testing.T) {
 	t.Parallel()
 
 	master := []byte(testSecret)
-	const cookieID = "550e8400-e29b-41d4-a716-446655440000"
 
 	// Same input across two calls must always produce the same hash —
 	// the hash is non-rotating so DSAR / erase queries can match a
 	// visitor's row across days.
-	a := identity.CookieIDHash(master, 7, cookieID)
-	b := identity.CookieIDHash(master, 7, cookieID)
+	a := identity.CookieIDHash(master, 7, testCookieID)
+	b := identity.CookieIDHash(master, 7, testCookieID)
 
 	if a != b {
 		t.Errorf("non-rotating hash diverged: %x vs %x", a, b)
@@ -92,10 +93,9 @@ func TestCookieIDHash_TenantSeparation(t *testing.T) {
 	t.Parallel()
 
 	master := []byte(testSecret)
-	const cookieID = "550e8400-e29b-41d4-a716-446655440000"
 
-	a := identity.CookieIDHash(master, 1, cookieID)
-	b := identity.CookieIDHash(master, 2, cookieID)
+	a := identity.CookieIDHash(master, 1, testCookieID)
+	b := identity.CookieIDHash(master, 2, testCookieID)
 
 	if a == b {
 		t.Errorf("same cookie across tenants → same hash: %x", a)
@@ -105,8 +105,7 @@ func TestCookieIDHash_TenantSeparation(t *testing.T) {
 func TestHexCookieIDHash_PrefixAndIdempotency(t *testing.T) {
 	t.Parallel()
 
-	const cookieID = "550e8400-e29b-41d4-a716-446655440000"
-	got := identity.HexCookieIDHash([]byte(testSecret), 7, cookieID)
+	got := identity.HexCookieIDHash([]byte(testSecret), 7, testCookieID)
 
 	if !strings.HasPrefix(got, "h:") {
 		t.Errorf("expected h: prefix, got %q", got)
