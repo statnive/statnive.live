@@ -59,18 +59,23 @@ function loadTracker(opts = {}) {
   if (opts.phantom) window._phantom = {};
 
   // Three combinations — opts.endpointAttr alone, opts.scriptSrc alone,
-  // or both (the "explicit attr wins over derived src" case).
+  // or both (the "explicit attr wins over derived src" case). The Stage-3
+  // honour-gpc opt-in adds a fourth attribute slot that composes with
+  // any of the above.
+  const honour = opts.honourGpc ? ' data-statnive-honour-gpc="1"' : '';
   if (opts.endpointAttr && opts.scriptSrc) {
     document.head.innerHTML =
-      `<script src="${opts.scriptSrc}" data-statnive-endpoint="${opts.endpointAttr}"></script>`;
+      `<script src="${opts.scriptSrc}" data-statnive-endpoint="${opts.endpointAttr}"${honour}></script>`;
   } else if (opts.endpointAttr) {
-    document.head.innerHTML = `<script data-statnive-endpoint="${opts.endpointAttr}"></script>`;
+    document.head.innerHTML = `<script data-statnive-endpoint="${opts.endpointAttr}"${honour}></script>`;
   } else if (opts.scriptSrc) {
     // Simulates the cross-origin marketing-site case: <script src=
     // "https://statnive.live/tracker.js"> with no data-statnive-endpoint.
     // Bug #18 — tracker should derive /api/event from the src origin
     // instead of falling back to a relative /api/event 404 sink.
-    document.head.innerHTML = `<script src="${opts.scriptSrc}" async defer></script>`;
+    document.head.innerHTML = `<script src="${opts.scriptSrc}" async defer${honour}></script>`;
+  } else if (opts.honourGpc) {
+    document.head.innerHTML = `<script${honour}></script>`;
   }
 
   // Mock sendBeacon so we can inspect the payload.
@@ -335,5 +340,78 @@ describe('identify (user_id)', () => {
     // doesn't have — so any client-side hashing would be insecure too.
     expect(body.user_id).toBe('plain_uid_42');
     expect(body.user_id).not.toMatch(/^[a-f0-9]{64}$/);
+  });
+});
+
+// Stage 3 — opt-in GPC probe + consent helpers.
+describe('honour-GPC opt-in', () => {
+  it('skips ingest when honour-gpc=1 AND globalPrivacyControl=true', () => {
+    const calls = loadTracker({ honourGpc: true, gpc: true });
+    expect(calls).toHaveLength(0);
+    // Stub surface still present so the operator's banner JS doesn't TypeError.
+    expect(typeof window.statniveLive.acceptConsent).toBe('function');
+  });
+
+  it('fires normally when honour-gpc=1 AND globalPrivacyControl=false', () => {
+    const calls = loadTracker({ honourGpc: true, gpc: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/event');
+  });
+
+  it('fires normally when honour-gpc absent AND globalPrivacyControl=true (legacy posture)', () => {
+    const calls = loadTracker({ gpc: true });
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('consent helpers', () => {
+  it('acceptConsent POSTs to /api/privacy/consent with action=give + CSRF header', async () => {
+    const fetchCalls = [];
+    const origFetch = window.fetch;
+    window.fetch = (url, init) => { fetchCalls.push({ url, init }); return Promise.resolve({ status: 204 }); };
+
+    try {
+      loadTracker();
+      await window.statniveLive.acceptConsent('csrf-abc');
+
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0].url).toBe('/api/privacy/consent');
+      expect(fetchCalls[0].init.method).toBe('POST');
+      expect(fetchCalls[0].init.credentials).toBe('same-origin');
+      expect(fetchCalls[0].init.headers['X-CSRF-Token']).toBe('csrf-abc');
+      const body = JSON.parse(fetchCalls[0].init.body);
+      expect(body.action).toBe('give');
+    } finally {
+      window.fetch = origFetch;
+    }
+  });
+
+  it('withdrawConsent POSTs action=withdraw', async () => {
+    const fetchCalls = [];
+    const origFetch = window.fetch;
+    window.fetch = (url, init) => { fetchCalls.push({ url, init }); return Promise.resolve({ status: 204 }); };
+
+    try {
+      loadTracker();
+      await window.statniveLive.withdrawConsent('csrf-xyz');
+      expect(JSON.parse(fetchCalls[0].init.body).action).toBe('withdraw');
+    } finally {
+      window.fetch = origFetch;
+    }
+  });
+
+  it('hits the same origin as /api/event when endpoint is cross-origin', async () => {
+    const fetchCalls = [];
+    const origFetch = window.fetch;
+    window.fetch = (url, init) => { fetchCalls.push({ url, init }); return Promise.resolve({ status: 204 }); };
+
+    try {
+      loadTracker({ scriptSrc: 'https://app.statnive.live/tracker.js' });
+      await window.statniveLive.acceptConsent('t');
+
+      expect(fetchCalls[0].url).toBe('https://app.statnive.live/api/privacy/consent');
+    } finally {
+      window.fetch = origFetch;
+    }
   });
 });
