@@ -39,6 +39,26 @@ describe('Sources panel', () => {
     expect(screen.getByText('Direct')).toBeTruthy();
   });
 
+  it('renders fractional RPV with 2 decimal digits in the RPV column', async () => {
+    // Backend returns RPV as a float64 (revenue/visitors). Pre-fix the
+    // panel wrapped it in Math.round, so 0.5 € RPV rendered as "€1" or
+    // 0.19 € as "€0". Pin the fractional shape.
+    mockRows([
+      { referrer_name: 'google', channel: 'Organic Search', views: 500, visitors: 300, goals: 20, revenue: 60, rpv: 0.2 },
+      { referrer_name: '(direct)', channel: 'Direct', views: 200, visitors: 150, goals: 5, revenue: 75, rpv: 0.5 },
+    ]);
+
+    render(<Sources />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('panel-sources')).toBeTruthy();
+    });
+
+    const panel = screen.getByTestId('panel-sources');
+    expect(panel.textContent).toContain('0.20');
+    expect(panel.textContent).toContain('0.50');
+  });
+
   it('renders empty-state message when API returns empty array', async () => {
     mockRows([]);
     render(<Sources />);

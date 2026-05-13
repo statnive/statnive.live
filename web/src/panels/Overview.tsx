@@ -5,7 +5,7 @@ import type { OverviewResponse } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { siteSignal, activeSiteSignal } from '../state/site';
 import { filtersSignal } from '../state/filters';
-import { fmtInt, fmtPct, fmtMoney } from '../lib/fmt';
+import { fmtInt, fmtPct, fmtMoney, fmtRpv } from '../lib/fmt';
 import { DeltaPill } from '../components/DeltaPill';
 import { TrendChart } from './TrendChart';
 import './Overview.css';
@@ -115,7 +115,7 @@ export function Overview() {
             <div class="statnive-label">RPV</div>
             <DeltaPill deltaPct={withDelta.rpv_delta_pct} />
           </div>
-          <div class="statnive-num-primary">{fmtMoney(Math.round(d.rpv), activeSiteSignal.value?.currency ?? 'EUR')}</div>
+          <div class="statnive-num-primary">{fmtRpv(d.rpv, activeSiteSignal.value?.currency ?? 'EUR')}</div>
         </div>
       </div>
 

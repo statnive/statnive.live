@@ -6,7 +6,7 @@ import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
 import { siteSignal, activeSiteSignal } from '../state/site';
 import { DualBar } from './DualBar';
-import { fmtInt, fmtMoney } from '../lib/fmt';
+import { fmtInt, fmtRpv } from '../lib/fmt';
 import { rowMax } from '../lib/rows';
 import './panels.css';
 
@@ -94,7 +94,7 @@ export default function Campaigns() {
               <td>{r.utm_campaign}</td>
               <td>{fmtInt(r.views)}</td>
               <td>{fmtInt(r.goals)}</td>
-              <td>{fmtMoney(Math.round(r.rpv), currency)}</td>
+              <td>{fmtRpv(r.rpv, currency)}</td>
               <td>
                 <DualBar
                   visitors={r.visitors}
