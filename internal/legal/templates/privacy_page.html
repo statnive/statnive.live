@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="csrf-token" content="{{.CSRFToken}}">
+<title>Privacy — statnive.live</title>
+<style>
+:root{color-scheme:light dark;--fg:#1f2937;--bg:#fafaf8;--accent:#00a693;--muted:#6b7280}
+@media (prefers-color-scheme:dark){:root{--fg:#e5e7eb;--bg:#0a2540;--accent:#00a693;--muted:#9ca3af}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;color:var(--fg);background:var(--bg);padding:2rem 1rem}
+main{max-width:42rem;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 1rem}
+h2{font-size:1.1rem;margin:1.5rem 0 .5rem}
+a{color:var(--accent);text-decoration:underline}
+.muted{color:var(--muted);font-size:.9rem}
+.section{margin:1.5rem 0;padding:1rem;border:1px solid color-mix(in srgb,var(--muted) 30%,transparent);border-radius:.5rem}
+button{background:var(--accent);color:#fff;border:0;border-radius:.375rem;padding:.625rem 1rem;cursor:pointer;font:inherit}
+button:disabled{opacity:.55;cursor:not-allowed}
+.status{margin-top:.5rem;font-size:.9rem;color:var(--muted);min-height:1.2em}
+</style>
+</head>
+<body>
+<main>
+<h1>Privacy</h1>
+<p class="muted">This site uses <a href="https://statnive.live/">statnive.live</a> — a privacy-first web-analytics platform. No third-party tracker is loaded; no canvas, WebGL, or font-availability probes run; your raw IP address is never stored.</p>
+
+<div class="section">
+<h2>Documents</h2>
+<ul>
+<li><a href="/legal/privacy-policy/en">Privacy notice (English)</a></li>
+<li><a href="/legal/privacy-policy/de">Datenschutzhinweis (Deutsch)</a></li>
+<li><a href="/legal/lia">Legitimate Interest Assessment</a></li>
+<li><a href="/legal/dpa">Data Processing Agreement</a></li>
+</ul>
+</div>
+
+<div class="section">
+<h2>Your rights</h2>
+<p>You can object to analytics at any time. Clicking <strong>Opt out</strong> sets a strictly-necessary <code>_statnive_optout</code> cookie; the server then silently drops every subsequent event from your browser.</p>
+<p>
+<button id="optout" type="button">Opt out of analytics</button>
+</p>
+<p class="status" id="status" aria-live="polite"></p>
+<p class="muted">Access and erasure requests are served at <code>GET /api/privacy/access</code> and <code>POST /api/privacy/erase</code> respectively. Both require your <code>_statnive</code> cookie to be present so the server can find the rows tied to your browser.</p>
+</div>
+
+</main>
+<script>
+(function(){
+  var csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+  var btn = document.getElementById('optout');
+  var status = document.getElementById('status');
+
+  btn.addEventListener('click', function(){
+    btn.disabled = true;
+    status.textContent = 'Sending…';
+
+    fetch('/api/privacy/opt-out', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'X-CSRF-Token': csrf}
+    }).then(function(r){
+      if (r.status === 204) {
+        status.textContent = 'You are opted out. Future events from this browser will be dropped.';
+      } else {
+        status.textContent = 'Could not opt out (status ' + r.status + '). Try again later.';
+        btn.disabled = false;
+      }
+    }).catch(function(){
+      status.textContent = 'Network error. Try again.';
+      btn.disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>

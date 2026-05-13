@@ -45,6 +45,8 @@ import (
 	"github.com/statnive/statnive.live/internal/landing"
 	"github.com/statnive/statnive.live/internal/legal"
 	"github.com/statnive/statnive.live/internal/metrics"
+	statnivemiddleware "github.com/statnive/statnive.live/internal/middleware"
+	"github.com/statnive/statnive.live/internal/privacy"
 	"github.com/statnive/statnive.live/internal/ratelimit"
 	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
@@ -289,6 +291,25 @@ func run() error {
 
 	registry := sites.New(store.Conn())
 
+	// Stage 2 — opt-out suppression list. Opens its own WAL (separate
+	// from the ingest WAL per B3-A4 review) and replays it before
+	// returning, so a suppressed visitor stays suppressed across a
+	// process restart. Nil-safe: when cfg.Privacy.PrivacyAPI is off the
+	// list is unused; the ingest gate handles a nil Suppression
+	// gracefully.
+	var suppressionList *privacy.SuppressionList
+
+	if cfg.Privacy.PrivacyAPI {
+		var supErr error
+
+		suppressionList, supErr = privacy.NewSuppressionList(cfg.Privacy.SuppressionWALPath)
+		if supErr != nil {
+			return fmt.Errorf("privacy: open suppression wal: %w", supErr)
+		}
+
+		defer func() { _ = suppressionList.Close() }()
+	}
+
 	cachedStore := storage.NewCachedStore(storage.NewClickhouseQueryStore(store), dashboardCacheCapacity)
 
 	rateLimitMW, err := ratelimit.Middleware(cfg.RateLimit.RequestsPerMinute, time.Minute, ratelimit.Config{
@@ -394,6 +415,12 @@ func run() error {
 			OnSample: walFillAlertEmitter(alertsSink),
 			Metrics:  metricsReg,
 		}))
+
+		var ingestSuppression ingest.SuppressionChecker
+		if suppressionList != nil {
+			ingestSuppression = suppressionList
+		}
+
 		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline:        pipeline,
 			WAL:             groupSyncer,
@@ -403,6 +430,7 @@ func run() error {
 			Logger:          logger,
 			ConsentRequired: cfg.Consent.Required,
 			Metrics:         metricsReg,
+			Suppression:     ingestSuppression,
 		}))
 	})
 
@@ -513,6 +541,41 @@ func run() error {
 	// test-time drift guard pins the embedded copy to the canonical
 	// doc. Phase 11a hard gate per PLAN.md.
 	router.Method(http.MethodGet, "/legal/dpa", legal.DPAHandler(auditLog))
+
+	// Stage 2 — visitor-facing GDPR surface. Three route groups,
+	// each gated by its own config flag for instant rollback:
+	//   /privacy                          (privacy.privacy_page)
+	//   /legal/privacy-policy/{lang}      (privacy.legal_routes)
+	//   /api/privacy/{opt-out,access,erase} (privacy.privacy_api)
+	if cfg.Privacy.PrivacyPage {
+		router.Method(http.MethodGet, "/privacy", legal.PrivacyHandler(auditLog))
+	}
+
+	if cfg.Privacy.LegalRoutes {
+		router.Method(http.MethodGet, "/legal/privacy-policy/{lang}", legal.PrivacyPolicyHandler(auditLog))
+	}
+
+	if cfg.Privacy.PrivacyAPI {
+		eraseEnum := privacy.NewEraseEnumerator(store.Conn(), cfg.ClickHouse.Database)
+
+		privacyHandlers, pErr := privacy.NewHandlers(privacy.Config{
+			Sites:        registry,
+			MasterSecret: masterSecret,
+			Suppression:  suppressionList,
+			Erase:        eraseEnum,
+			Audit:        auditLog,
+		})
+		if pErr != nil {
+			return fmt.Errorf("privacy: build handlers: %w", pErr)
+		}
+
+		router.Group(func(r chi.Router) {
+			r.Use(statnivemiddleware.RequireCSRF)
+			r.Method(http.MethodPost, "/api/privacy/opt-out", http.HandlerFunc(privacyHandlers.OptOut))
+			r.Method(http.MethodGet, "/api/privacy/access", http.HandlerFunc(privacyHandlers.Access))
+			r.Method(http.MethodPost, "/api/privacy/erase", http.HandlerFunc(privacyHandlers.Erase))
+		})
+	}
 
 	// First-party tracker — bytes embedded via go:embed in internal/tracker.
 	// Sits outside the dashboard auth + rate-limit groups; serves a static
@@ -1019,6 +1082,23 @@ type appConfig struct {
 		// frontend that consume them.
 		PerSiteAdmin bool
 	}
+	Privacy struct {
+		// PrivacyPage gates GET /privacy. Default on; flip to false
+		// for an instant rollback that returns 404 to all visitors.
+		PrivacyPage bool
+		// PrivacyAPI gates POST /api/privacy/opt-out + GET access +
+		// POST erase. Same rollback shape as PrivacyPage.
+		PrivacyAPI bool
+		// LegalRoutes gates /legal/privacy-policy/{lang}. /legal/lia
+		// and /legal/dpa from Stage 1 are NOT gated by this flag —
+		// they're already live in production and rolling them back
+		// would break operator-facing disclosure links.
+		LegalRoutes bool
+		// SuppressionWALPath is the dedicated suppression-list WAL.
+		// Defaults to a path beside the ingest WAL but is a separate
+		// file (B3-A4 review).
+		SuppressionWALPath string
+	}
 }
 
 // operatorEmailRegex pins the shape of admin.operator_email so the
@@ -1136,6 +1216,15 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("admin.operator_email", "")
 	v.SetDefault("features.per_site_admin", false)
 
+	// Privacy routes — Stage 2 of the consent-free implementation.
+	// All three default on so a fresh deploy gets the GDPR Art. 21
+	// opt-out path without operator intervention; flip individual
+	// flags off for an instant rollback.
+	v.SetDefault("privacy.privacy_page", true)
+	v.SetDefault("privacy.privacy_api", true)
+	v.SetDefault("privacy.legal_routes", true)
+	v.SetDefault("privacy.suppression_wal_path", "./suppression.wal")
+
 	if readErr := v.ReadInConfig(); readErr != nil {
 		var notFound viper.ConfigFileNotFoundError
 		if !errors.As(readErr, &notFound) {
@@ -1207,6 +1296,11 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 
 	cfg.Admin.OperatorEmail = strings.TrimSpace(v.GetString("admin.operator_email"))
 	cfg.Features.PerSiteAdmin = v.GetBool("features.per_site_admin")
+
+	cfg.Privacy.PrivacyPage = v.GetBool("privacy.privacy_page")
+	cfg.Privacy.PrivacyAPI = v.GetBool("privacy.privacy_api")
+	cfg.Privacy.LegalRoutes = v.GetBool("privacy.legal_routes")
+	cfg.Privacy.SuppressionWALPath = strings.TrimSpace(v.GetString("privacy.suppression_wal_path"))
 
 	// Validate operator email format when set. The value flows into
 	// migration 010 as a string literal in the SQL template; reject

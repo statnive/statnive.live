@@ -86,6 +86,20 @@ type HandlerConfig struct {
 	// pass nil. The funnel breakdown (received - accepted - sum(dropped))
 	// is the canonical diagnostic surface for under-count complaints.
 	Metrics *metrics.Registry
+	// Suppression silently drops events whose hashed cookie_id appears
+	// on the in-memory opt-out list (Stage 2). Optional — nil disables
+	// the check, which is the correct posture for the Iran-self-hosted
+	// tier that never serves /api/privacy/opt-out.
+	Suppression SuppressionChecker
+}
+
+// SuppressionChecker is the minimum interface the ingest gate calls
+// to honour visitor opt-outs. Implemented by *privacy.SuppressionList
+// in production; tests inject a stub. Defined here (not imported from
+// internal/privacy) so the dependency flows one-way and the future
+// privacy package can grow without dragging ingest into a cycle.
+type SuppressionChecker interface {
+	IsSuppressed(hash string) bool
 }
 
 // NewHandler returns the http.Handler wired for POST /api/event.
@@ -188,6 +202,18 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashIdenti
 			raw.CookieID = identity.HexCookieIDHash(cfg.MasterSecret, raw.SiteID, cookieID)
 		} else {
 			raw.CookieID = ""
+		}
+
+		// Visitor opt-out gate (Stage 2 — GDPR Art. 21). If the
+		// suppression list contains the hashed cookie_id, drop the
+		// event silently with 204 and skip every downstream stage.
+		// We MUST NOT leak whether a visitor is suppressed (would
+		// undermine the right to object); the response shape is
+		// identical to a normal "accepted" path.
+		if cfg.Suppression != nil && raw.CookieID != "" && cfg.Suppression.IsSuppressed(raw.CookieID) {
+			cfg.Metrics.IncDropped(metrics.ReasonOptedOut)
+
+			continue
 		}
 
 		// Hash user_id with the per-tenant key material, then wipe the

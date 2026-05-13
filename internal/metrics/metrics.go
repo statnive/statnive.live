@@ -44,6 +44,7 @@ const (
 	ReasonWALBackpressure = "wal_backpressure"
 	ReasonBurstDropped    = "burst_dropped"
 	ReasonBotDropped      = "bot_dropped" // statnive.sites.track_bots=0
+	ReasonOptedOut        = "opted_out"   // visitor exercised GDPR Art. 21 (Stage 2 /api/privacy/opt-out)
 	ReasonWALSyncError    = "wal_sync_error"
 )
 
