@@ -278,3 +278,66 @@ func TestRenderMigration_012_ScrubCookieID(t *testing.T) {
 		t.Errorf("migration must not set mutations_sync (would stall startup)")
 	}
 }
+
+// TestRenderMigration_013_SitesJurisdiction pins the three new columns,
+// the OTHER-NON-EU/permissive backfill predicate, and the cluster-mode
+// ON CLUSTER expansion.
+func TestRenderMigration_013_SitesJurisdiction(t *testing.T) {
+	t.Parallel()
+
+	body, err := Migrations.ReadFile("migrations/013_sites_jurisdiction.sql")
+	if err != nil {
+		t.Fatalf("read migration 013: %v", err)
+	}
+
+	t.Run("single-node adds 3 cols + backfill", func(t *testing.T) {
+		t.Parallel()
+
+		got, renderErr := RenderMigrationWith("013_sites_jurisdiction.sql", body, MigrationData{})
+		if renderErr != nil {
+			t.Fatalf("render: %v", renderErr)
+		}
+
+		stmts := SplitStatements(got)
+		if len(stmts) != 2 {
+			t.Fatalf("SplitStatements returned %d, want 2 (ALTER ADD COLUMNs + ALTER UPDATE)", len(stmts))
+		}
+
+		joined := strings.Join(stmts, "\n")
+
+		for _, want := range []string{
+			"ADD COLUMN IF NOT EXISTS jurisdiction",
+			"ADD COLUMN IF NOT EXISTS consent_mode",
+			"ADD COLUMN IF NOT EXISTS event_allowlist",
+			"LowCardinality(String) DEFAULT 'OTHER-NON-EU'",
+			"LowCardinality(String) DEFAULT 'permissive'",
+			"UPDATE jurisdiction = 'OTHER-NON-EU'",
+			"consent_mode = 'permissive'",
+			"WHERE jurisdiction = '' OR consent_mode = ''",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("missing %q in rendered SQL", want)
+			}
+		}
+
+		if strings.Contains(joined, "ON CLUSTER") {
+			t.Errorf("single-node statements must not contain ON CLUSTER")
+		}
+	})
+
+	t.Run("cluster mode emits ON CLUSTER twice", func(t *testing.T) {
+		t.Parallel()
+
+		got, renderErr := RenderMigrationWith("013_sites_jurisdiction.sql", body, MigrationData{
+			Cluster: "statnive_cluster",
+		})
+		if renderErr != nil {
+			t.Fatalf("render: %v", renderErr)
+		}
+
+		joined := strings.Join(SplitStatements(got), "\n")
+		if strings.Count(joined, "ON CLUSTER statnive_cluster") != 2 {
+			t.Fatalf("cluster mode should emit ON CLUSTER twice (ADD + UPDATE), got:\n%s", joined)
+		}
+	})
+}

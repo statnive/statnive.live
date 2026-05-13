@@ -10,6 +10,7 @@ package sites
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -54,18 +55,145 @@ type Site struct {
 	Currency string `json:"currency"`
 }
 
-// SitePolicy is the per-site privacy + bot-tracking posture, written
-// to statnive.sites by migration 006. Replaces the global
-// cfg.consent.respect_* / cfg.consent.track_bots flags so multi-tenant
-// operators can serve EU + non-EU customers from the same binary.
+// SitePolicy is the per-site privacy + bot-tracking + jurisdiction
+// posture, written to statnive.sites by migrations 006 + 013.
 //
 // Defaults (operator unset): RespectDNT=false, RespectGPC=false,
-// TrackBots=true — preserves the post-PR-#78 SaaS posture (count every
-// visit, suppress identity only on operator-flipped opt-in).
+// TrackBots=true, Jurisdiction=OTHER-NON-EU, ConsentMode=permissive —
+// preserves the post-PR-#78 SaaS posture (count every visit, suppress
+// identity only on operator-flipped opt-in).
+//
+// The Jurisdiction + ConsentMode fields are the Stage 3 cross-cutting
+// knobs that drive privacy.PolicyToMode. Defaults are backfilled by
+// migration 013 so existing operators keep byte-for-byte identical
+// tracking behaviour until they consciously flip.
 type SitePolicy struct {
-	RespectDNT bool `json:"respect_dnt"`
-	RespectGPC bool `json:"respect_gpc"`
-	TrackBots  bool `json:"track_bots"`
+	RespectDNT     bool     `json:"respect_dnt"`
+	RespectGPC     bool     `json:"respect_gpc"`
+	TrackBots      bool     `json:"track_bots"`
+	Jurisdiction   string   `json:"jurisdiction"`
+	ConsentMode    string   `json:"consent_mode"`
+	EventAllowlist []string `json:"event_allowlist"`
+}
+
+// Jurisdiction enum values. Kept as string constants (not a typed
+// alias) so the admin POST/PATCH JSON decode stays simple — Validate
+// catches the bad strings.
+const (
+	JurisdictionDE          = "DE"
+	JurisdictionFR          = "FR"
+	JurisdictionIT          = "IT"
+	JurisdictionES          = "ES"
+	JurisdictionNL          = "NL"
+	JurisdictionBE          = "BE"
+	JurisdictionIE          = "IE"
+	JurisdictionUK          = "UK"
+	JurisdictionOtherEU     = "OTHER-EU"
+	JurisdictionOtherNonEU  = "OTHER-NON-EU"
+	JurisdictionIR          = "IR"
+)
+
+// ConsentMode enum values. Same string-not-typed-alias rationale.
+const (
+	ConsentModePermissive      = "permissive"
+	ConsentModeConsentFree     = "consent-free"
+	ConsentModeConsentRequired = "consent-required"
+	ConsentModeHybrid          = "hybrid"
+)
+
+// validJurisdictions is the closed set of accepted jurisdiction codes.
+// New entries require a Validate() update and an admin-UI dropdown
+// extension — keep it deliberate.
+var validJurisdictions = map[string]struct{}{
+	JurisdictionDE: {}, JurisdictionFR: {}, JurisdictionIT: {},
+	JurisdictionES: {}, JurisdictionNL: {}, JurisdictionBE: {},
+	JurisdictionIE: {}, JurisdictionUK: {},
+	JurisdictionOtherEU: {}, JurisdictionOtherNonEU: {}, JurisdictionIR: {},
+}
+
+var validConsentModes = map[string]struct{}{
+	ConsentModePermissive:      {},
+	ConsentModeConsentFree:     {},
+	ConsentModeConsentRequired: {},
+	ConsentModeHybrid:          {},
+}
+
+// euJurisdictions lists the codes that recognise the GDPR + the
+// CNIL-style audience-measurement exemption. UK is included (post-
+// Brexit it still follows UK GDPR — for our purposes the same
+// hybrid/consent-free options apply).
+var euJurisdictions = map[string]struct{}{
+	JurisdictionDE: {}, JurisdictionFR: {}, JurisdictionIT: {},
+	JurisdictionES: {}, JurisdictionNL: {}, JurisdictionBE: {},
+	JurisdictionIE: {}, JurisdictionUK: {}, JurisdictionOtherEU: {},
+}
+
+// Validate enforces the cross-field invariants the admin handler and
+// the migration backfill MUST hold. Reasoning is encoded in the
+// returned error so the admin UI can surface it verbatim.
+func (p SitePolicy) Validate() error {
+	if p.Jurisdiction == "" {
+		// Empty is treated as the backfill default. Other layers
+		// (CreateSite, the admin PATCH decoder) refuse empty
+		// upfront; Validate just leaves it alone for migrated rows.
+		return nil
+	}
+
+	if _, ok := validJurisdictions[p.Jurisdiction]; !ok {
+		return fmt.Errorf("sites: invalid jurisdiction %q", p.Jurisdiction)
+	}
+
+	if p.ConsentMode != "" {
+		if _, ok := validConsentModes[p.ConsentMode]; !ok {
+			return fmt.Errorf("sites: invalid consent_mode %q", p.ConsentMode)
+		}
+	}
+
+	// Germany under TDDDG § 25: no consent-free path that uses
+	// client-side storage. consent-free (server-only) or hybrid
+	// (consent-gated upgrade) are the only safe defaults; explicit
+	// permissive on a DE site is a hard reject.
+	if p.Jurisdiction == JurisdictionDE && p.ConsentMode == ConsentModePermissive {
+		return fmt.Errorf("sites: jurisdiction=DE requires consent_mode in {consent-free, hybrid, consent-required}, got permissive")
+	}
+
+	// Hybrid only makes sense in jurisdictions where consent has a
+	// legal effect (the EU GDPR set). Outside the set, the
+	// pre-consent vs post-consent split is theatre without a legal
+	// hook to anchor it.
+	if p.ConsentMode == ConsentModeHybrid {
+		if _, ok := euJurisdictions[p.Jurisdiction]; !ok {
+			return fmt.Errorf("sites: consent_mode=hybrid only valid in EU jurisdictions, got %s", p.Jurisdiction)
+		}
+
+		if n := len(p.EventAllowlist); n < 1 || n > 3 {
+			return fmt.Errorf("sites: consent_mode=hybrid requires 1-3 event_allowlist entries (CNIL cap), got %d", n)
+		}
+	}
+
+	// consent-free also lives under the CNIL 3-event cap.
+	if p.ConsentMode == ConsentModeConsentFree && len(p.EventAllowlist) > 3 {
+		return fmt.Errorf("sites: consent_mode=consent-free caps event_allowlist at 3 entries (CNIL), got %d", len(p.EventAllowlist))
+	}
+
+	return nil
+}
+
+// DerivedConsentMode returns the recommended consent_mode for a fresh
+// site based on the operator's chosen jurisdiction. Used by
+// sites.CreateSite when the operator doesn't specify a mode explicitly.
+// Never auto-applies hybrid (per the plan's Stage-3 contract: hybrid
+// is opt-in).
+func DerivedConsentMode(jurisdiction string) string {
+	switch jurisdiction {
+	case JurisdictionDE:
+		return ConsentModeConsentFree
+	case JurisdictionFR, JurisdictionIT, JurisdictionES, JurisdictionNL,
+		JurisdictionBE, JurisdictionIE, JurisdictionUK, JurisdictionOtherEU:
+		return ConsentModeConsentFree
+	default:
+		return ConsentModePermissive
+	}
 }
 
 // SiteAdmin is the richer projection returned to /api/admin/sites. Adds
@@ -136,16 +264,20 @@ func (r *Registry) lookupExactPolicy(ctx context.Context, host string) (uint32, 
 	var (
 		siteID                            uint32
 		respectDNT, respectGPC, trackBots uint8
+		jurisdiction, consentMode         string
+		eventAllowlistJSON                string
 	)
 
 	row := r.conn.QueryRow(ctx,
-		`SELECT site_id, respect_dnt, respect_gpc, track_bots
+		`SELECT site_id, respect_dnt, respect_gpc, track_bots,
+		        jurisdiction, consent_mode, event_allowlist
 		 FROM statnive.sites
 		 WHERE hostname = ? AND enabled = 1 LIMIT 1`,
 		host,
 	)
 
-	if err := row.Scan(&siteID, &respectDNT, &respectGPC, &trackBots); err != nil {
+	if err := row.Scan(&siteID, &respectDNT, &respectGPC, &trackBots,
+		&jurisdiction, &consentMode, &eventAllowlistJSON); err != nil {
 		// ClickHouse driver returns a generic error on no-rows; treat any
 		// scan failure as ErrUnknownHostname. The handler then 204s the
 		// event silently. Real connection failures bubble through ping/health.
@@ -157,10 +289,31 @@ func (r *Registry) lookupExactPolicy(ctx context.Context, host string) (uint32, 
 	}
 
 	return siteID, SitePolicy{
-		RespectDNT: respectDNT != 0,
-		RespectGPC: respectGPC != 0,
-		TrackBots:  trackBots != 0,
+		RespectDNT:     respectDNT != 0,
+		RespectGPC:     respectGPC != 0,
+		TrackBots:      trackBots != 0,
+		Jurisdiction:   jurisdiction,
+		ConsentMode:    consentMode,
+		EventAllowlist: parseEventAllowlist(eventAllowlistJSON),
 	}, nil
+}
+
+// parseEventAllowlist decodes the JSON-encoded list stored in
+// statnive.sites.event_allowlist. Malformed JSON or empty input
+// returns a nil slice (no enforcement) — Privacy Rule 9 style:
+// failures default toward more-permissive ingest, not silent drop.
+func parseEventAllowlist(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "[]" {
+		return nil
+	}
+
+	var out []string
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+
+	return out
 }
 
 // NormalizeHostname coerces a tracker-supplied hostname into the registry
@@ -478,12 +631,15 @@ func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin
 	var (
 		sa                                         SiteAdmin
 		enabled, respectDNT, respectGPC, trackBots uint8
+		jurisdiction, consentMode                  string
+		eventAllowlistJSON                         string
 	)
 
 	row := r.conn.QueryRow(ctx,
 		`SELECT site_id, hostname, slug, plan, enabled, tz, currency,
 		        toInt64(toUnixTimestamp(created_at)),
-		        respect_dnt, respect_gpc, track_bots
+		        respect_dnt, respect_gpc, track_bots,
+		        jurisdiction, consent_mode, event_allowlist
 		 FROM statnive.sites WHERE site_id = ? LIMIT 1`,
 		siteID,
 	)
@@ -491,6 +647,7 @@ func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin
 	if err := row.Scan(
 		&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.Currency, &sa.CreatedAt,
 		&respectDNT, &respectGPC, &trackBots,
+		&jurisdiction, &consentMode, &eventAllowlistJSON,
 	); err != nil {
 		return SiteAdmin{}, ErrUnknownHostname
 	}
@@ -503,6 +660,9 @@ func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin
 	sa.RespectDNT = respectDNT != 0
 	sa.RespectGPC = respectGPC != 0
 	sa.TrackBots = trackBots != 0
+	sa.Jurisdiction = jurisdiction
+	sa.ConsentMode = consentMode
+	sa.EventAllowlist = parseEventAllowlist(eventAllowlistJSON)
 
 	return sa, nil
 }
@@ -517,7 +677,8 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 	rows, err := r.conn.Query(ctx,
 		`SELECT site_id, hostname, slug, plan, enabled, tz, currency,
 		        toInt64(toUnixTimestamp(created_at)),
-		        respect_dnt, respect_gpc, track_bots
+		        respect_dnt, respect_gpc, track_bots,
+		        jurisdiction, consent_mode, event_allowlist
 		 FROM statnive.sites ORDER BY site_id ASC`,
 	)
 	if err != nil {
@@ -532,11 +693,14 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 		var (
 			sa                                         SiteAdmin
 			enabled, respectDNT, respectGPC, trackBots uint8
+			jurisdiction, consentMode                  string
+			eventAllowlistJSON                         string
 		)
 
 		if scanErr := rows.Scan(
 			&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.Currency, &sa.CreatedAt,
 			&respectDNT, &respectGPC, &trackBots,
+			&jurisdiction, &consentMode, &eventAllowlistJSON,
 		); scanErr != nil {
 			return nil, fmt.Errorf("sites scan admin: %w", scanErr)
 		}
@@ -545,6 +709,9 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 		sa.RespectDNT = respectDNT != 0
 		sa.RespectGPC = respectGPC != 0
 		sa.TrackBots = trackBots != 0
+		sa.Jurisdiction = jurisdiction
+		sa.ConsentMode = consentMode
+		sa.EventAllowlist = parseEventAllowlist(eventAllowlistJSON)
 
 		out = append(out, sa)
 	}
