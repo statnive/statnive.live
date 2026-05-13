@@ -100,12 +100,20 @@ func (h *Sites) List(w http.ResponseWriter, r *http.Request) {
 // createSiteRequest — tight allow-list; enabled/plan/created_at are
 // server-set, never accepted from the body. Currency + TZ default to
 // EUR + Europe/Berlin when omitted (sites.DefaultCurrency /
-// sites.DefaultTimezone) — operator PATCHes per-site after creation.
+// sites.DefaultTimezone). Stage-3 adds Jurisdiction + optional
+// ConsentMode + optional EventAllowlist so operators can stand up a
+// jurisdiction-configured site in a single POST. When ConsentMode is
+// omitted but Jurisdiction is set, the server derives a sensible
+// default via sites.DerivedConsentMode (EU → consent-free,
+// IR/OTHER-NON-EU → permissive; hybrid is opt-in only).
 type createSiteRequest struct {
-	Hostname string `json:"hostname"`
-	Slug     string `json:"slug"`
-	TZ       string `json:"tz"`
-	Currency string `json:"currency"`
+	Hostname       string   `json:"hostname"`
+	Slug           string   `json:"slug"`
+	TZ             string   `json:"tz"`
+	Currency       string   `json:"currency"`
+	Jurisdiction   string   `json:"jurisdiction,omitempty"`
+	ConsentMode    string   `json:"consent_mode,omitempty"`
+	EventAllowlist []string `json:"event_allowlist,omitempty"`
 }
 
 // Create handles POST /api/admin/sites. Returns 201 with the full site
@@ -124,10 +132,35 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 	var req createSiteRequest
 	if err := httpjson.DecodeAllowed(r, &req, []string{
 		"hostname", "slug", "tz", "currency",
+		"jurisdiction", "consent_mode", "event_allowlist",
 	}); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 
 		return
+	}
+
+	// Pre-validate the requested compliance shape BEFORE the row is
+	// inserted. CreateSite ignores the policy fields (the underlying
+	// store method takes only the four legacy attrs); we apply the
+	// policy in a second UpdateSitePolicy call after creation. Doing
+	// the Validate here avoids a half-created site if the operator
+	// passed an invalid combination (e.g. DE+permissive).
+	if req.Jurisdiction != "" {
+		mode := req.ConsentMode
+		if mode == "" {
+			mode = sites.DerivedConsentMode(req.Jurisdiction)
+		}
+
+		probe := sites.SitePolicy{
+			Jurisdiction:   req.Jurisdiction,
+			ConsentMode:    mode,
+			EventAllowlist: req.EventAllowlist,
+		}
+		if err := probe.Validate(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+
+			return
+		}
 	}
 
 	hostname := strings.ToLower(strings.TrimSpace(req.Hostname))
@@ -164,6 +197,31 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
+	}
+
+	// Stage-3 — when the operator passed a jurisdiction in the POST,
+	// write the policy immediately so the new site doesn't sit at the
+	// backfill default (OTHER-NON-EU + permissive) for the time
+	// between insert and first PATCH. The Validate above already
+	// approved the combination so this UPDATE can't fail on
+	// invariants.
+	if req.Jurisdiction != "" {
+		mode := req.ConsentMode
+		if mode == "" {
+			mode = sites.DerivedConsentMode(req.Jurisdiction)
+		}
+
+		policy := sites.SitePolicy{
+			Jurisdiction:   req.Jurisdiction,
+			ConsentMode:    mode,
+			EventAllowlist: req.EventAllowlist,
+		}
+		if upErr := h.deps.Sites.UpdateSitePolicy(r.Context(), siteID, policy); upErr != nil {
+			h.deps.emitDashboardError(r, "create_site_policy", upErr)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+
+			return
+		}
 	}
 
 	// Re-read via ListAdmin so the response carries server-computed fields

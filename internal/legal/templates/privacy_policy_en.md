@@ -45,6 +45,31 @@ publicly available at `/legal/lia`.
 - Aggregated daily/hourly visitor rollups: 750 days (~24.6 months).
 - Audit log: per the operator's logrotate policy.
 
+## Hybrid consent flow (when the operator enables it)
+
+Some sites running `statnive.live` use **hybrid consent mode**, where
+analytics behave differently before and after you accept:
+
+- **Before you accept** (or if you never do): we collect only
+  anonymous aggregate counts. No `_statnive` identifier cookie is
+  set, your `Sec-GPC: 1` header is honoured, dashboard counts are
+  rounded to the nearest 10, and only the three event types in the
+  operator's allow-list are accepted. Stored visitor counts cannot
+  be tied back to your individual visit.
+- **After you accept**: we set a privacy-preserving `_statnive`
+  cookie (the at-rest value is a per-tenant SHA-256 hash; the
+  cookie itself never leaves your browser as a plain identifier)
+  so we can recognise repeat visits within 13 months. Counts
+  become exact and any event type the site instruments is accepted.
+- **Withdrawing acceptance** clears both cookies and adds your
+  visitor to a server-side suppression list — subsequent events
+  from your browser are silently dropped. Past data is not
+  automatically erased; use the Erasure endpoint below.
+
+You can accept or withdraw via `POST /api/privacy/consent` with
+JSON body `{"action": "give"}` or `{"action": "withdraw"}`. The
+operator's site UI typically exposes a button for this.
+
 ## Your rights
 
 - **Object** (Art. 21): `POST /api/privacy/opt-out` — sets a
