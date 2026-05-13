@@ -55,6 +55,41 @@ describe('fmtMoney — currency as display label', () => {
   });
 });
 
+// fractionDigits opt-in — RPV (Revenue per Visitor) is structurally
+// fractional (revenue/visitors). Without explicit fractionDigits=2,
+// sub-€1 RPV values collapsed to "€0" because Intl rounds at
+// maximumFractionDigits=0. Pin the opt-in behaviour AND the per-key
+// cache isolation so the two formats can coexist.
+describe('fmtMoney — fractionDigits opt-in for RPV', () => {
+  it('renders sub-€1 RPV with 2 decimal digits (the regression case)', () => {
+    expect(fmtMoney(0.19, 'EUR', 2)).toBe('€0.19');
+    expect(fmtMoney(0.5, 'USD', 2)).toBe('$0.50');
+  });
+
+  it('preserves whole-unit shape when fractionDigits is omitted', () => {
+    // Default-arg path: existing callers (Revenue total) stay unchanged.
+    expect(fmtMoney(2000, 'EUR')).toBe('€2,000');
+  });
+
+  it('forces 2-decimal display even on integer-valued RPV when opted in', () => {
+    expect(fmtMoney(2000, 'EUR', 2)).toBe('€2,000.00');
+  });
+
+  it('keeps (currency, fractionDigits) variants cache-isolated', () => {
+    // Interleave 0 and 2 for the same currency. If the cache key didn't
+    // include fractionDigits, the second call would return the first
+    // call's formatter.
+    expect(fmtMoney(2000, 'EUR', 0)).toBe('€2,000');
+    expect(fmtMoney(2000, 'EUR', 2)).toBe('€2,000.00');
+    expect(fmtMoney(2000, 'EUR', 0)).toBe('€2,000');
+    expect(fmtMoney(2000, 'EUR', 2)).toBe('€2,000.00');
+  });
+
+  it('zero RPV still renders the currency symbol with 2 decimals', () => {
+    expect(fmtMoney(0, 'EUR', 2)).toBe('€0.00');
+  });
+});
+
 describe('existing helpers stay intact', () => {
   it('fmtInt thousand-separates with en-US locale', () => {
     expect(fmtInt(1500000)).toBe('1,500,000');

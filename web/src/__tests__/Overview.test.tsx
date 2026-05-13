@@ -97,6 +97,29 @@ describe('Overview panel', () => {
     expect(screen.getByTestId('kpi-primary').querySelector('[data-kpi="conversion"]')?.textContent).toContain('0.00%');
   });
 
+  it('renders fractional RPV with 2 decimal digits (sub-€1 regression case)', async () => {
+    // Real production case: site_id=4 (televika.com) had 231 € revenue
+    // across ~1200 unique visitors → RPV ≈ 0.19 €. Pre-fix the panel
+    // wrapped this in Math.round(...) → 0 → "€0". Pin the fractional
+    // shape so the regression cannot re-emerge.
+    mockResponse({
+      pageviews: 18607,
+      visitors: 1200,
+      goals: 17,
+      revenue: 231,
+      rpv: 0.1925,
+    });
+
+    render(<Overview />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('kpi-primary')).toBeTruthy();
+    });
+
+    const rpvCell = screen.getByTestId('kpi-primary').querySelector('[data-kpi="rpv"]');
+    expect(rpvCell?.textContent).toContain('0.19');
+  });
+
   it('shows error message on fetch failure', async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('boom')) as unknown as typeof globalThis.fetch;
 
