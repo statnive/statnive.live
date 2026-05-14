@@ -573,6 +573,154 @@ probe_site_creation() {
     rm -f "$cookies"
 }
 
+# probe_per_site_authz: Lesson 35 regression gate — drives the full
+# per-site authorization story. Creates two sites (alpha + beta), two
+# viewer users (alpha-user granted on alpha only, beta-user on beta
+# only) and asserts that every dashboard read route 403s on the other
+# tenant's site_id. Any 200 here is a cross-tenant data leak; the
+# harness fails hard.
+#
+# Skipped only when SITE_ID is unset (probe_site_creation must have
+# already run and exported the canonical alpha site_id).
+probe_per_site_authz() {
+    [ -n "${SITE_ID:-}" ] || fatal "probe_per_site_authz: SITE_ID unset — run probe_site_creation first"
+
+    local base="http://127.0.0.1:${PORT}"
+    local admin_cookies="${WORK}/authz-admin-cookies.txt"
+    local alpha_cookies="${WORK}/authz-alpha-cookies.txt"
+    local beta_cookies="${WORK}/authz-beta-cookies.txt"
+    local tmp status body resp
+
+    # Bootstrap admin login.
+    body=$(printf '{"email":"%s","password":"%s"}' "$LOGIN_EMAIL" "$LOGIN_PASSWORD")
+    status=$(curl -sS -o /dev/null -w '%{http_code}' \
+        -c "$admin_cookies" -H 'Content-Type: application/json' -d "$body" \
+        "$base/api/login")
+    [ "$status" = "200" ] || fatal "probe_per_site_authz: admin login status=${status}"
+
+    # Create a second site (beta). Use a deterministic hostname so reruns
+    # against the same CH don't create duplicate rows.
+    local beta_host="beta.smoke.example"
+    body=$(printf '{"hostname":"%s","slug":"smoke-beta"}' "$beta_host")
+    tmp=$(mktemp)
+    status=$(curl -sS -o "$tmp" -w '%{http_code}' \
+        -b "$admin_cookies" -H 'Content-Type: application/json' -d "$body" \
+        "$base/api/admin/sites")
+    resp=$(cat "$tmp"); rm -f "$tmp"
+
+    # 201 (new) or 409 (already exists from previous run) — both acceptable.
+    local beta_site_id=""
+    case "$status" in
+        201|409) beta_site_id=$(echo "$resp" | sed -n 's/.*"site_id":\([0-9][0-9]*\).*/\1/p' | head -1) ;;
+        *) fatal "probe_per_site_authz: create site_b status=${status} body=${resp}" ;;
+    esac
+
+    # 409 doesn't carry site_id; look it up.
+    if [ -z "$beta_site_id" ]; then
+        tmp=$(mktemp)
+        curl -sS -o "$tmp" -b "$admin_cookies" "$base/api/admin/sites?site_id=${SITE_ID}" >/dev/null || true
+        beta_site_id=$(grep -o "\"hostname\":\"${beta_host}\"[^}]*\"site_id\":[0-9]*" "$tmp" 2>/dev/null \
+            | sed -n 's/.*"site_id":\([0-9][0-9]*\).*/\1/p' | head -1)
+        rm -f "$tmp"
+    fi
+
+    [ -n "$beta_site_id" ] && [ "$beta_site_id" != "$SITE_ID" ] \
+        || fatal "probe_per_site_authz: could not provision distinct beta site (got '${beta_site_id}')"
+
+    log "probe_per_site_authz: alpha=${SITE_ID} beta=${beta_site_id}"
+
+    # Create one viewer per site. Email is deterministic so reruns can
+    # short-circuit on 409.
+    create_scoped_viewer() {
+        local label="$1"
+        local site_id="$2"
+        local cookies="$3"
+        local email="authz-${label}@smoke.example"
+        local password="Authz-${label}-Pass-12345"
+        local create_body
+        create_body=$(printf '{"email":"%s","username":"%s","password":"%s","sites":[{"site_id":%d,"role":"viewer"}]}' \
+            "$email" "authz-${label}" "$password" "$site_id")
+
+        # Create (idempotent on 409 — assume the existing user has the
+        # right grants if a previous smoke run created it).
+        status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -b "$admin_cookies" -H 'Content-Type: application/json' -d "$create_body" \
+            "$base/api/admin/users?site_id=${site_id}")
+        case "$status" in
+            201|409) : ;;
+            *) fatal "probe_per_site_authz: create ${label}-user status=${status}" ;;
+        esac
+
+        # Login as the new viewer.
+        local login_body
+        login_body=$(printf '{"email":"%s","password":"%s"}' "$email" "$password")
+        status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -c "$cookies" -H 'Content-Type: application/json' -d "$login_body" \
+            "$base/api/login")
+        [ "$status" = "200" ] || fatal "probe_per_site_authz: ${label}-user login status=${status}"
+    }
+
+    create_scoped_viewer "alpha" "$SITE_ID" "$alpha_cookies"
+    create_scoped_viewer "beta" "$beta_site_id" "$beta_cookies"
+
+    # Per-actor dashboard sweep: own site 200 (or 501 for v1.1 stubs);
+    # cross-tenant site MUST be 403.
+    local routes="overview sources pages seo trend campaigns"
+    local route own_status cross_status
+
+    for route in $routes; do
+        # alpha-user → alpha site (own): 200 or 501.
+        own_status=$(curl -sS -o /dev/null -w '%{http_code}' -b "$alpha_cookies" \
+            "$base/api/stats/${route}?site=${SITE_ID}")
+        case "$own_status" in
+            200|501) : ;;
+            *) fatal "probe_per_site_authz: alpha-user own ${route} status=${own_status} (want 200/501)" ;;
+        esac
+
+        # alpha-user → beta site (cross): MUST be 403.
+        cross_status=$(curl -sS -o /dev/null -w '%{http_code}' -b "$alpha_cookies" \
+            "$base/api/stats/${route}?site=${beta_site_id}")
+        local cond=1
+        [ "$cross_status" = "403" ] && cond=0
+        _assert "alpha-user cross-tenant /api/stats/${route} → 403" "$cond" "got=${cross_status}"
+        [ "$cond" = "0" ] || fatal "probe_per_site_authz: CROSS-TENANT LEAK on /api/stats/${route} (got ${cross_status})"
+
+        # beta-user → alpha site (cross): MUST be 403 (mirror).
+        cross_status=$(curl -sS -o /dev/null -w '%{http_code}' -b "$beta_cookies" \
+            "$base/api/stats/${route}?site=${SITE_ID}")
+        cond=1
+        [ "$cross_status" = "403" ] && cond=0
+        _assert "beta-user cross-tenant /api/stats/${route} → 403" "$cond" "got=${cross_status}"
+        [ "$cond" = "0" ] || fatal "probe_per_site_authz: CROSS-TENANT LEAK on /api/stats/${route} (got ${cross_status})"
+    done
+
+    # /api/realtime/visitors — same matrix.
+    local rt_own rt_cross
+    rt_own=$(curl -sS -o /dev/null -w '%{http_code}' -b "$alpha_cookies" \
+        "$base/api/realtime/visitors?site=${SITE_ID}")
+    [ "$rt_own" = "200" ] || fatal "probe_per_site_authz: alpha-user realtime own status=${rt_own}"
+    rt_cross=$(curl -sS -o /dev/null -w '%{http_code}' -b "$alpha_cookies" \
+        "$base/api/realtime/visitors?site=${beta_site_id}")
+    [ "$rt_cross" = "403" ] || fatal "probe_per_site_authz: alpha-user realtime CROSS-TENANT got=${rt_cross}"
+    _assert "alpha-user cross-tenant /api/realtime/visitors → 403" "0" "got=${rt_cross}"
+
+    # /api/sites filter — each viewer sees exactly 1 site (their own).
+    local alpha_sites_count beta_sites_count
+    alpha_sites_count=$(curl -fsS -b "$alpha_cookies" "$base/api/sites" \
+        | grep -oc '"id":' || true)
+    beta_sites_count=$(curl -fsS -b "$beta_cookies" "$base/api/sites" \
+        | grep -oc '"id":' || true)
+    [ "$alpha_sites_count" = "1" ] || fatal "probe_per_site_authz: alpha-user sees ${alpha_sites_count} sites, want 1"
+    [ "$beta_sites_count" = "1" ] || fatal "probe_per_site_authz: beta-user sees ${beta_sites_count} sites, want 1"
+    _assert "alpha-user /api/sites → 1 site" "0" "alpha=${alpha_sites_count}"
+    _assert "beta-user /api/sites → 1 site" "0" "beta=${beta_sites_count}"
+
+    # Logout both viewers so audit trail is clean.
+    curl -sS -o /dev/null -X POST -b "$alpha_cookies" "$base/api/logout" || true
+    curl -sS -o /dev/null -X POST -b "$beta_cookies" "$base/api/logout" || true
+    rm -f "$admin_cookies" "$alpha_cookies" "$beta_cookies"
+}
+
 # ---------- Run the probe matrix ----------
 
 log "probing /healthz + /tracker.js + /app/ + /app/assets/"
@@ -596,6 +744,9 @@ probe_login_flow
 
 log "probing /api/admin/* (Phase 3c admin CRUD — users + goals)"
 probe_admin_flow
+
+log "probing per-site dashboard authz (Lesson 35 — OWASP A01:2021)"
+probe_per_site_authz
 
 log "=== all probes green ==="
 exit 0

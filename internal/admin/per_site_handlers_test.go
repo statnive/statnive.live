@@ -205,7 +205,7 @@ func TestUsers_Create_ValidatesSiteGrants(t *testing.T) {
 	as := newFakeAuthStore()
 	us := newFakeUserSitesStore()
 	ss := newFakeSitesStore()
-	deps := Deps{Auth: as, Sites: ss, UserSites: us}
+	deps := Deps{Auth: as, Sites: ss, UserSites: us, DefaultSiteID: 1}
 
 	// Actor has admin on site 1 only.
 	actor := newTestAdminWithSites(1)
@@ -220,6 +220,58 @@ func TestUsers_Create_ValidatesSiteGrants(t *testing.T) {
 
 	if w.Code != 403 {
 		t.Fatalf("expected 403 (actor not admin on site 2), got %d", w.Code)
+	}
+}
+
+// TestUsers_Create_PinsUsersRowToDefaultSiteID is the regression gate for
+// the v0.0.10 per-site-admin login bug: creating a user with
+// sites:[{site_id: X}] where X != DefaultSiteID wrote users.site_id = X,
+// but /api/login filters GetUserByEmail by DefaultSiteID, so the new
+// user could never log in. The fix pins users.site_id to DefaultSiteID
+// in the per-site path; per-site authorization lives in user_sites
+// grants, not on the users row.
+func TestUsers_Create_PinsUsersRowToDefaultSiteID(t *testing.T) {
+	t.Parallel()
+
+	as := newFakeAuthStore()
+	us := newFakeUserSitesStore()
+	ss := newFakeSitesStore()
+	deps := Deps{Auth: as, Sites: ss, UserSites: us, DefaultSiteID: 1}
+
+	// Actor has admin on sites 1 (default) and 7 (wp-slimstat-like).
+	actor := newTestAdminWithSites(1, 7)
+
+	h := NewUsers(deps)
+	// Operator picks site_id=7 in the per-site UI; previously this wrote
+	// users.site_id = 7 and broke login. Must now write users.site_id = 1.
+	body := `{"email":"viewer7@example.com","username":"v7","password":"strong-pass-123",` +
+		`"sites":[{"site_id":7,"role":"viewer"}]}`
+
+	w := httptest.NewRecorder()
+	h.Create(w, adminRequestWithSite(t, "POST", "/api/admin/users?site_id=7", body, actor, 7, nil))
+
+	if w.Code != 201 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	// Login lookup uses DefaultSiteID=1 — must find the user.
+	got, _, err := as.GetUserByEmail(context.Background(), 1, "viewer7@example.com")
+	if err != nil {
+		t.Fatalf("login lookup at DefaultSiteID=1 failed: %v", err)
+	}
+
+	if got == nil || got.SiteID != 1 {
+		t.Fatalf("users.site_id = %d, want 1 (DefaultSiteID)", got.SiteID)
+	}
+
+	// user_sites grant must still target the requested site.
+	grants, err := us.LoadUserSites(context.Background(), got.UserID)
+	if err != nil {
+		t.Fatalf("LoadUserSites: %v", err)
+	}
+
+	if role, ok := grants[7]; !ok || role != auth.RoleViewer {
+		t.Errorf("missing user_sites grant on site 7: %+v", grants)
 	}
 }
 

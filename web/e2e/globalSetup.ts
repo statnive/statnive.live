@@ -64,6 +64,35 @@ function seedSite(siteID: number, hostname: string, tz: string): void {
   );
 }
 
+// grantAdminOnSites looks up the bootstrap admin's user_id by email and
+// upserts admin-role user_sites rows for each siteID. ReplacingMergeTree
+// (PRIMARY KEY user_id, site_id ; ORDER BY user_id, site_id) collapses
+// duplicates on the next merge, so reruns just refresh updated_at.
+//
+// Empty email = no-op (CI scenarios that don't seed an operator).
+function grantAdminOnSites(email: string, siteIDs: number[]): void {
+  if (!email || siteIDs.length === 0) return;
+
+  const escEmail = email.replace(/'/g, "''");
+  const userIDRaw = chExec(
+    `SELECT user_id FROM statnive.users FINAL WHERE email = '${escEmail}' AND disabled = 0 LIMIT 1`,
+  ).trim();
+
+  if (!userIDRaw) {
+    throw new Error(
+      `grantAdminOnSites: no users row for email '${email}' — did the binary seed the bootstrap admin?`,
+    );
+  }
+
+  const values = siteIDs
+    .map((id) => `(toUUID('${userIDRaw}'), ${id}, 'admin', now(), now(), toUInt8(0))`)
+    .join(', ');
+
+  chExec(
+    `INSERT INTO statnive.user_sites (user_id, site_id, role, created_at, updated_at, revoked) VALUES ${values}`,
+  );
+}
+
 interface SeedRow {
   siteID: number;
   minutesAgo: number;
@@ -268,6 +297,10 @@ export default async function globalSetup(): Promise<void> {
     STATNIVE_AUTH_SESSION_SECURE: 'false',
     STATNIVE_BOOTSTRAP_ADMIN_EMAIL: process.env.STATNIVE_E2E_ADMIN_EMAIL ?? 'e2e-admin@statnive.live',
     STATNIVE_BOOTSTRAP_ADMIN_PASSWORD: process.env.STATNIVE_E2E_ADMIN_PASSWORD ?? 'e2e-P@ssw0rd-static',
+    // Per-site admin is ON in production (v0.0.10+) — match it here so
+    // the e2e exercises auth.RequireDashboardSiteAccess (Lesson 35) and
+    // SiteSwitcher's grant-filtered /api/sites response.
+    STATNIVE_FEATURES_PER_SITE_ADMIN: 'true',
   };
 
   const logChunks: Buffer[] = [];
@@ -306,6 +339,13 @@ export default async function globalSetup(): Promise<void> {
   seedSite(SITE_B, HOST_B, 'UTC');
   const fixture = buildFixture();
   seedEvents(fixture);
+
+  // Grant the bootstrap admin admin-role on both seeded sites so
+  // RequireDashboardSiteAccess (Lesson 35) lets them read /api/stats/*
+  // and so /api/sites surfaces both entries in the SiteSwitcher.
+  // Idempotent — re-running the e2e against an existing CH replaces the
+  // ReplacingMergeTree rows on next merge.
+  grantAdminOnSites(env.STATNIVE_BOOTSTRAP_ADMIN_EMAIL ?? '', [SITE_A, SITE_B]);
 
   // Diagnostic: confirm rollups populated. Without this, silent seed
   // failures surface only as "panel stuck on loading…" later, which

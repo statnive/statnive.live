@@ -54,6 +54,11 @@ type Deps struct {
 	JurisdictionNotice auth.JurisdictionNoticeStore // nil disables /api/admin/jurisdiction-notice
 	Audit              *audit.Logger
 	Logger             *slog.Logger
+	// DefaultSiteID is the canonical site_id used by /api/login's
+	// GetUserByEmail lookup. Under per-site admin, users.site_id MUST
+	// match this value or login cannot find the user — per-site
+	// authorization lives in user_sites grants, not the users row.
+	DefaultSiteID uint32
 }
 
 // emitDashboardError emits a single audit record for a handler that

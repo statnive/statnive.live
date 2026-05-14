@@ -1,0 +1,52 @@
+rules:
+  - id: dashboard-site-query-needs-authz
+    languages: [go]
+    severity: ERROR
+    paths:
+      include:
+        - "internal/dashboard/**/*.go"
+      exclude:
+        - "internal/dashboard/filter.go"   # the choke-point that already authz-checks
+        - "**/*_test.go"
+        - "vendor/**"
+    message: |
+      Dashboard handler reads ?site / ?site_id directly from the request
+      URL without routing through filterFromRequest (the per-site
+      choke-point) or checking auth.User.CanAccessSite explicitly.
+
+      This is the OWASP A01:2021 Broken Access Control class — a logged-in
+      user with a grant on site A could read site B's data by swapping
+      ?site=A to ?site=B. Lesson 35 in LEARN.md.
+
+      Fix: either (a) call filterFromRequest(r, deps.Sites) and use the
+      Filter it returns (the canonical pattern — handles range parsing
+      AND authorization), or (b) call auth.ActiveSiteIDFromContext + fall
+      back to actor.CanAccessSite if the middleware was not mounted.
+    patterns:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get("site")
+          - pattern: $R.URL.Query().Get("site_id")
+      - pattern-not-inside: |
+          func $F(...) ... {
+            ...
+            $SITE, $ERR := resolveAuthorizedSiteID($R, ...)
+            ...
+          }
+      - pattern-not-inside: |
+          func $F(...) ... {
+            ...
+            $F2, $ERR := filterFromRequest($R, ...)
+            ...
+          }
+      - pattern-not-inside: |
+          func $F(...) ... {
+            ...
+            if $ID, $OK := auth.ActiveSiteIDFromContext(...); $OK { ... }
+            ...
+          }
+      - pattern-not-inside: |
+          func $F(...) ... {
+            ...
+            if !$A.CanAccessSite(...) { ... }
+            ...
+          }

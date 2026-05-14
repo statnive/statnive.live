@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/storage"
 )
 
@@ -64,10 +65,18 @@ func resolveSiteTZ(ctx context.Context, lister SiteLister, siteID uint32) *time.
 // Defaults: ?to = tomorrow site-TZ midnight; ?from = ?to - 7 days. The
 // returned Filter is also Validate()d so downstream handlers don't
 // need to.
+//
+// Authorization: the canonical enforcement lives in
+// auth.RequireDashboardSiteAccess on the chi.Group, which stashes the
+// validated site_id via WithActiveSiteID. This function reads from that
+// context first; if absent (a future handler mounted outside the
+// middleware), it falls back to ?site + auth.User.ActorCanReadSite and
+// returns errForbiddenSite when the actor has no grant. Defense in
+// depth — the request still 403s instead of leaking.
 func filterFromRequest(r *http.Request, lister SiteLister) (*storage.Filter, error) {
 	q := r.URL.Query()
 
-	siteID, err := parseSiteID(q.Get("site"))
+	siteID, err := resolveAuthorizedSiteID(r, q.Get("site"))
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +141,29 @@ func parseSiteID(raw string) (uint32, error) {
 	}
 
 	return uint32(n), nil
+}
+
+// resolveAuthorizedSiteID returns the site_id the request is authorized
+// to query. Prefers the context value set by
+// auth.RequireDashboardSiteAccess; if missing, falls back to parsing
+// ?site and re-checking via auth.User.ActorCanReadSite — fail-closed so
+// a handler reached without the middleware still 403s instead of
+// leaking cross-tenant data.
+func resolveAuthorizedSiteID(r *http.Request, rawSite string) (uint32, error) {
+	if siteID, ok := auth.ActiveSiteIDFromContext(r.Context()); ok {
+		return siteID, nil
+	}
+
+	siteID, err := parseSiteID(rawSite)
+	if err != nil {
+		return 0, err
+	}
+
+	if !auth.UserFrom(r.Context()).ActorCanReadSite(siteID) {
+		return 0, errForbiddenSite
+	}
+
+	return siteID, nil
 }
 
 // parseDateRange returns the [from, to) half-open interval in UTC. When

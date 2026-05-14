@@ -456,7 +456,37 @@ func run() error {
 		r.Method(http.MethodGet, "/api/user", http.HandlerFunc(authHandlers.Me))
 	})
 
-	// Dashboard stats — session OR api-token auth, admin+viewer+api roles.
+	// UserSites is wired ONLY when per_site_admin is ON so that handlers'
+	// `deps.UserSites == nil` check correctly selects the legacy
+	// single-site path in flag-OFF builds. When nil, the dashboard
+	// per-site middleware falls back to the actor.SiteID invariant; admin
+	// List/Create fall back to the pre-v0.0.10 actor.SiteID paths and the
+	// smoke harness (which has no user_sites rows) keeps working.
+	//
+	// CachedSitesStore is mandatory in production: RequireDashboardSiteAccess
+	// runs on every /api/stats/* + /api/realtime/visitors request and
+	// would otherwise issue one CH FINAL query per request at full
+	// dashboard EPS. 60s TTL matches the session cache; mutations
+	// (Grant/Revoke) invalidate immediately so a revoke is observed on
+	// the next request, not after the TTL window.
+	var userSitesStore auth.SitesStore
+	if cfg.Features.PerSiteAdmin {
+		userSitesStore = auth.NewCachedSitesStore(
+			auth.NewClickHouseSitesStore(store.Conn(), cfg.ClickHouse.Database),
+			0, // default 60s
+		)
+	}
+
+	dashboardDeps := dashboard.Deps{
+		Store:  cachedStore,
+		Sites:  registry,
+		Audit:  auditLog,
+		Logger: logger,
+	}
+
+	// Dashboard listing — session OR api-token auth, admin+viewer+api roles.
+	// /api/sites filters its response inline by actor grants, so no
+	// per-site middleware here.
 	router.Group(func(r chi.Router) {
 		r.Use(rateLimitMW)
 		r.Use(sessionMW)
@@ -464,26 +494,26 @@ func run() error {
 		r.Use(requireAuthed)
 		r.Use(auth.RequireRole(auditLog, auth.RoleAdmin, auth.RoleViewer, auth.RoleAPI))
 
-		dashboard.Mount(r, dashboard.Deps{
-			Store:  cachedStore,
-			Sites:  registry,
-			Audit:  auditLog,
-			Logger: logger,
-		})
+		dashboard.MountSiteListing(r, dashboardDeps)
 	})
 
-	// Admin CRUD — admin-only. Viewers + api-tokens are rejected with
-	// 403 + auth.rbac.denied audit event by RequireRole.
-	//
-	// UserSites is wired ONLY when per_site_admin is ON so that
-	// handlers' `deps.UserSites == nil` check correctly selects the
-	// legacy single-site path in flag-OFF builds. When nil, List/Create
-	// fall back to the pre-v0.0.10 actor.SiteID paths and the smoke
-	// harness (which has no user_sites rows) keeps working.
-	var userSitesStore auth.SitesStore
-	if cfg.Features.PerSiteAdmin {
-		userSitesStore = auth.NewClickHouseSitesStore(store.Conn(), cfg.ClickHouse.Database)
-	}
+	// Dashboard site-scoped reads — same auth stack PLUS
+	// RequireDashboardSiteAccess so every /api/stats/* and
+	// /api/realtime/visitors call is grant-checked against the requested
+	// ?site=N. OWASP A01:2021 — cross-tenant IDOR fix.
+	router.Group(func(r chi.Router) {
+		r.Use(rateLimitMW)
+		r.Use(sessionMW)
+		r.Use(apiTokenMW)
+		r.Use(requireAuthed)
+		r.Use(auth.RequireRole(auditLog, auth.RoleAdmin, auth.RoleViewer, auth.RoleAPI))
+		// RoleAPI is the floor — matches the role allowlist above. All three
+		// roles (admin/viewer/api) read dashboards; the per-site grant check
+		// runs independently of the role hierarchy.
+		r.Use(auth.RequireDashboardSiteAccess(auditLog, userSitesStore, auth.RoleAPI))
+
+		dashboard.MountSiteScoped(r, dashboardDeps)
+	})
 
 	jurisdictionNoticeStore := auth.NewClickHouseStore(store.Conn(), cfg.ClickHouse.Database)
 
@@ -497,6 +527,7 @@ func run() error {
 		JurisdictionNotice: jurisdictionNoticeStore,
 		Audit:              auditLog,
 		Logger:             logger,
+		DefaultSiteID:      cfg.Auth.DefaultSiteID,
 	}
 
 	router.Group(func(r chi.Router) {
