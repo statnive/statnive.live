@@ -47,6 +47,10 @@ const (
 	ReasonOptedOut        = "opted_out"         // visitor exercised GDPR Art. 21 (Stage 2 /api/privacy/opt-out)
 	ReasonEventNotAllowed = "event_not_allowed" // event_name not on site's event_allowlist (Stage 3 CNIL cap)
 	ReasonWALSyncError    = "wal_sync_error"
+	ReasonBadEventName    = "bad_event_name" // event_name fails ingest charset/length (XSS-hardening gate)
+	ReasonBadEventType    = "bad_event_type" // event_type fails ingest charset/length
+	ReasonBadPropKey      = "bad_prop_key"   // a key in props fails charset/length
+	ReasonTooManyProps    = "too_many_props" // props map exceeds the per-event entry cap
 )
 
 // Registry holds atomic counters surfaced via /metrics.
