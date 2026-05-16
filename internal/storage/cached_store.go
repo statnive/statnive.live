@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -106,11 +107,17 @@ func (c *CachedStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, error
 
 // Realtime is always cached at TTLRealtime (10s) regardless of clock —
 // the underlying query reads the current hour bucket which doesn't
-// have a Filter.To to inspect.
-func (c *CachedStore) Realtime(ctx context.Context, siteID uint32) (*RealtimeResult, error) {
-	key := fmt.Sprintf("realtime:%d", siteID)
+// have a Filter.To to inspect. The key partitions on (site_id, channel)
+// because the dashboard chip toggles produce distinct results without
+// changing the TTL semantics.
+func (c *CachedStore) Realtime(ctx context.Context, f *Filter) (*RealtimeResult, error) {
+	if f == nil {
+		return nil, errors.New("cached_store: realtime requires non-nil filter")
+	}
 
-	v, err := c.cache.Wrap(key, cache.TTLRealtime, func() (any, error) { return c.inner.Realtime(ctx, siteID) })
+	key := fmt.Sprintf("realtime:%d:%s", f.SiteID, f.Channel)
+
+	v, err := c.cache.Wrap(key, cache.TTLRealtime, func() (any, error) { return c.inner.Realtime(ctx, f) })
 	if err != nil {
 		return nil, err
 	}

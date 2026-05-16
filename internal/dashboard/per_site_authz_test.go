@@ -79,7 +79,7 @@ func (c *countingStore) Funnel(_ context.Context, _ *storage.Filter, _ []string)
 	return nil, storage.ErrNotImplemented
 }
 
-func (c *countingStore) Realtime(_ context.Context, _ uint32) (*storage.RealtimeResult, error) {
+func (c *countingStore) Realtime(_ context.Context, _ *storage.Filter) (*storage.RealtimeResult, error) {
 	c.realtime.Add(1)
 
 	return &storage.RealtimeResult{}, nil

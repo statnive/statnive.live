@@ -10,9 +10,10 @@ import (
 // interface keeps the consumer types decoupled from clickhouse-go so
 // tests can swap in a fake without spinning up ClickHouse.
 //
-// All methods MUST validate the Filter (or siteID for Realtime) before
-// touching ClickHouse — invalid input returns ErrInvalidFilter wrapped,
-// not a misleading driver error.
+// All methods MUST validate the Filter before touching ClickHouse —
+// invalid input returns ErrInvalidFilter wrapped, not a misleading
+// driver error. Realtime ignores f.From / f.To (it always reads the
+// current hour) but still requires SiteID and respects f.Channel.
 //
 // Geo, Devices, and Funnel return ErrNotImplemented in v1: Geo + Devices
 // wait for the daily_geo + daily_devices rollups (v1.1), Funnel waits
@@ -24,7 +25,7 @@ type Store interface {
 	SEO(ctx context.Context, f *Filter) ([]SEORow, error)
 	Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, error)
 	Trend(ctx context.Context, f *Filter) ([]DailyPoint, error)
-	Realtime(ctx context.Context, siteID uint32) (*RealtimeResult, error)
+	Realtime(ctx context.Context, f *Filter) (*RealtimeResult, error)
 
 	// v1.1 — wait on daily_geo / daily_devices rollups.
 	Geo(ctx context.Context, f *Filter) ([]GeoRow, error)
