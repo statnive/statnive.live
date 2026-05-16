@@ -19,7 +19,7 @@ import './panels.css';
 import './CampaignTree.css';
 
 const VISITORS_TOOLTIP =
-  'Sum across child UTM combos — approximate when the same visitor used multiple combos.';
+  'Sum across child UTM combos; approximate when the same visitor used multiple combos.';
 
 interface RenderCtx {
   expanded: Set<string>;
@@ -95,7 +95,7 @@ export default function Campaigns() {
     return (
       <section class="statnive-section">
         <h2 class="statnive-h2">Campaigns</h2>
-        <p class="statnive-error">could not load — see logs</p>
+        <p class="statnive-error">could not load; see logs</p>
       </section>
     );
   }
@@ -137,7 +137,7 @@ export default function Campaigns() {
     <section class="statnive-section" data-testid="panel-campaigns">
       <h2 class="statnive-h2">Campaigns</h2>
 
-      <CampaignCharts tree={tree} currency={currency} />
+      <CampaignCharts tree={tree} rows={rows} currency={currency} />
 
       <table class="statnive-table statnive-tree-table">
         <thead>
@@ -184,7 +184,7 @@ function renderNode(
               type="button"
               class="statnive-tree-chevron"
               aria-expanded={isOpen}
-              aria-label={isOpen ? 'collapse' : 'expand'}
+              aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${node.label}`}
               onClick={() => ctx.toggle(node.pathKey)}
             >
               {isOpen ? '▾' : '▸'}

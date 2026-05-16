@@ -17,8 +17,12 @@
  */
 
 #statnive-app {
-  /* Surface — bright off-white page with white panel surfaces. */
-  --paper:     #FAFAF8;   /* primary page background */
+  /* Surface — warm off-white page with white panel surfaces.
+     `--paper` is a hair darker than v0.0.21's #FAFAF8 so `--paper-2`
+     cards still float, but lighter than the first refresh attempt
+     (#F3EFE7 read too cream-yellow). #fcfaf8 is ~1 OKLCH step from
+     white, preserving the "warm off-white paper" brand promise. */
+  --paper:     #fcfaf8;   /* primary page background */
   --paper-2:   #FFFFFF;   /* panel / card surfaces */
   --ink:       #0A2540;   /* primary text + rules — brand navy */
   --ink-2:     #12304F;   /* pressed-state ink, secondary text */
@@ -70,4 +74,24 @@
   --s-4: 24px;
   --s-5: 32px;
   --s-6: 48px;
+
+  /* Type-size ramp — single source of truth. Hard-coded font-size
+     literals in panel CSS files were tightening the visible text below
+     DESIGN.md's body/label intent (optical 9.2px on 10px mono caps).
+     One conservative step up here lifts readability across every panel
+     and component. Numbers in tables get an extra step + weight bump
+     per direct user feedback ("numbers, table header titles not
+     readable"). Token-only enforcement via Vitest css-tokens-only.test.ts. */
+  --text-label-sm:    11px;   /* was 10px caps mono — KPI labels, chips, filter labels */
+  --text-label-table: 12px;   /* table th specifically — operator scans columns most */
+  --text-meta:        12px;   /* was 11px — dualbar rows, hbar values, delta-pill, meta */
+  --text-body:        13px;   /* table cells, button labels, body copy (unchanged) */
+  --text-num-cell:    14px;   /* numeric table cells — slightly larger + bolder */
+  --text-title:       20px;   /* panel title `.statnive-h2` (unchanged) */
+  --text-headline:    34px;   /* hero headline (unchanged) */
+  --text-num-primary: 36px;   /* was 34px — KPI big numbers on Overview */
+
+  /* Numeric weight — used alongside `font-variant-numeric: tabular-nums`
+     on `.statnive-num-cell` and KPI primary readouts. */
+  --weight-num: 500;
 }

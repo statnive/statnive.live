@@ -50,7 +50,7 @@ export default function Pages() {
     return (
       <section class="statnive-section">
         <h2 class="statnive-h2">Pages</h2>
-        <p class="statnive-error">could not load — see logs</p>
+        <p class="statnive-error">could not load; see logs</p>
       </section>
     );
   }

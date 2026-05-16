@@ -2,7 +2,7 @@
 name: statnive-live
 description: Calm, instrumented, sovereign analytics panel — light paper, navy ink, Persian-Teal accent, peak/summit logo
 colors:
-  paper: "#FAFAF8"
+  paper: "#fcfaf8"
   paper-2: "#FFFFFF"
   ink: "#0A2540"
   ink-2: "#12304F"

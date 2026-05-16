@@ -64,7 +64,7 @@ export function Overview() {
     return (
       <section class="statnive-section">
         <h2 class="statnive-h2">Overview</h2>
-        <p class="statnive-error">could not load — see logs</p>
+        <p class="statnive-error">could not load; see logs</p>
       </section>
     );
   }

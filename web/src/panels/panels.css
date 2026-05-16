@@ -29,7 +29,7 @@
   font-family: var(--mono);
   font-weight: 500;
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: var(--text-label-table);
   letter-spacing: 0.08em;
   color: var(--ink-2);
   background: var(--paper);
@@ -52,13 +52,20 @@
 }
 
 #statnive-app .statnive-table td {
+  /* Numeric tier — operators called these out as "not readable". `td`
+     cells default to numeric (label column is opted out via :first-child
+     below), so bumping this rule lifts every Sources/Pages/SEO/Campaigns
+     metric cell in one place. */
   font-variant-numeric: tabular-nums;
+  font-size: var(--text-num-cell);
+  font-weight: var(--weight-num);
 }
 
 #statnive-app .statnive-table td:first-child {
   font-weight: 500;
   color: var(--ink);
   font-variant-numeric: normal;
+  font-size: var(--text-body);
 }
 
 #statnive-app .statnive-dualbar {
@@ -73,7 +80,7 @@
   align-items: center;
   gap: var(--s-2);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 #statnive-app .statnive-dualbar-track {
@@ -110,7 +117,7 @@
   padding: 2px 8px;
   border-radius: 999px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--text-label-sm);
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -216,7 +223,7 @@
   align-items: center;
   gap: var(--s-1);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--text-label-sm);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;

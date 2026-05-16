@@ -3,6 +3,7 @@ import {
   allPathKeys,
   buildCampaignTree,
   pieSlices,
+  pieSlicesByChannel,
   topCampaignAggregates,
   treeNodes,
 } from '../lib/campaignTree';
@@ -15,6 +16,7 @@ function row(partial: Partial<CampaignRow>): CampaignRow {
     utm_medium: '',
     utm_content: '',
     utm_term: '',
+    channel: '',
     views: 0,
     visitors: 0,
     goals: 0,
@@ -204,6 +206,90 @@ describe('topCampaignAggregates', () => {
     );
     const agg = topCampaignAggregates(tree, 2);
     expect(agg.map((a) => a.utm_campaign)).toEqual(['c1', 'c2']);
+  });
+});
+
+describe('pieSlicesByChannel', () => {
+  it('groups rows by channel, sums the picked metric, and orders by value desc', () => {
+    const rows: CampaignRow[] = [
+      row({ channel: 'Direct', revenue: 50 }),
+      row({ channel: 'Direct', revenue: 50 }),
+      row({ channel: 'Organic Search', revenue: 200 }),
+      row({ channel: 'Social Media', revenue: 25 }),
+    ];
+    const slices = pieSlicesByChannel(rows, (r) => r.revenue);
+    expect(slices.map((s) => s.label)).toEqual([
+      'Organic Search',
+      'Direct',
+      'Social Media',
+    ]);
+    expect(slices[0].value).toBe(200);
+    expect(slices[1].value).toBe(100);
+    expect(slices[2].value).toBe(25);
+    expect(
+      slices.reduce((sum, s) => sum + s.percent, 0),
+    ).toBeCloseTo(100, 5);
+  });
+
+  it('folds the GA4-style channel taxonomy onto the 7 --ch-* color tokens', () => {
+    const slices = pieSlicesByChannel(
+      [
+        row({ channel: 'Direct', visitors: 1 }),
+        row({ channel: 'Organic Search', visitors: 1 }),
+        row({ channel: 'Paid Search', visitors: 1 }),
+        row({ channel: 'Organic Social', visitors: 1 }),
+        row({ channel: 'Paid Social', visitors: 1 }),
+        row({ channel: 'Cross-network', visitors: 1 }),
+        row({ channel: 'Email', visitors: 1 }),
+        row({ channel: 'SMS', visitors: 1 }),
+        row({ channel: 'Referral', visitors: 1 }),
+        row({ channel: 'Affiliates', visitors: 1 }),
+        row({ channel: 'AI', visitors: 1 }),
+        row({ channel: 'Paid Other', visitors: 1 }),
+        row({ channel: 'Display', visitors: 1 }),
+        row({ channel: 'Audio', visitors: 1 }),
+        row({ channel: 'Organic Video', visitors: 1 }),
+      ],
+      (r) => r.visitors,
+    );
+    const byLabel = new Map(slices.map((s) => [s.label, s.color]));
+    expect(byLabel.get('Direct')).toBe('var(--ch-direct)');
+    expect(byLabel.get('Organic Search')).toBe('var(--ch-search)');
+    expect(byLabel.get('Paid Search')).toBe('var(--ch-search)');
+    expect(byLabel.get('Organic Social')).toBe('var(--ch-social)');
+    expect(byLabel.get('Paid Social')).toBe('var(--ch-social)');
+    expect(byLabel.get('Cross-network')).toBe('var(--ch-social)');
+    expect(byLabel.get('Email')).toBe('var(--ch-email)');
+    expect(byLabel.get('SMS')).toBe('var(--ch-email)');
+    expect(byLabel.get('Referral')).toBe('var(--ch-referral)');
+    expect(byLabel.get('Affiliates')).toBe('var(--ch-referral)');
+    expect(byLabel.get('AI')).toBe('var(--ch-ai)');
+    expect(byLabel.get('Paid Other')).toBe('var(--ch-paid)');
+    expect(byLabel.get('Display')).toBe('var(--ch-paid)');
+    expect(byLabel.get('Audio')).toBe('var(--ch-paid)');
+    expect(byLabel.get('Organic Video')).toBe('var(--ch-paid)');
+  });
+
+  it('collapses missing channel into a single "(unclassified)" slice', () => {
+    const slices = pieSlicesByChannel(
+      [
+        row({ channel: '', visitors: 3 }),
+        row({ channel: '', visitors: 2 }),
+        row({ channel: 'Direct', visitors: 5 }),
+      ],
+      (r) => r.visitors,
+    );
+    const unclassified = slices.find((s) => s.label === '(unclassified)');
+    expect(unclassified?.value).toBe(5);
+  });
+
+  it('returns [] when total is zero', () => {
+    expect(
+      pieSlicesByChannel(
+        [row({ channel: 'Direct', visitors: 0 })],
+        (r) => r.visitors,
+      ),
+    ).toEqual([]);
   });
 });
 

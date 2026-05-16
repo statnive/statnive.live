@@ -48,7 +48,7 @@ export default function Sources() {
     return (
       <section class="statnive-section">
         <h2 class="statnive-h2">Sources</h2>
-        <p class="statnive-error">could not load — see logs</p>
+        <p class="statnive-error">could not load; see logs</p>
       </section>
     );
   }
@@ -94,7 +94,7 @@ export default function Sources() {
           {rows.map((r) => (
             <tr key={r.referrer_name + '|' + r.channel}>
               <td>{r.referrer_name || '(direct)'}</td>
-              <td><span class="statnive-channel-chip">{r.channel || '—'}</span></td>
+              <td><span class="statnive-channel-chip">{r.channel || '·'}</span></td>
               <td>{fmtInt(r.views)}</td>
               <td>{fmtInt(r.goals)}</td>
               <td>{fmtRpv(r.rpv, currency)}</td>

@@ -305,7 +305,7 @@ function GoalsTab() {
           <tbody>
             {rows.map((g) => (
               <tr key={g.goal_id}>
-                <td>{g.hostname || '—'} <code>({g.site_id})</code></td>
+                <td>{g.hostname || '·'} <code>({g.site_id})</code></td>
                 <td>{g.name}</td>
                 <td><code>{g.pattern}</code></td>
                 <td>{g.value}</td>
@@ -335,12 +335,12 @@ function EventApiHelpCard() {
         <p>Every visit fires a pageview automatically. For a custom event (click, form submit, video play):</p>
         <pre><code>{`window.statniveLive.track(name, props, value)`}</code></pre>
         <ul>
-          <li><strong>name</strong> — required string. Becomes <code>event_name</code>.</li>
-          <li><strong>props</strong> — optional object. Default <code>{'{}'}</code>.</li>
-          <li><strong>value</strong> — optional integer. Defaults to <code>0</code>.</li>
+          <li><strong>name</strong>; required string. Becomes <code>event_name</code>.</li>
+          <li><strong>props</strong>; optional object. Default <code>{'{}'}</code>.</li>
+          <li><strong>value</strong>; optional integer. Defaults to <code>0</code>.</li>
         </ul>
         <p><strong>When is an event also a goal?</strong> Define a goal below. When <code>event_name</code> matches a goal pattern, the server sets <code>is_goal=1</code>. The revenue card sums goal events.</p>
-        <p><strong>Goal value — fixed vs dynamic:</strong></p>
+        <p><strong>Goal value; fixed vs dynamic:</strong></p>
         <ul>
           <li><strong>Value &gt; 0</strong> (e.g. <code>1</code> for a signup, <code>50</code> for a lead) → fixed-revenue goal. Server overrides whatever the tracker sent; every goal hit counts the same.</li>
           <li><strong>Value = 0</strong> → dynamic / passthrough. The tracker-supplied value flows through untouched. Use this for e-commerce: <code>{`window.statniveLive.track('purchase', {order_id: 'X-1234'}, 4999)`}</code> records $49.99 in revenue (send minor units / integer to keep cents).</li>
@@ -546,7 +546,7 @@ function SitesTab() {
               <th title="Honor Sec-GPC: 1 (suppresses identity for visitors who send the header). EU operators must enable.">GPC</th>
               <th title="Honor DNT: 1 (suppresses identity for visitors who send the header). EU operators must enable.">DNT</th>
               <th title="Track bots (default on; off drops bot events at the pipeline).">Bots</th>
-              <th title="Stage-3 — jurisdiction enum + consent mode that drives the consent-free / hybrid flow.">Compliance</th>
+              <th title="Stage-3; jurisdiction enum + consent mode that drives the consent-free / hybrid flow.">Compliance</th>
               <th>Tracker snippet</th>
               <th></th>
             </tr>
@@ -577,15 +577,15 @@ function SitesTab() {
       )}
 
       <p class="statnive-admin-help">
-        <strong>Currency:</strong> a display label only — the dashboard renders revenue
+        <strong>Currency:</strong> a display label only; the dashboard renders revenue
         integers using the selected ISO 4217 code. Switching currency does not transform
         stored values.{' '}
         <strong>Timezone:</strong> the IANA zone the dashboard's date-range picker
         interprets midnights in. Default <code>Europe/Berlin</code>.{' '}
-        <strong>GPC / DNT:</strong> default off — every visit counted, identity hashed
+        <strong>GPC / DNT:</strong> default off; every visit counted, identity hashed
         normally. Operators with EU visitors <strong>must</strong> enable both flags
         per site to honor the visitor's privacy signal under GDPR Art. 4(2).{' '}
-        <strong>Bots:</strong> default on — bot events flow through with{' '}
+        <strong>Bots:</strong> default on; bot events flow through with{' '}
         <code>is_bot=1</code> so the dashboard can split human from bot traffic.
       </p>
     </div>
@@ -617,7 +617,7 @@ function CurrencyCell({
         ) : null}
         {options.map((c) => (
           <option key={c.code} value={c.code}>
-            {c.code} — {c.symbol} {c.name}
+            {c.code}; {c.symbol} {c.name}
           </option>
         ))}
       </select>
@@ -730,7 +730,7 @@ function JurisdictionNoticeBanner() {
     <aside class="statnive-admin-notice" role="status">
       <p>
         <strong>Set your jurisdiction.</strong> This site runs in the
-        legacy <code>OTHER-NON-EU + permissive</code> backfill — every
+        legacy <code>OTHER-NON-EU + permissive</code> backfill; every
         visit is counted, identifier cookies are set, no rounding. To
         operate under the EU consent-free / hybrid flow, pick a
         jurisdiction in the <em>Compliance</em> column of the Sites
@@ -741,7 +741,7 @@ function JurisdictionNoticeBanner() {
         for the disclosure surfaces that pair with each mode.
       </p>
       <button type="button" onClick={() => void onDismiss()}>
-        Got it — don't show again
+        Got it; don't show again
       </button>
     </aside>
   );
@@ -913,7 +913,7 @@ function NewSiteForm({
           ) : null}
           {currencies.map((c) => (
             <option key={c.code} value={c.code}>
-              {c.code} — {c.symbol} {c.name}
+              {c.code}; {c.symbol} {c.name}
             </option>
           ))}
         </select>

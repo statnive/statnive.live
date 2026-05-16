@@ -53,7 +53,7 @@ export default function SEO() {
     return (
       <section class="statnive-section">
         <h2 class="statnive-h2">SEO</h2>
-        <p class="statnive-error">could not load — see logs</p>
+        <p class="statnive-error">could not load; see logs</p>
       </section>
     );
   }

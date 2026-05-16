@@ -1,8 +1,20 @@
 /*
  * Minimal CSS reset scoped to #statnive-app so it can never bleed into
  * adjacent embedded surfaces. Tailwind's preflight is much too aggressive
- * for an embedded SPA — this is the bare minimum to get sane defaults.
+ * for an embedded SPA; this is the bare minimum to get sane defaults.
+ *
+ * The `body` rule below is the one intentional exception to the
+ * #statnive-app scope: app.statnive.live serves the SPA as the only
+ * content on the page, so a browser-default `body { margin: 8px }`
+ * leaves a hairline of host-page background visible around the panel.
+ * Resetting to 0 hides that gap. If statnive-live ever embeds inside
+ * another host, drop this rule and put the margin reset on the SPA
+ * container instead.
  */
+
+body {
+  margin: 0;
+}
 
 #statnive-app,
 #statnive-app *,
@@ -13,7 +25,7 @@
 
 #statnive-app {
   margin: 0;
-  padding: var(--s-4);
+  padding: 0;
   font-family: var(--sans);
   color: var(--ink);
   background: var(--paper);

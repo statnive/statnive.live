@@ -64,7 +64,7 @@ export function SiteSwitcher() {
     if (userSignal.value?.role === 'admin') {
       return (
         <a class="statnive-site-switcher" href="#admin">
-          no sites yet — add one
+          no sites yet; add one
         </a>
       );
     }

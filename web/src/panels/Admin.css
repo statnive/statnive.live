@@ -74,7 +74,7 @@
   flex-direction: column;
   gap: var(--s-1);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--text-label-sm);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -149,7 +149,7 @@
 #statnive-app .statnive-admin-table th {
   font-family: var(--mono);
   font-weight: 500;
-  font-size: 10px;
+  font-size: var(--text-label-table);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--ink-2);
@@ -202,7 +202,7 @@
   border: 1px solid var(--rule-hair);
   border-radius: 4px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-meta);
   color: var(--ink);
   white-space: pre-wrap;
   word-break: break-all;
@@ -234,7 +234,7 @@
 
 #statnive-app .statnive-admin-compliance input[type="text"] {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 /* JurisdictionNoticeBanner — one-time prompt above the Sites table

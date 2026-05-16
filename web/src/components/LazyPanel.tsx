@@ -76,7 +76,7 @@ export function LazyPanel({ name }: { name: string }) {
   if (err.value) {
     return (
       <section class="statnive-section">
-        <p class="statnive-error">could not load panel — see logs</p>
+        <p class="statnive-error">could not load panel; see logs</p>
       </section>
     );
   }
