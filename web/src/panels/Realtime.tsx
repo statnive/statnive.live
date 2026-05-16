@@ -34,7 +34,7 @@ export default function Realtime() {
     return (
       <section class="statnive-section">
         <h2 class="statnive-h2">Realtime</h2>
-        <p class="statnive-error">could not load — see logs</p>
+        <p class="statnive-error">could not load; see logs</p>
       </section>
     );
   }
@@ -52,13 +52,13 @@ export default function Realtime() {
           </div>
           <div class="statnive-label">Active visitors (current hour)</div>
           <div class="statnive-realtime-big" data-testid="realtime-active">
-            {d ? fmtInt(d.active_visitors) : '—'}
+            {d ? fmtInt(d.active_visitors) : '·'}
           </div>
         </div>
         <div class="statnive-realtime-card">
           <div class="statnive-label">Pageviews last hour</div>
           <div class="statnive-realtime-med">
-            {d ? fmtInt(d.pageviews_last_hr) : '—'}
+            {d ? fmtInt(d.pageviews_last_hr) : '·'}
           </div>
         </div>
       </div>

@@ -25,7 +25,7 @@
   width: 14px;
   text-align: center;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-meta);
   color: var(--ink-2);
   line-height: 1;
 }
@@ -65,7 +65,7 @@
 
 #statnive-app .statnive-tree-term-chip {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--text-label-sm);
   letter-spacing: 0.04em;
   padding: 1px 6px;
   border-radius: 999px;
@@ -76,7 +76,7 @@
 
 #statnive-app .statnive-tree-footnote {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--text-label-sm);
   letter-spacing: 0.04em;
   color: var(--ink-2);
   margin: var(--s-2) 0 0;

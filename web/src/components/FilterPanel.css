@@ -18,7 +18,7 @@
 
 #statnive-app .statnive-filter-label {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--text-label-sm);
   font-weight: 500;
   color: var(--ink-2);
   text-transform: uppercase;
@@ -33,7 +33,7 @@
    filter is fixed (SEO is locked to "Organic Search" by definition). */
 #statnive-app .statnive-filter-note {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-meta);
   color: var(--ink-2);
   padding: 4px var(--s-1);
 }

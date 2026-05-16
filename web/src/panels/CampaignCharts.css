@@ -17,7 +17,7 @@
 
 #statnive-app .statnive-campaign-chart-h {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--text-label-sm);
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -54,7 +54,10 @@
 
 #statnive-app .statnive-donut-caption {
   font-family: var(--mono);
-  font-size: 2px;
+  /* SVG viewBox 0 0 36 36 rendered at 140×140 → scale 3.89× — 2.6
+     viewBox-units ≈ 10.1 rendered px (matches --text-label-sm). 2px was
+     ~7.8 rendered px and read as illegible on 13-inch laptops. */
+  font-size: 2.6px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   fill: var(--ink-2);
@@ -93,7 +96,7 @@
 
 #statnive-app .statnive-donut-legend-pct {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-meta);
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
@@ -112,10 +115,14 @@
 
 #statnive-app .statnive-hbar-row {
   display: grid;
-  grid-template-columns: 1fr 1.6fr auto;
+  /* Widened label column (1fr → 1.4fr) so long template-coded campaign
+     IDs like "TLVK-WTraffic-S-CompetitorsBrands-EP-July25-2021-MD"
+     don't cut mid-token. Title attribute still provides a hover
+     tooltip for full text. */
+  grid-template-columns: 1.4fr 1.4fr auto;
   align-items: center;
   gap: var(--s-2);
-  font-size: 12px;
+  font-size: var(--text-meta);
   color: var(--ink);
 }
 
@@ -142,7 +149,7 @@
 
 #statnive-app .statnive-hbar-value {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-meta);
   color: var(--ink);
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -170,7 +177,7 @@
 
 #statnive-app .statnive-dualbar-listlabel {
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: var(--text-meta);
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;

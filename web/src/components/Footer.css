@@ -6,7 +6,7 @@
   padding: var(--s-3) var(--s-4);
   border-top: 1px solid var(--rule-soft);
   color: var(--ink-muted);
-  font-size: 0.75rem;
+  font-size: var(--text-meta);
   line-height: 1.4;
   flex-wrap: wrap;
 }

@@ -24,7 +24,7 @@ interface Expected {
 // teal primary (unchanged from 5d), amber Admin accent, channel
 // sub-palette keyed to the 17-step mapper in internal/enrich/channel.go.
 const EXPECTED: Expected[] = [
-  { name: '--paper', value: '#FAFAF8' },
+  { name: '--paper', value: '#F3EFE7' },
   { name: '--paper-2', value: '#FFFFFF' },
   { name: '--ink', value: '#0A2540' },
   { name: '--ink-2', value: '#12304F' },
