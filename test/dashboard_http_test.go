@@ -467,10 +467,14 @@ func newDashboardTestServer(t *testing.T, ctx context.Context, bearerToken strin
 
 	// Phase 2b replaced the single-token bearer middleware with
 	// auth.APITokenMiddleware + RequireAuthenticated. The empty-token
-	// test mode (tests that don't care about auth) previously got the
-	// no-op middleware; preserve that shape so the existing table of
-	// tests that pass bearerToken="" stays on the happy path.
-	authMW := noopMiddleware
+	// test mode (tests that don't care about auth) gets a synthetic
+	// wildcard api-token actor (UserID=Nil, SiteID=0 — same shape as
+	// the production "bearer-legacy" auto-promote in
+	// cmd/statnive-live/main.go::buildAPITokens) so the new dashboard
+	// authz layer (RequireDashboardSiteAccess + filterSitesForActor)
+	// sees a valid actor instead of nil. Without this, /api/sites
+	// returns an empty list and per-site reads 403.
+	authMW := wildcardActorMiddleware
 
 	if bearerToken != "" {
 		tokenHash := sha256.Sum256([]byte(bearerToken))
@@ -510,7 +514,20 @@ func newDashboardTestServer(t *testing.T, ctx context.Context, bearerToken strin
 	return srv, store
 }
 
-func noopMiddleware(next http.Handler) http.Handler { return next }
+// wildcardActorMiddleware injects the synthetic-bearer actor that
+// production auto-promotes for STATNIVE_DASHBOARD_BEARER_TOKEN —
+// UserID=uuid.Nil, SiteID=0 (legacy wildcard). Used by the
+// bearerToken="" integration-test mode so the new dashboard authz
+// layer treats the request as authorized without needing the full
+// session+bearer middleware chain.
+func wildcardActorMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u := &auth.User{Role: auth.RoleAPI}
+		s := &auth.Session{Role: auth.RoleAPI}
+		ctx := auth.WithSession(r.Context(), u, s)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
 
 // stashSiteFromQuery is the integration-test stand-in for
 // auth.RequireDashboardSiteAccess. Production wires the real middleware
