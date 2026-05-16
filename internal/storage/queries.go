@@ -207,8 +207,6 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 // SELECT shape but target different rollup tables with different column
 // typing; extracting a helper would erase the rollup/column coupling the
 // skill enforces per Architecture Rule 8.
-//
-//nolint:dupl // see above — intentional duplication with Campaigns
 func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
@@ -318,10 +316,8 @@ func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) 
 // the breakdown can render the four UTM dims the operator tracker tags
 // emit. The SPA folds the flat row set into a Campaign → Source →
 // Medium → Content tree client-side. Pre-016 historical rows read
-// utm_content='' and utm_term='' — they collapse into a single
+// utm_content=” and utm_term=” — they collapse into a single
 // "(none)" leaf which is the correct semantic for untagged dims.
-//
-//nolint:dupl // See Pages for the rollup/column-coupling justification.
 func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
