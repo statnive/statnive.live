@@ -20,7 +20,9 @@ import (
 func readAuditJSONL(t *testing.T, path string) []map[string]any {
 	t.Helper()
 
-	f, err := os.Open(path)
+	// G304: path is always a t.TempDir()/audit.jsonl from the test
+	// setup; no untrusted input ever reaches this call site.
+	f, err := os.Open(path) //nolint:gosec // test-only, path is t.TempDir()
 	if err != nil {
 		t.Fatalf("open audit file: %v", err)
 	}

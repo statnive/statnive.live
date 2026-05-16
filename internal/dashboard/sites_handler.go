@@ -60,8 +60,12 @@ func sitesHandler(deps Deps) http.HandlerFunc {
 // allowed to see. Uses auth.User.ActorCanReadSite as the single source
 // of truth for the api-token / per-site / legacy branches, so this
 // stays in lockstep with the middleware + filter-level guards.
+//
+// Defense-in-depth: nil actor is unreachable in production (requireAuthed
+// precedes), but if a future caller mounts this without auth, return an
+// empty list rather than the full registry.
 func filterSitesForActor(actor *auth.User, rows []sites.Site) []sites.Site {
-	if rows == nil {
+	if rows == nil || actor == nil {
 		return []sites.Site{}
 	}
 

@@ -2,6 +2,9 @@
 // from the URL query WITHOUT calling filterFromRequest or
 // actor.CanAccessSite. Semgrep MUST flag this as the IDOR bypass
 // caught in Lesson 35.
+
+//go:build semgrep_fixture
+
 package dashboard
 
 import (

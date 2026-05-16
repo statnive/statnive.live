@@ -90,11 +90,15 @@ func (u *User) CanAccessSite(siteID uint32, required Role) bool {
 // from CachedSitesStore.LoadUserSites; the filter-level fallback uses
 // the hydrated map left by the middleware).
 //
-// Three branches:
+// Branches (in order):
 //
-//   - API-token actor (UserID == uuid.Nil): the token's bound SiteID is
-//     the only site it can read. No escalation to the underlying user's
-//     other grants — same as the middleware's behaviour at scope time.
+//   - API-token actor (UserID == uuid.Nil) with SiteID==0: legacy
+//     admin-equivalent bearer (see cmd/statnive-live/main.go
+//     buildAPITokens / "bearer-legacy" auto-promote) — wildcard read on
+//     every site. Operator-scoped tokens MUST set SiteID > 0; only the
+//     legacy auto-promoted bearer uses SiteID=0.
+//   - API-token actor (UserID == uuid.Nil) with SiteID>0: the token's
+//     bound SiteID is the only site it can read.
 //   - Per-site-admin (u.Sites != nil): admin/viewer/api on this site
 //     all pass (RoleAPI floor; the role-floor check happens once,
 //     upstream, in RequireRole).
@@ -106,7 +110,7 @@ func (u *User) ActorCanReadSite(siteID uint32) bool {
 	}
 
 	if u.UserID == uuid.Nil {
-		return u.SiteID == siteID
+		return u.SiteID == 0 || u.SiteID == siteID
 	}
 
 	if u.Sites != nil {

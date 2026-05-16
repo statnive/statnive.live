@@ -3,7 +3,6 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -100,7 +99,7 @@ func newSilentAudit(t *testing.T) *audit.Logger {
 }
 
 func newSilentLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 func newDeps(t *testing.T, store storage.Store) Deps {
@@ -165,8 +164,6 @@ func TestDashboardHandlers_AllowGrantedSite(t *testing.T) {
 	actor := actorOnSites(auth.RoleAdmin, 4)
 
 	for _, tc := range cases {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -200,6 +197,8 @@ func TestDashboardHandlers_403_OnUnauthorizedSite(t *testing.T) {
 		{
 			"overview", "/api/stats/overview?site=5", overviewHandler(deps),
 			func(t *testing.T) {
+				t.Helper()
+
 				if store.overview.Load() != 0 {
 					t.Errorf("Store.Overview called despite 403")
 				}
@@ -208,6 +207,8 @@ func TestDashboardHandlers_403_OnUnauthorizedSite(t *testing.T) {
 		{
 			"sources", "/api/stats/sources?site=5", sourcesHandler(deps),
 			func(t *testing.T) {
+				t.Helper()
+
 				if store.sources.Load() != 0 {
 					t.Errorf("Store.Sources called despite 403")
 				}
@@ -216,6 +217,8 @@ func TestDashboardHandlers_403_OnUnauthorizedSite(t *testing.T) {
 		{
 			"pages", "/api/stats/pages?site=5", pagesHandler(deps),
 			func(t *testing.T) {
+				t.Helper()
+
 				if store.pages.Load() != 0 {
 					t.Errorf("Store.Pages called despite 403")
 				}
@@ -224,6 +227,8 @@ func TestDashboardHandlers_403_OnUnauthorizedSite(t *testing.T) {
 		{
 			"seo", "/api/stats/seo?site=5", seoHandler(deps),
 			func(t *testing.T) {
+				t.Helper()
+
 				if store.seo.Load() != 0 {
 					t.Errorf("Store.SEO called despite 403")
 				}
@@ -232,6 +237,8 @@ func TestDashboardHandlers_403_OnUnauthorizedSite(t *testing.T) {
 		{
 			"trend", "/api/stats/trend?site=5", trendHandler(deps),
 			func(t *testing.T) {
+				t.Helper()
+
 				if store.trend.Load() != 0 {
 					t.Errorf("Store.Trend called despite 403")
 				}
@@ -240,6 +247,8 @@ func TestDashboardHandlers_403_OnUnauthorizedSite(t *testing.T) {
 		{
 			"campaigns", "/api/stats/campaigns?site=5", campaignsHandler(deps),
 			func(t *testing.T) {
+				t.Helper()
+
 				if store.campaigns.Load() != 0 {
 					t.Errorf("Store.Campaigns called despite 403")
 				}
@@ -248,6 +257,8 @@ func TestDashboardHandlers_403_OnUnauthorizedSite(t *testing.T) {
 		{
 			"realtime", "/api/realtime/visitors?site=5", realtimeHandler(deps),
 			func(t *testing.T) {
+				t.Helper()
+
 				if store.realtime.Load() != 0 {
 					t.Errorf("Store.Realtime called despite 403")
 				}
@@ -258,9 +269,9 @@ func TestDashboardHandlers_403_OnUnauthorizedSite(t *testing.T) {
 	actor := actorOnSites(auth.RoleAdmin, 4)
 
 	for _, tc := range cases {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			// authzWith with activeSite=0 means we DO NOT inject the
 			// post-middleware context — handler must fall through to the
 			// belt-and-braces check using actor.CanAccessSite.

@@ -2,7 +2,7 @@ package auth
 
 import (
 	"context"
-	"io"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -74,6 +74,12 @@ func TestRequireDashboardSite_PassesWithGrantedSite(t *testing.T) {
 	}
 }
 
+// The two 403 tests below intentionally pin two distinct failure
+// branches of the same middleware: site-not-in-grants vs grant-rank-
+// below-floor. Their setup happens to look near-identical but
+// different inputs exercise different code paths in scopeUserToSite.
+//
+//nolint:dupl // intentional structural twin — pins two distinct rejection branches
 func TestRequireDashboardSite_403_WhenSiteNotInGrants(t *testing.T) {
 	t.Parallel()
 
@@ -96,6 +102,7 @@ func TestRequireDashboardSite_403_WhenSiteNotInGrants(t *testing.T) {
 	}
 }
 
+//nolint:dupl // intentional structural twin — pins two distinct rejection branches
 func TestRequireDashboardSite_403_WhenRoleBelowFloor(t *testing.T) {
 	t.Parallel()
 
@@ -164,45 +171,49 @@ func TestRequireDashboardSite_401_OnUnauthenticated(t *testing.T) {
 	}
 }
 
-// TestRequireDashboardSite_APIToken_OwnSiteAllowed asserts that a bearer
-// token bound to site 4 can read /api/stats/overview?site=4. The api-token
-// branch never queries user_sites. Uses RoleAPI as the floor — matches
-// production main.go where dashboard reads accept admin/viewer/api.
-func TestRequireDashboardSite_APIToken_OwnSiteAllowed(t *testing.T) {
+// TestRequireDashboardSite_APIToken_Branches pins three distinct
+// api-token branches in a single table:
+//
+//   - SiteID==requestedSite: own-site read (200).
+//   - SiteID==0: legacy admin-equivalent bearer wildcard (200) — the
+//     auto-promoted "bearer-legacy" entry in
+//     cmd/statnive-live/main.go::buildAPITokens.
+//   - SiteID > 0 && SiteID != requestedSite: cross-site escalation
+//     regression — must 403 even if the underlying user has other
+//     grants.
+func TestRequireDashboardSite_APIToken_Branches(t *testing.T) {
 	t.Parallel()
 
-	mw := RequireDashboardSiteAccess(newSilentAudit(t), newFakeSitesStore(), RoleAPI)
-
-	u := &User{UserID: uuid.Nil, SiteID: 4, Role: RoleAPI}
-	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview?site=4", nil)
-	r = r.WithContext(WithSession(r.Context(), u, &Session{}))
-	w := httptest.NewRecorder()
-
-	mw(okHandler()).ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body = %q", w.Code, w.Body.String())
+	cases := []struct {
+		name          string
+		tokenSiteID   uint32
+		requestedSite uint32
+		want          int
+	}{
+		{"own_site", 4, 4, http.StatusOK},
+		{"legacy_wildcard_zero", 0, 42, http.StatusOK},
+		{"cross_site_403", 4, 5, http.StatusForbidden},
 	}
-}
-
-// TestRequireDashboardSite_APIToken_403_OnCrossSite is the canonical
-// regression for token-theft → cross-site escalation. A token bound to
-// site 4 must 403 on every other site, regardless of the underlying
-// user's grants.
-func TestRequireDashboardSite_APIToken_403_OnCrossSite(t *testing.T) {
-	t.Parallel()
 
 	mw := RequireDashboardSiteAccess(newSilentAudit(t), newFakeSitesStore(), RoleAPI)
 
-	u := &User{UserID: uuid.Nil, SiteID: 4, Role: RoleAPI}
-	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview?site=5", nil)
-	r = r.WithContext(WithSession(r.Context(), u, &Session{}))
-	w := httptest.NewRecorder()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	mw(okHandler()).ServeHTTP(w, r)
+			u := &User{UserID: uuid.Nil, SiteID: tc.tokenSiteID, Role: RoleAPI}
+			r := httptest.NewRequest(http.MethodGet,
+				fmt.Sprintf("/api/stats/overview?site=%d", tc.requestedSite), nil)
+			r = r.WithContext(WithSession(r.Context(), u, &Session{}))
+			w := httptest.NewRecorder()
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", w.Code)
+			mw(okHandler()).ServeHTTP(w, r)
+
+			if w.Code != tc.want {
+				t.Errorf("token{SiteID=%d} → site=%d: status = %d, want %d",
+					tc.tokenSiteID, tc.requestedSite, w.Code, tc.want)
+			}
+		})
 	}
 }
 
@@ -279,10 +290,10 @@ func TestRequireDashboardSite_StashesValidatedSiteIDInContext(t *testing.T) {
 	}
 }
 
-// silenceSlog ensures slog.Default() doesn't drop test output to
-// stderr. Called from package-init via TestMain so all tests benefit.
+// silenceSlog ensures slog.Default() doesn't write test output to
+// stderr. Called from package-init so all tests benefit.
 func silenceSlog() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	slog.SetDefault(slog.New(slog.DiscardHandler))
 }
 
 func init() { silenceSlog() }

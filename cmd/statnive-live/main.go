@@ -956,9 +956,17 @@ func buildAPITokens(cfg appConfig) []auth.APIToken {
 
 	if cfg.Dashboard.BearerToken != "" {
 		sum := sha256.Sum256([]byte(cfg.Dashboard.BearerToken))
+		// Legacy bearer is intentionally site-unbound (SiteID=0): pre-v0.0.14
+		// dashboard reads had no per-site enforcement, so this token was used
+		// as the ops admin-equivalent for the Phase 5a-smoke harness and
+		// production /metrics scraping. RequireDashboardSiteAccess treats
+		// SiteID=0 api-tokens as wildcard to preserve that contract. Operators
+		// wanting per-site scoped tokens MUST configure auth.api_tokens
+		// explicitly with SiteID > 0; SiteID=0 is reserved for this legacy
+		// admin-equivalent shape.
 		out = append(out, auth.APIToken{
 			TokenHashHex: hex.EncodeToString(sum[:]),
-			SiteID:       cfg.Auth.DefaultSiteID,
+			SiteID:       0,
 			Label:        "bearer-legacy",
 			Role:         auth.RoleAPI,
 		})

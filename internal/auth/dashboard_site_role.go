@@ -115,7 +115,11 @@ func scopeUserToSite(
 		// API-token actor — synthetic user, no user_sites rows. The
 		// token's bound (site_id, role) IS the grant; tokens never
 		// escalate to the underlying user's other sites.
-		if u.SiteID != siteID {
+		//
+		// SiteID=0 is the legacy admin-equivalent bearer wildcard
+		// (cmd/statnive-live/main.go::buildAPITokens). Operator-scoped
+		// tokens MUST set SiteID > 0 for proper per-site isolation.
+		if u.SiteID != 0 && u.SiteID != siteID {
 			return nil, false
 		}
 

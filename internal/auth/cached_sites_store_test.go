@@ -76,7 +76,7 @@ func TestCachedSitesStore_HitsCacheOnRepeatedRead(t *testing.T) {
 
 	cache := NewCachedSitesStore(inner, 0)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		got, err := cache.LoadUserSites(context.Background(), userID)
 		if err != nil {
 			t.Fatalf("LoadUserSites: %v", err)

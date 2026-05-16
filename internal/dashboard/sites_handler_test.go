@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -40,25 +41,12 @@ func (m manySitesLister) LookupSiteByID(_ context.Context, id uint32) (sites.Sit
 }
 
 func id2str(id uint32) string {
-	const digits = "0123456789"
-
-	if id == 0 {
-		return "0"
-	}
-
-	var buf [10]byte
-	i := len(buf)
-
-	for id > 0 {
-		i--
-		buf[i] = digits[id%10]
-		id /= 10
-	}
-
-	return string(buf[i:])
+	return strconv.FormatUint(uint64(id), 10)
 }
 
 func newSitesDeps(t *testing.T, lister SiteLister) Deps {
+	t.Helper()
+
 	return Deps{
 		Sites:  lister,
 		Audit:  newSilentAudit(t),

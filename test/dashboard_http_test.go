@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -494,6 +495,7 @@ func newDashboardTestServer(t *testing.T, ctx context.Context, bearerToken strin
 	router.Group(func(r chi.Router) {
 		r.Use(rateLimitMW)
 		r.Use(authMW)
+		r.Use(stashSiteFromQuery)
 		dashboard.Mount(r, dashboard.Deps{
 			Store:  cached,
 			Sites:  sites.New(store.Conn()),
@@ -509,6 +511,26 @@ func newDashboardTestServer(t *testing.T, ctx context.Context, bearerToken strin
 }
 
 func noopMiddleware(next http.Handler) http.Handler { return next }
+
+// stashSiteFromQuery is the integration-test stand-in for
+// auth.RequireDashboardSiteAccess. Production wires the real middleware
+// (which validates per-site grants); these tests exercise the storage
+// layer end-to-end and rely on the bearer-token + bootstrap-admin
+// fixtures for auth, so we just trust the ?site URL parameter and stash
+// it via auth.WithActiveSiteID. Without this, filterFromRequest's
+// belt-and-braces guard 403s every request because actor.Sites is nil.
+func stashSiteFromQuery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw := r.URL.Query().Get("site")
+		if raw != "" {
+			if n, err := strconv.ParseUint(raw, 10, 32); err == nil && n > 0 {
+				ctx := auth.WithActiveSiteID(r.Context(), uint32(n))
+				r = r.WithContext(ctx)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func getJSON(t *testing.T, url, bearerToken string) *http.Response {
 	t.Helper()
