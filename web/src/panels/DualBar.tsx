@@ -1,4 +1,5 @@
 import { fmtInt, fmtMoney } from '../lib/fmt';
+import { pctOfMax } from '../lib/rows';
 
 // DualBar renders the visitors + revenue side-by-side bars that
 // implement the "Dual-bar visualization" product principle (top-level
@@ -14,11 +15,6 @@ export interface DualBarProps {
   currency: string;
 }
 
-function pct(value: number, max: number): string {
-  if (max <= 0) return '0%';
-  return Math.round((value / max) * 100) + '%';
-}
-
 export function DualBar(props: DualBarProps) {
   return (
     <div class="statnive-dualbar">
@@ -26,7 +22,7 @@ export function DualBar(props: DualBarProps) {
         <span class="statnive-dualbar-track">
           <span
             class="statnive-dualbar-fill is-visitors"
-            style={{ width: pct(props.visitors, props.maxVisitors) }}
+            style={{ width: pctOfMax(props.visitors, props.maxVisitors) }}
           />
         </span>
         <span class="statnive-dualbar-value">{fmtInt(props.visitors)}</span>
@@ -35,7 +31,7 @@ export function DualBar(props: DualBarProps) {
         <span class="statnive-dualbar-track">
           <span
             class="statnive-dualbar-fill is-revenue"
-            style={{ width: pct(props.revenue, props.maxRevenue) }}
+            style={{ width: pctOfMax(props.revenue, props.maxRevenue) }}
           />
         </span>
         <span class="statnive-dualbar-value">{fmtMoney(props.revenue, props.currency)}</span>

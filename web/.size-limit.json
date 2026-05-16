@@ -12,9 +12,9 @@
     "gzip": true
   },
   {
-    "name": "lazy panel chunks (gz) — Sources/Pages/SEO/Campaigns/Realtime/Admin + TrendChart/DualBar",
-    "path": "../internal/dashboard/spa/dist/assets/{Sources,Pages,SEO,Campaigns,Realtime,Admin,TrendChart,DualBar,LazyChart}-*.js",
-    "limit": "10 KB",
+    "name": "lazy panel chunks (gz) — Sources/Pages/SEO/Campaigns/Realtime/Admin + TrendChart/DualBar/CampaignCharts. Bumped 10→13 KB when Campaigns gained the donut + top-N chart strip + tree breakdown (migration 016).",
+    "path": "../internal/dashboard/spa/dist/assets/{Sources,Pages,SEO,Campaigns,Realtime,Admin,TrendChart,DualBar,LazyChart,CampaignCharts}-*.js",
+    "limit": "13 KB",
     "gzip": true
   },
   {
@@ -24,9 +24,9 @@
     "gzip": true
   },
   {
-    "name": "per-panel CSS chunks (gz) — Admin + panels + Chart",
-    "path": "../internal/dashboard/spa/dist/assets/{Admin,panels,Chart}-*.css",
-    "limit": "3 KB",
+    "name": "per-panel CSS chunks (gz) — Admin + panels + Chart + Campaigns (donut + tree strip CSS bundled into Campaigns-*.css via rollup chunk inlining)",
+    "path": "../internal/dashboard/spa/dist/assets/{Admin,panels,Chart,Campaigns}-*.css",
+    "limit": "5 KB",
     "gzip": true
   }
 ]

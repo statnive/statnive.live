@@ -1,0 +1,83 @@
+#statnive-app .statnive-tree-table tbody tr.is-source td {
+  background: color-mix(in srgb, var(--rule-hair) 50%, transparent);
+}
+
+#statnive-app .statnive-tree-table tbody tr.is-medium td {
+  background: color-mix(in srgb, var(--rule-hair) 75%, transparent);
+}
+
+#statnive-app .statnive-tree-table tbody tr.is-content td {
+  background: var(--rule-hair);
+}
+
+#statnive-app .statnive-tree-indent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+#statnive-app .statnive-tree-chevron {
+  appearance: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  width: 14px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1;
+}
+
+#statnive-app .statnive-tree-chevron:hover {
+  color: var(--ink);
+}
+
+#statnive-app .statnive-tree-chevron-spacer {
+  display: inline-block;
+  width: 14px;
+}
+
+#statnive-app .statnive-tree-label {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+#statnive-app .statnive-tree-row.is-campaign .statnive-tree-label {
+  font-weight: 500;
+}
+
+#statnive-app .statnive-tree-row.is-source .statnive-tree-label,
+#statnive-app .statnive-tree-row.is-medium .statnive-tree-label,
+#statnive-app .statnive-tree-row.is-content .statnive-tree-label {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+#statnive-app .statnive-tree-terms {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  margin-left: var(--s-2);
+}
+
+#statnive-app .statnive-tree-term-chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink-2);
+  border: 1px solid var(--rule-soft);
+}
+
+#statnive-app .statnive-tree-footnote {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  margin: var(--s-2) 0 0;
+}
