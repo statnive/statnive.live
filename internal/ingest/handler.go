@@ -228,6 +228,22 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashIdenti
 
 		raw.SiteID = siteID
 
+		// XSS-hardening gate (per-event field validation). Hard-rejects
+		// charset/length violations on event_name, event_type, and
+		// prop_keys — those are name-shaped tokens by spec and a
+		// "<script>" there is never a tracker bug. Soft-sanitizes the
+		// free-form fields (title, referrer, utm_*, prop_vals) in
+		// place: truncate at the per-field byte cap and strip C0
+		// control chars. Runs after the site lookup so the drop metric
+		// is attributable to a site_id, and before every downstream
+		// gate so malformed payloads can never reach the consent / mode
+		// / allow-list / enrichment / WAL machinery.
+		if vReason := ValidateAndSanitize(raw); vReason != "" {
+			cfg.Metrics.IncDropped(vReason)
+
+			continue
+		}
+
 		// Stage-3 consent-mode gate. Mode is derived from the site's
 		// SitePolicy + the request's _statnive_consent cookie /
 		// X-Statnive-Consent header. The Mode predicates encapsulate

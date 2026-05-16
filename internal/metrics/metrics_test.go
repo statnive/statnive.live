@@ -53,6 +53,10 @@ func TestRegistry_DroppedPerReason(t *testing.T) {
 	r.IncDropped(metrics.ReasonHostnameUnknown)
 	r.IncDropped(metrics.ReasonHostnameUnknown)
 	r.IncDropped(metrics.ReasonUALength)
+	r.IncDropped(metrics.ReasonBadEventName)
+	r.IncDropped(metrics.ReasonBadEventType)
+	r.IncDropped(metrics.ReasonBadPropKey)
+	r.IncDropped(metrics.ReasonTooManyProps)
 
 	if got := r.DroppedFor(metrics.ReasonHostnameUnknown); got != 2 {
 		t.Errorf("DroppedFor(hostname_unknown) = %d, want 2", got)
@@ -60,6 +64,17 @@ func TestRegistry_DroppedPerReason(t *testing.T) {
 
 	if got := r.DroppedFor(metrics.ReasonUALength); got != 1 {
 		t.Errorf("DroppedFor(ua_length) = %d, want 1", got)
+	}
+
+	for _, reason := range []string{
+		metrics.ReasonBadEventName,
+		metrics.ReasonBadEventType,
+		metrics.ReasonBadPropKey,
+		metrics.ReasonTooManyProps,
+	} {
+		if got := r.DroppedFor(reason); got != 1 {
+			t.Errorf("DroppedFor(%s) = %d, want 1", reason, got)
+		}
 	}
 }
 
