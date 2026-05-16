@@ -8,11 +8,16 @@
 -- 008). ClickHouse rejects MODIFY ORDER BY referencing a column that
 -- already exists outside this ALTER (error "Existing column %s is used
 -- in the expression that was added to the sorting key"); the new key
--- column must be newly introduced by the same statement. MODIFY ORDER
--- BY is append-only on AggregatingMergeTree (mid-tuple insertion is
--- unsupported), so channel goes at the end of each tuple. Engine + ON
--- CLUSTER templated for the same single-node → Distributed migration
--- story as 001/002/003/006/007/008/011.
+-- column must be newly introduced by the same statement. The column
+-- ALSO must not declare a DEFAULT expression — CH rejects that too
+-- ("Newly added column %s has a default expression, so adding
+-- expressions that use it to the sorting key is forbidden"). The
+-- LowCardinality(String) type's zero value is the empty string, so
+-- omitting DEFAULT yields the same behaviour for existing rows. MODIFY
+-- ORDER BY is append-only on AggregatingMergeTree (mid-tuple insertion
+-- is unsupported), so channel goes at the end of each tuple. Engine +
+-- ON CLUSTER templated for the same single-node → Distributed
+-- migration story as 001/002/003/006/007/008/011.
 --
 -- MODIFY ORDER BY is metadata-only on AggregatingMergeTree — existing
 -- parts retain their previous physical layout until natural background
@@ -20,10 +25,11 @@
 -- so the binary boot path stays fast. First use of this op in the
 -- project; migration 008 was MODIFY QUERY only (no ORDER BY change).
 --
--- Historical rows inherit channel='' from the column DEFAULT.
--- Channel-filtered Overview / Pages / Realtime queries therefore return
--- only data ingested AFTER this migration runs. To backfill historical
--- channel attribution, operators may replay events_raw via
+-- Historical rows read channel as '' (LowCardinality(String) zero value
+-- when no DEFAULT is declared). Channel-filtered Overview / Pages /
+-- Realtime queries therefore return only data ingested AFTER this
+-- migration runs. To backfill historical channel attribution, operators
+-- may replay events_raw via
 --   INSERT INTO statnive.hourly_visitors SELECT … FROM events_raw …
 -- (out of scope here — runbook step, not the migration's job).
 --
@@ -34,7 +40,7 @@
 -- inside the 8c/32GB envelope.
 
 ALTER TABLE statnive.hourly_visitors{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
-    ADD COLUMN IF NOT EXISTS channel LowCardinality(String) DEFAULT '',
+    ADD COLUMN IF NOT EXISTS channel LowCardinality(String),
     MODIFY ORDER BY (site_id, hour, channel);
 
 ALTER TABLE statnive.mv_hourly_visitors{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
@@ -52,7 +58,7 @@ WHERE is_bot = 0 AND (event_type = 'pageview' OR is_goal = 1)
 GROUP BY site_id, hour, channel;
 
 ALTER TABLE statnive.daily_pages{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
-    ADD COLUMN IF NOT EXISTS channel LowCardinality(String) DEFAULT '',
+    ADD COLUMN IF NOT EXISTS channel LowCardinality(String),
     MODIFY ORDER BY (site_id, day, pathname, channel);
 
 ALTER TABLE statnive.mv_daily_pages{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
