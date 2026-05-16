@@ -4,6 +4,7 @@ import { apiGet } from '../api/client';
 import type { RealtimeResponse } from '../api/types';
 import { realtimeTickSignal } from '../state/realtime';
 import { siteSignal } from '../state/site';
+import { filtersSignal } from '../state/filters';
 import { fmtInt } from '../lib/fmt';
 import { LivePulse } from '../components/LivePulse';
 import './panels.css';
@@ -27,7 +28,7 @@ export default function Realtime() {
 
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [realtimeTickSignal.value, siteSignal.value]);
+  }, [realtimeTickSignal.value, siteSignal.value, filtersSignal.value.channel]);
 
   if (err.value) {
     return (

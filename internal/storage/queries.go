@@ -100,7 +100,9 @@ func applyFilters(f *Filter, where string, args []any, cols map[string]bool) (st
 }
 
 // rollup column sets — passed to applyFilters so each query only
-// attempts dimensions its target table actually has.
+// attempts dimensions its target table actually has. Migration 015 added
+// channel to hourly_visitors + daily_pages; queries over those tables
+// can now narrow by channel the same way Sources / Campaigns already do.
 var (
 	dailySourcesCols = map[string]bool{
 		"channel":       true,
@@ -111,18 +113,27 @@ var (
 	}
 	dailyPagesCols = map[string]bool{
 		"pathname": true,
+		"channel":  true,
+	}
+	hourlyVisitorsCols = map[string]bool{
+		"channel": true,
 	}
 )
 
 // Overview reads the headline metrics from hourly_visitors. The HLL
 // states are merged across hours via uniqMerge — this is why the
 // rollup uses AggregateFunction(uniqCombined64, FixedString(16)).
+//
+// Migration 015 added channel to hourly_visitors, so applyFilters can
+// now narrow the KPI tiles to a single channel chip when the operator
+// asks for it. Empty f.Channel is a no-op.
 func (s *clickhouseStore) Overview(ctx context.Context, f *Filter) (*OverviewResult, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
 	}
 
 	where, args := whereTimeAndTenant(f, "hour")
+	where, args = applyFilters(f, where, args, hourlyVisitorsCols)
 
 	row := s.conn.QueryRow(ctx, fmt.Sprintf(`
 		SELECT
@@ -347,16 +358,18 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 // sparkline on Realtime. Uses WITH FILL so days with zero traffic still
 // emit a row — the SPA never has to fake empty buckets.
 //
-// Unlike SEO, this is NOT channel-filtered: the dashboard's headline
-// trend is "all traffic", not "organic only". Reads from hourly_visitors
-// (not daily_pages) because daily_pages partitions by pathname, which
-// would require a second SUM() pass per row.
+// Default behaviour is "all traffic" — applyFilters is a no-op when
+// f.Channel is empty. When a channel chip is active, the trend narrows
+// to that channel (migration 015 added the column). Reads from
+// hourly_visitors (not daily_pages) because daily_pages partitions by
+// pathname, which would require a second SUM() pass per row.
 func (s *clickhouseStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
 	}
 
 	where, args := whereTimeAndTenant(f, "hour")
+	where, args = applyFilters(f, where, args, hourlyVisitorsCols)
 
 	// WITH FILL bounds: TO is exclusive in the dashboard contract; CH's
 	// WITH FILL ... TO is also exclusive, so pass f.To unchanged.
@@ -394,24 +407,40 @@ func (s *clickhouseStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, e
 // Realtime reads the latest hourly_visitors bucket. Architecture Rule 3
 // forbids true 5-minute resolution; this is "active in the last hour"
 // surfaced via the existing rollup.
-func (s *clickhouseStore) Realtime(ctx context.Context, siteID uint32) (*RealtimeResult, error) {
-	if siteID == 0 {
-		return nil, fmt.Errorf("%w: site_id is required", ErrInvalidFilter)
+//
+// Filter contract: SiteID is required; Channel narrows the bucket to a
+// single channel when set (migration 015). From/To on the filter are
+// ignored — Realtime is always "current hour", so the time predicate is
+// computed here rather than read from f. Validate() still runs so a
+// caller that hand-builds a Filter for Realtime gets the same shape
+// errors (nil filter, zero SiteID, bad range) as every other method.
+func (s *clickhouseStore) Realtime(ctx context.Context, f *Filter) (*RealtimeResult, error) {
+	if err := f.Validate(); err != nil {
+		return nil, err
 	}
 
 	hourStart := time.Now().UTC().Truncate(time.Hour)
 
-	row := s.conn.QueryRow(ctx, `
+	where := "WHERE site_id = ? AND hour >= ?"
+	args := []any{f.SiteID, hourStart}
+
+	if f.Channel != "" {
+		where += " AND channel = ?"
+
+		args = append(args, f.Channel)
+	}
+
+	row := s.conn.QueryRow(ctx, fmt.Sprintf(`
 		SELECT
 			hour,
 			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
 			toUInt64(sum(pageviews))            AS pageviews
 		FROM statnive.hourly_visitors
-		WHERE site_id = ? AND hour >= ?
+		%s
 		GROUP BY hour
 		ORDER BY hour DESC
 		LIMIT 1
-	`, siteID, hourStart)
+	`, where), args...)
 
 	var out RealtimeResult
 	if err := row.Scan(&out.HourUTC, &out.ActiveVisitors, &out.PageviewsLastHr); err != nil {

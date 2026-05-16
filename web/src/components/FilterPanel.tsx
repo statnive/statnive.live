@@ -1,10 +1,12 @@
 import { filtersSignal, updateFilters, clearFilters } from '../state/filters';
+import { hashSignal } from '../state/hash';
 import './FilterPanel.css';
 
-// Channel values map to daily_sources.channel (LowCardinality column)
-// populated by the 17-step channel mapper in internal/enrich/channel.go.
-// Keep aligned with the canonical labels emitted by the pipeline —
-// "Organic Search" (not "Organic") etc.
+// Channel values map to the channel column on the v1 rollups (daily_sources
+// in v1; hourly_visitors + daily_pages joined the set in migration 015).
+// They are populated by the 17-step channel mapper in
+// internal/enrich/channel.go. Keep aligned with the canonical labels
+// emitted by the pipeline — "Organic Search" (not "Organic") etc.
 const CHANNELS: ReadonlyArray<string> = [
   'Direct',
   'Organic Search',
@@ -22,25 +24,38 @@ const CHANNELS: ReadonlyArray<string> = [
 // `daily_devices` + `daily_geo` rollups (PLAN.md Phase 5b Out of scope).
 // The underlying filtersSignal fields stay in place so deep-link URLs
 // from future panels don't 400 — only the UI chips are suppressed.
+//
+// SEO is channel-locked to "Organic Search" by definition (queries.go
+// hardcodes the predicate). On that panel the chip row is replaced by
+// an inline note so operators don't try to toggle a filter that has no
+// effect.
 export function FilterPanel() {
   const f = filtersSignal.value;
+  const panel = hashSignal.value.panel;
   const any = Boolean(f.channel || f.path);
+  const isSEO = panel === 'seo';
 
   return (
     <section class="statnive-filterpanel" aria-label="Filters">
       <div class="statnive-filter-row">
         <span class="statnive-filter-label">Channel</span>
-        {CHANNELS.map((c) => (
-          <button
-            key={c}
-            type="button"
-            class={'statnive-chip' + (f.channel === c ? ' is-active' : '')}
-            aria-pressed={f.channel === c}
-            onClick={() => updateFilters({ channel: f.channel === c ? '' : c })}
-          >
-            {c}
-          </button>
-        ))}
+        {isSEO ? (
+          <span class="statnive-filter-note" data-testid="filter-seo-note">
+            Showing Organic Search only
+          </span>
+        ) : (
+          CHANNELS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              class={'statnive-chip' + (f.channel === c ? ' is-active' : '')}
+              aria-pressed={f.channel === c}
+              onClick={() => updateFilters({ channel: f.channel === c ? '' : c })}
+            >
+              {c}
+            </button>
+          ))
+        )}
       </div>
 
       <div class="statnive-filter-row">

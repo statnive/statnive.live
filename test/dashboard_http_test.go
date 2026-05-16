@@ -421,6 +421,179 @@ func TestDashboardHTTP_PagesPathFilter(t *testing.T) {
 	}
 }
 
+// TestDashboardHTTP_OverviewChannelFilter pins migration 015 + queries.go
+// applyFilters wiring: Overview KPIs must narrow to the requested channel
+// instead of summing across all channels.
+func TestDashboardHTTP_OverviewChannelFilter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv, store := newDashboardTestServer(t, ctx, "")
+
+	now := time.Now().UTC().Truncate(time.Hour)
+
+	// Seed three visitors on Direct, one on Organic Search, in the
+	// current hour. ?channel=Direct must return visitors=3 not 4.
+	storagetest.WriteEvents(t, ctx, store.Conn(), []storagetest.SeedEvent{
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/a", Channel: "Direct", VisitorHash: [16]byte{1}},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/b", Channel: "Direct", VisitorHash: [16]byte{2}},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/c", Channel: "Direct", VisitorHash: [16]byte{3}},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/d", Referrer: "https://google.com/", ReferrerName: "google", Channel: "Organic Search", VisitorHash: [16]byte{4}},
+	})
+
+	url := fmt.Sprintf("%s/api/stats/overview?site=%d&channel=Direct&from=%s&to=%s",
+		srv.URL, dashboardSiteA,
+		now.Format("2006-01-02"),
+		now.Add(24*time.Hour).Format("2006-01-02"))
+
+	resp := getJSON(t, url, "")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var got map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	visitors, _ := got["visitors"].(float64)
+	if int(visitors) != 3 {
+		t.Errorf("channel=Direct visitors = %v, want 3 (Organic Search row must be excluded)", visitors)
+	}
+}
+
+// TestDashboardHTTP_PagesChannelFilter pins migration 015 + extended
+// dailyPagesCols: Pages table must narrow to the requested channel.
+func TestDashboardHTTP_PagesChannelFilter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv, store := newDashboardTestServer(t, ctx, "")
+
+	now := time.Now().UTC().Truncate(time.Hour)
+
+	// Same path served to two channels — without the filter the row
+	// aggregates to views=2; ?channel=Direct must drop it back to 1.
+	storagetest.WriteEvents(t, ctx, store.Conn(), []storagetest.SeedEvent{
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/pricing", Channel: "Direct", VisitorHash: [16]byte{1}},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/pricing", Referrer: "https://google.com/", ReferrerName: "google", Channel: "Organic Search", VisitorHash: [16]byte{2}},
+	})
+
+	url := fmt.Sprintf("%s/api/stats/pages?site=%d&channel=Direct&from=%s&to=%s",
+		srv.URL, dashboardSiteA,
+		now.Format("2006-01-02"),
+		now.Add(24*time.Hour).Format("2006-01-02"))
+
+	resp := getJSON(t, url, "")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var rows []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(rows) == 0 {
+		t.Fatalf("channel=Direct returned zero rows; expected /pricing")
+	}
+
+	for _, r := range rows {
+		path, _ := r["pathname"].(string)
+		views, _ := r["views"].(float64)
+
+		if path == "/pricing" && int(views) != 1 {
+			t.Errorf("/pricing views = %v under channel=Direct, want 1 (Organic Search must not sum in)", views)
+		}
+	}
+}
+
+// TestDashboardHTTP_TrendChannelFilter pins migration 015 + Trend now
+// honouring channel: daily series must narrow to a single channel when
+// the chip is active.
+func TestDashboardHTTP_TrendChannelFilter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv, store := newDashboardTestServer(t, ctx, "")
+
+	now := time.Now().UTC().Truncate(24 * time.Hour)
+	from := now.Add(-6 * 24 * time.Hour)
+
+	// Day 0: one Direct event. Day 6: one Direct + one Organic Search.
+	// Unfiltered total = 3; channel=Direct total = 2.
+	storagetest.WriteEvents(t, ctx, store.Conn(), []storagetest.SeedEvent{
+		{SiteID: dashboardSiteA, Time: from, Pathname: "/x", Channel: "Direct", VisitorHash: [16]byte{1}},
+		{SiteID: dashboardSiteA, Time: from.Add(6 * 24 * time.Hour), Pathname: "/y", Channel: "Direct", VisitorHash: [16]byte{2}},
+		{SiteID: dashboardSiteA, Time: from.Add(6 * 24 * time.Hour), Pathname: "/z", Referrer: "https://google.com/", ReferrerName: "google", Channel: "Organic Search", VisitorHash: [16]byte{3}},
+	})
+
+	url := fmt.Sprintf("%s/api/stats/trend?site=%d&channel=Direct&from=%s&to=%s",
+		srv.URL, dashboardSiteA,
+		from.Format("2006-01-02"),
+		now.Add(24*time.Hour).Format("2006-01-02"))
+
+	resp := getJSON(t, url, "")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var rows []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	var totalVisitors int
+
+	for _, r := range rows {
+		v, _ := r["visitors"].(float64)
+		totalVisitors += int(v)
+	}
+
+	if totalVisitors != 2 {
+		t.Errorf("channel=Direct trend visitors sum = %d, want 2 (Organic Search row must be excluded)", totalVisitors)
+	}
+}
+
+// TestDashboardHTTP_RealtimeChannelFilter pins the new Realtime(filter)
+// signature: current-hour active-visitor count must narrow to the
+// requested channel when the chip is active.
+func TestDashboardHTTP_RealtimeChannelFilter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv, store := newDashboardTestServer(t, ctx, "")
+
+	now := time.Now().UTC().Truncate(time.Hour)
+
+	// Two visitors on Direct, one on Organic Search, all this hour.
+	storagetest.WriteEvents(t, ctx, store.Conn(), []storagetest.SeedEvent{
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/a", Channel: "Direct", VisitorHash: [16]byte{1}},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/b", Channel: "Direct", VisitorHash: [16]byte{2}},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/c", Referrer: "https://google.com/", ReferrerName: "google", Channel: "Organic Search", VisitorHash: [16]byte{3}},
+	})
+
+	url := fmt.Sprintf("%s/api/realtime/visitors?site=%d&channel=Direct", srv.URL, dashboardSiteA)
+	resp := getJSON(t, url, "")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var got map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	active, _ := got["active_visitors"].(float64)
+	if int(active) != 2 {
+		t.Errorf("channel=Direct active_visitors = %v, want 2 (Organic Search must not be counted)", active)
+	}
+}
+
 // --- shared test helpers ---
 
 // newDashboardTestServer wires the chi router that production runs in

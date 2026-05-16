@@ -29,6 +29,15 @@
 /* Channel chips inherit the generic .statnive-chip visual from
    DatePicker.css — no per-panel overrides needed. */
 
+/* Inline note that replaces the channel chip row on panels where the
+   filter is fixed (SEO is locked to "Organic Search" by definition). */
+#statnive-app .statnive-filter-note {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  padding: 4px var(--s-1);
+}
+
 #statnive-app .statnive-filterpanel input[type='text'] {
   font-family: var(--mono);
   font-size: 12px;
