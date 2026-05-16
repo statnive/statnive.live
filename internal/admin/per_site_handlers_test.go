@@ -261,7 +261,7 @@ func TestUsers_Create_PinsUsersRowToDefaultSiteID(t *testing.T) {
 	}
 
 	if got == nil || got.SiteID != 1 {
-		t.Fatalf("users.site_id = %d, want 1 (DefaultSiteID)", got.SiteID)
+		t.Fatalf("user.SiteID = %d, want 1 (DefaultSiteID)", got.SiteID)
 	}
 
 	// user_sites grant must still target the requested site.
