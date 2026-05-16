@@ -3,12 +3,16 @@
 -- the channel filter. daily_sources already carries channel since
 -- migration 002 — no change there.
 --
--- Recipe matches migration 008 (MODIFY QUERY proven safe on these MVs):
--- ALTER TABLE … ADD COLUMN + ALTER TABLE … MODIFY ORDER BY (append-only
--- — CH disallows mid-tuple insertion on AggregatingMergeTree) +
--- ALTER TABLE mv_… MODIFY QUERY. Engine + ON CLUSTER templated for the
--- same single-node → Distributed migration story as 001/002/003/006/
--- 007/008/011.
+-- Recipe: ADD COLUMN + MODIFY ORDER BY combined into a single ALTER per
+-- table, plus ALTER TABLE mv_… MODIFY QUERY (proven safe in migration
+-- 008). ClickHouse rejects MODIFY ORDER BY referencing a column that
+-- already exists outside this ALTER (error "Existing column %s is used
+-- in the expression that was added to the sorting key"); the new key
+-- column must be newly introduced by the same statement. MODIFY ORDER
+-- BY is append-only on AggregatingMergeTree (mid-tuple insertion is
+-- unsupported), so channel goes at the end of each tuple. Engine + ON
+-- CLUSTER templated for the same single-node → Distributed migration
+-- story as 001/002/003/006/007/008/011.
 --
 -- MODIFY ORDER BY is metadata-only on AggregatingMergeTree — existing
 -- parts retain their previous physical layout until natural background
@@ -30,9 +34,7 @@
 -- inside the 8c/32GB envelope.
 
 ALTER TABLE statnive.hourly_visitors{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
-    ADD COLUMN IF NOT EXISTS channel LowCardinality(String) DEFAULT '';
-
-ALTER TABLE statnive.hourly_visitors{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
+    ADD COLUMN IF NOT EXISTS channel LowCardinality(String) DEFAULT '',
     MODIFY ORDER BY (site_id, hour, channel);
 
 ALTER TABLE statnive.mv_hourly_visitors{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
@@ -50,9 +52,7 @@ WHERE is_bot = 0 AND (event_type = 'pageview' OR is_goal = 1)
 GROUP BY site_id, hour, channel;
 
 ALTER TABLE statnive.daily_pages{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
-    ADD COLUMN IF NOT EXISTS channel LowCardinality(String) DEFAULT '';
-
-ALTER TABLE statnive.daily_pages{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
+    ADD COLUMN IF NOT EXISTS channel LowCardinality(String) DEFAULT '',
     MODIFY ORDER BY (site_id, day, pathname, channel);
 
 ALTER TABLE statnive.mv_daily_pages{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
