@@ -100,6 +100,45 @@ func RequireDashboardSiteAccess(
 	}
 }
 
+// HydrateActorGrants loads the actor's per-site grants into a scoped
+// User copy and stashes it back into context — without enforcing any
+// per-site authorization. Use it on routes that filter their response
+// by `actor.Sites` (notably /api/sites) but don't take a ?site=N
+// parameter. The full RequireDashboardSiteAccess does the same
+// hydration *plus* a grant check; this is the listing-only variant.
+//
+// API-token actors (UserID == uuid.Nil) are passed through unchanged
+// — their grants are implicit in (SiteID, Role) and don't need a CH
+// lookup. Same with legacy flag-OFF deploys (sitesStore == nil).
+func HydrateActorGrants(sitesStore SitesStore) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := UserFrom(r.Context())
+			if u == nil || u.UserID == uuid.Nil || sitesStore == nil || u.Sites != nil {
+				next.ServeHTTP(w, r)
+
+				return
+			}
+
+			grants, err := sitesStore.LoadUserSites(r.Context(), u.UserID)
+			if err != nil {
+				// CH miss: pass through with nil Sites; the listing handler
+				// will fall back to the legacy single-site invariant
+				// (filterSitesByID on actor.SiteID). Listing routes never
+				// 403 the request — empty list is the worst-case UX.
+				next.ServeHTTP(w, r)
+
+				return
+			}
+
+			scoped := *u
+			scoped.Sites = grants
+			ctx := WithSession(r.Context(), &scoped, SessionFrom(r.Context()))
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 // scopeUserToSite returns a shallow-copied User with the Sites map
 // hydrated for the request, or (nil, false) when the actor has no
 // qualifying grant on siteID. Three branches keep the legacy +

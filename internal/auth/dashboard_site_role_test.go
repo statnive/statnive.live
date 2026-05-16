@@ -254,6 +254,69 @@ func TestRequireDashboardSite_Legacy_403_OnActorSiteIDMismatch(t *testing.T) {
 	}
 }
 
+// TestHydrateActorGrants_PopulatesSitesForSessionUser pins the contract
+// that the /api/sites listing route receives a User whose Sites map has
+// been hydrated from user_sites grants — without which the listing
+// filter falls through to the legacy single-site path and returns the
+// wrong list.
+func TestHydrateActorGrants_PopulatesSitesForSessionUser(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	store := seedGrants(map[uuid.UUID]map[uint32]Role{
+		userID: {4: RoleViewer, 5: RoleAdmin},
+	})
+
+	mw := HydrateActorGrants(store)
+
+	var seen map[uint32]Role
+
+	probe := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		if u := UserFrom(r.Context()); u != nil {
+			seen = u.Sites
+		}
+	})
+
+	u := &User{UserID: userID, Role: RoleAdmin}
+	r := httptest.NewRequest(http.MethodGet, "/api/sites", nil)
+	r = r.WithContext(WithSession(r.Context(), u, &Session{}))
+	w := httptest.NewRecorder()
+
+	mw(probe).ServeHTTP(w, r)
+
+	if len(seen) != 2 || seen[4] != RoleViewer || seen[5] != RoleAdmin {
+		t.Errorf("hydrated Sites = %+v, want {4: viewer, 5: admin}", seen)
+	}
+}
+
+// TestHydrateActorGrants_PassesThroughAPIToken pins that synthetic
+// api-token actors (UserID == uuid.Nil) are passed through unchanged —
+// their (SiteID, Role) is the source of truth, no user_sites lookup.
+func TestHydrateActorGrants_PassesThroughAPIToken(t *testing.T) {
+	t.Parallel()
+
+	mw := HydrateActorGrants(seedGrants(map[uuid.UUID]map[uint32]Role{}))
+
+	var seenUserID uuid.UUID
+
+	probe := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		if u := UserFrom(r.Context()); u != nil {
+			seenUserID = u.UserID
+		}
+	})
+
+	u := &User{UserID: uuid.Nil, SiteID: 0, Role: RoleAPI}
+	r := httptest.NewRequest(http.MethodGet, "/api/sites", nil)
+	r = r.WithContext(WithSession(r.Context(), u, &Session{}))
+	w := httptest.NewRecorder()
+
+	mw(probe).ServeHTTP(w, r)
+
+	if seenUserID != uuid.Nil {
+		t.Errorf("api-token actor was mutated: %v", seenUserID)
+	}
+}
+
 func TestRequireDashboardSite_StashesValidatedSiteIDInContext(t *testing.T) {
 	t.Parallel()
 

@@ -484,15 +484,18 @@ func run() error {
 		Logger: logger,
 	}
 
-	// Dashboard listing — session OR api-token auth, admin+viewer+api roles.
-	// /api/sites filters its response inline by actor grants, so no
-	// per-site middleware here.
+	// Dashboard listing — session OR api-token auth, admin+viewer+api
+	// roles. /api/sites filters its response inline by actor grants;
+	// HydrateActorGrants populates actor.Sites for session users so the
+	// filter sees the right grant map (api-tokens carry their grants
+	// implicitly via SiteID + Role).
 	router.Group(func(r chi.Router) {
 		r.Use(rateLimitMW)
 		r.Use(sessionMW)
 		r.Use(apiTokenMW)
 		r.Use(requireAuthed)
 		r.Use(auth.RequireRole(auditLog, auth.RoleAdmin, auth.RoleViewer, auth.RoleAPI))
+		r.Use(auth.HydrateActorGrants(userSitesStore))
 
 		dashboard.MountSiteListing(r, dashboardDeps)
 	})
