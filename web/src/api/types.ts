@@ -44,6 +44,10 @@ export interface SEORow {
 
 export interface CampaignRow {
   utm_campaign: string;
+  utm_source: string;
+  utm_medium: string;
+  utm_content: string;
+  utm_term: string;
   views: number;
   visitors: number;
   goals: number;

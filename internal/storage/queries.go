@@ -84,6 +84,8 @@ func applyFilters(f *Filter, where string, args []any, cols map[string]bool) (st
 		{"utm_source", f.UTMSource},
 		{"utm_medium", f.UTMMedium},
 		{"utm_campaign", f.UTMCampaign},
+		{"utm_content", f.UTMContent},
+		{"utm_term", f.UTMTerm},
 		{"pathname", f.Path},
 	}
 
@@ -110,6 +112,8 @@ var (
 		"utm_source":    true,
 		"utm_medium":    true,
 		"utm_campaign":  true,
+		"utm_content":   true,
+		"utm_term":      true,
 	}
 	dailyPagesCols = map[string]bool{
 		"pathname": true,
@@ -203,8 +207,6 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 // SELECT shape but target different rollup tables with different column
 // typing; extracting a helper would erase the rollup/column coupling the
 // skill enforces per Architecture Rule 8.
-//
-//nolint:dupl // see above — intentional duplication with Campaigns
 func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
@@ -308,10 +310,14 @@ func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) 
 	return out, rows.Err()
 }
 
-// Campaigns reads daily_sources filtered to non-empty utm_campaign,
-// GROUP BY utm_campaign.
-//
-//nolint:dupl // See Pages for the rollup/column-coupling justification.
+// Campaigns reads daily_sources filtered to non-empty utm_campaign and
+// GROUPs BY the full UTM tuple (campaign / source / medium / content /
+// term). Migration 016 added utm_content + utm_term to the rollup so
+// the breakdown can render the four UTM dims the operator tracker tags
+// emit. The SPA folds the flat row set into a Campaign → Source →
+// Medium → Content tree client-side. Pre-016 historical rows read
+// utm_content=” and utm_term=” — they collapse into a single
+// "(none)" leaf which is the correct semantic for untagged dims.
 func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
@@ -323,12 +329,16 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 	rows, err := s.conn.Query(ctx, fmt.Sprintf(`
 		SELECT
 			utm_campaign,
+			utm_source,
+			utm_medium,
+			utm_content,
+			utm_term,
 			toUInt64(sum(views))                AS views,
 			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
 			toUInt64(sum(goals))                AS goals,
 			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.daily_sources %s AND utm_campaign != ''
-		GROUP BY utm_campaign
+		GROUP BY utm_campaign, utm_source, utm_medium, utm_content, utm_term
 		ORDER BY revenue DESC, views DESC
 		LIMIT ?
 	`, where), append(args, f.EffectiveLimit())...)
@@ -342,7 +352,17 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 
 	for rows.Next() {
 		var r CampaignRow
-		if err := rows.Scan(&r.UTMCampaign, &r.Views, &r.Visitors, &r.Goals, &r.Revenue); err != nil {
+		if err := rows.Scan(
+			&r.UTMCampaign,
+			&r.UTMSource,
+			&r.UTMMedium,
+			&r.UTMContent,
+			&r.UTMTerm,
+			&r.Views,
+			&r.Visitors,
+			&r.Goals,
+			&r.Revenue,
+		); err != nil {
 			return nil, fmt.Errorf("campaigns scan: %w", err)
 		}
 
