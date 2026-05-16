@@ -137,7 +137,7 @@ export default function Campaigns() {
     <section class="statnive-section" data-testid="panel-campaigns">
       <h2 class="statnive-h2">Campaigns</h2>
 
-      <CampaignCharts tree={tree} currency={currency} />
+      <CampaignCharts tree={tree} rows={rows} currency={currency} />
 
       <table class="statnive-table statnive-tree-table">
         <thead>

@@ -262,3 +262,70 @@ export function pieSlices(
 
   return slices;
 }
+
+// Channel color map — the enricher in `internal/enrich/channel.go`
+// emits a GA4-style channel taxonomy (Paid Search, Organic Social,
+// Audio, …) rather than the 7-channel summary in DESIGN.md. We fold
+// the long list onto the 7 `--ch-*` tokens so the donut stays visually
+// coherent with the channel chips and the operator can still tell
+// "search" from "social" at a glance. Anything we don't recognise
+// falls back to a neutral grey so a new channel doesn't render as
+// invisible white-on-white.
+const CHANNEL_COLORS: Record<string, string> = {
+  Direct: 'var(--ch-direct)',
+
+  'Organic Search': 'var(--ch-search)',
+  'Paid Search': 'var(--ch-search)',
+
+  'Organic Social': 'var(--ch-social)',
+  'Paid Social': 'var(--ch-social)',
+  'Social Media': 'var(--ch-social)',
+  'Cross-network': 'var(--ch-social)',
+
+  Email: 'var(--ch-email)',
+  SMS: 'var(--ch-email)',
+  'Mobile Push Notifications': 'var(--ch-email)',
+
+  Referral: 'var(--ch-referral)',
+  Affiliates: 'var(--ch-referral)',
+
+  AI: 'var(--ch-ai)',
+
+  'Paid Other': 'var(--ch-paid)',
+  'Paid Shopping': 'var(--ch-paid)',
+  'Paid Video': 'var(--ch-paid)',
+  'Organic Shopping': 'var(--ch-paid)',
+  'Organic Video': 'var(--ch-paid)',
+  Display: 'var(--ch-paid)',
+  Audio: 'var(--ch-paid)',
+};
+const CHANNEL_UNKNOWN_COLOR = 'var(--rule-soft)';
+
+// pieSlicesByChannel aggregates raw campaign rows by their enriched
+// channel attribution. Used by the donut chart on the Campaigns panel
+// so the slice colors match the channel chips operators already know
+// from Sources. Rows missing channel (pre-migration backfill) collapse
+// into a single "(unclassified)" slice rather than being silently
+// dropped.
+export function pieSlicesByChannel(
+  rows: CampaignRow[],
+  pick: (r: CampaignRow) => number,
+): PieSlice[] {
+  const totals = new Map<string, number>();
+  for (const r of rows) {
+    const key = r.channel || '(unclassified)';
+    totals.set(key, (totals.get(key) ?? 0) + pick(r));
+  }
+
+  const total = Array.from(totals.values()).reduce((a, b) => a + b, 0);
+  if (total <= 0) return [];
+
+  return Array.from(totals.entries())
+    .map(([label, value]) => ({
+      label,
+      value,
+      percent: (value / total) * 100,
+      color: CHANNEL_COLORS[label] ?? CHANNEL_UNKNOWN_COLOR,
+    }))
+    .sort((a, b) => b.value - a.value);
+}

@@ -333,12 +333,13 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 			utm_medium,
 			utm_content,
 			utm_term,
+			channel,
 			toUInt64(sum(views))                AS views,
 			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
 			toUInt64(sum(goals))                AS goals,
 			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.daily_sources %s AND utm_campaign != ''
-		GROUP BY utm_campaign, utm_source, utm_medium, utm_content, utm_term
+		GROUP BY utm_campaign, utm_source, utm_medium, utm_content, utm_term, channel
 		ORDER BY revenue DESC, views DESC
 		LIMIT ?
 	`, where), append(args, f.EffectiveLimit())...)
@@ -358,6 +359,7 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 			&r.UTMMedium,
 			&r.UTMContent,
 			&r.UTMTerm,
+			&r.Channel,
 			&r.Views,
 			&r.Visitors,
 			&r.Goals,

@@ -48,6 +48,7 @@ export interface CampaignRow {
   utm_medium: string;
   utm_content: string;
   utm_term: string;
+  channel: string;
   views: number;
   visitors: number;
   goals: number;

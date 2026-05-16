@@ -18,11 +18,11 @@
 
 #statnive-app {
   /* Surface — warm off-white page with white panel surfaces.
-     `--paper` is one OKLCH step darker than v0.0.21 (#FAFAF8 → #F3EFE7) so
-     `--paper-2` cards visually float on top — the "bolder boxes" cue
-     without heavier borders. Brand promise ("warm off-white paper")
-     intact. */
-  --paper:     #F3EFE7;   /* primary page background */
+     `--paper` is a hair darker than v0.0.21's #FAFAF8 so `--paper-2`
+     cards still float, but lighter than the first refresh attempt
+     (#F3EFE7 read too cream-yellow). #fcfaf8 is ~1 OKLCH step from
+     white, preserving the "warm off-white paper" brand promise. */
+  --paper:     #fcfaf8;   /* primary page background */
   --paper-2:   #FFFFFF;   /* panel / card surfaces */
   --ink:       #0A2540;   /* primary text + rules — brand navy */
   --ink-2:     #12304F;   /* pressed-state ink, secondary text */

@@ -51,18 +51,21 @@ type SEORow struct {
 }
 
 // CampaignRow is one row of the Campaigns breakdown — the full UTM tuple
-// (campaign / source / medium / content / term) grouped. The SPA folds
-// the flat row set into a Campaign → Source → Medium → Content tree at
-// render time; this struct stays flat so the cache key (Filter.Hash) and
-// the JSON shape are easy to reason about. Empty strings on any UTM
-// field mean "no value tracked" — the SPA renders those as "(none)" so
-// untagged traffic still shows up in the rollup totals.
+// (campaign / source / medium / content / term) plus the enriched
+// channel attribution, grouped. The SPA folds the flat row set into a
+// Campaign → Source → Medium → Content tree at render time and
+// re-aggregates by channel for the donut chart strip. Channel comes
+// from the 17-step mapper in internal/enrich/channel.go and stays on
+// daily_sources rows (migration 002 ORDER BY). Empty strings on any
+// UTM field mean "no value tracked"; the SPA renders those as "(none)"
+// so untagged traffic still shows up in the rollup totals.
 type CampaignRow struct {
 	UTMCampaign string  `json:"utm_campaign"`
 	UTMSource   string  `json:"utm_source"`
 	UTMMedium   string  `json:"utm_medium"`
 	UTMContent  string  `json:"utm_content"`
 	UTMTerm     string  `json:"utm_term"`
+	Channel     string  `json:"channel"`
 	Views       uint64  `json:"views"`
 	Visitors    uint64  `json:"visitors"`
 	Goals       uint64  `json:"goals"`
