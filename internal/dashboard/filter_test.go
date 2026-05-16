@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/sites"
 )
 
@@ -27,6 +28,15 @@ func (s stubLister) LookupSiteByID(_ context.Context, _ uint32) (sites.SiteAdmin
 
 func newLister(tz string) SiteLister { return stubLister{tz: tz} }
 
+// authorizeForSite wraps a test request with the same context the
+// production middleware (auth.RequireDashboardSiteAccess) installs:
+// the validated site_id stashed via WithActiveSiteID. Lets filter tests
+// exercise the parsing logic without re-implementing the full auth
+// pipeline.
+func authorizeForSite(r *http.Request, siteID uint32) *http.Request {
+	return r.WithContext(auth.WithActiveSiteID(r.Context(), siteID))
+}
+
 func TestFilterFromRequest_RequiresSite(t *testing.T) {
 	t.Parallel()
 
@@ -42,6 +52,7 @@ func TestFilterFromRequest_DefaultsLast7Days(t *testing.T) {
 	t.Parallel()
 
 	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview?site=1", nil)
+	r = authorizeForSite(r, 1)
 
 	f, err := filterFromRequest(r, newLister("Europe/Berlin"))
 	if err != nil {
@@ -63,6 +74,7 @@ func TestFilterFromRequest_ParsesAllDimensions(t *testing.T) {
 		"&sort=visitors&search=blog&limit=25&offset=10"
 
 	r := httptest.NewRequest(http.MethodGet, url, nil)
+	r = authorizeForSite(r, 42)
 
 	f, err := filterFromRequest(r, newLister("Europe/Berlin"))
 	if err != nil {
@@ -86,6 +98,7 @@ func TestFilterFromRequest_BadDate(t *testing.T) {
 	t.Parallel()
 
 	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview?site=1&from=not-a-date", nil)
+	r = authorizeForSite(r, 1)
 
 	_, err := filterFromRequest(r, newLister("Europe/Berlin"))
 	if err == nil {
@@ -101,6 +114,7 @@ func TestFilterFromRequest_FromOnly_ToDefaultsToTomorrow(t *testing.T) {
 	t.Parallel()
 
 	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview?site=1&from=2026-04-01", nil)
+	r = authorizeForSite(r, 1)
 
 	f, err := filterFromRequest(r, newLister("Europe/Berlin"))
 	if err != nil {
@@ -118,6 +132,7 @@ func TestFilterFromRequest_RangeTooLarge(t *testing.T) {
 
 	// 2-year range exceeds Filter.MaxRange of 1 year.
 	r := httptest.NewRequest(http.MethodGet, "/api/stats/overview?site=1&from=2024-04-01&to=2026-04-01", nil)
+	r = authorizeForSite(r, 1)
 
 	_, err := filterFromRequest(r, newLister("Europe/Berlin"))
 	if err == nil {

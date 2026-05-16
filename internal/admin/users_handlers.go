@@ -255,7 +255,15 @@ func (h *Users) Create(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		siteID = req.Sites[0].SiteID
+		// users.site_id is the global identity key under per-site admin:
+		// /api/login's GetUserByEmail filters `WHERE site_id = DefaultSiteID
+		// AND email = ?`, so the users row MUST be pinned to DefaultSiteID
+		// or the new user cannot log in. Per-site authorization lives in
+		// the user_sites grants written below, not on the users row.
+		if h.deps.DefaultSiteID != 0 {
+			siteID = h.deps.DefaultSiteID
+		}
+
 		role = auth.Role(req.Sites[0].Role)
 
 		// Per-site: viewer is the safe default when role is omitted.

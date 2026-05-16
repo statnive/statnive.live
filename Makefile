@@ -136,7 +136,9 @@ skill-sanitizer-selftest:
 legacy-site-id-grep:
 	@./scripts/check-legacy-site-id.sh
 
-## tenancy-grep: CI gate — Architecture Rules 1 + 8 (no events_raw queries; whereTimeAndTenant first)
+## tenancy-grep: CI gate — Architecture Rules 1 + 8 (no events_raw queries;
+## whereTimeAndTenant first) AND Lesson 35 (dashboard handlers must route
+## ?site through filterFromRequest / actor.CanAccessSite).
 tenancy-grep:
 	@if grep -rEn 'FROM[[:space:]]+(statnive\.)?events_raw' internal/storage/queries.go; then \
 		echo "FAIL: dashboard queries must NOT touch events_raw (Architecture Rule 1)"; exit 1; \
@@ -150,6 +152,33 @@ tenancy-grep:
 		echo "  found $$MISSED queries against statnive.* but only $$REFD whereTimeAndTenant calls"; \
 		exit 1; \
 	fi
+	@if ! command -v semgrep >/dev/null 2>&1; then \
+		if [ "$$STRICT_GATES" = "1" ]; then \
+			echo "FAIL: semgrep missing — run 'make tools' to install pinned versions"; exit 1; \
+		else \
+			echo "tenancy-grep: semgrep not installed, skipping dashboard-site-authz rule"; exit 0; \
+		fi; \
+	fi; \
+	semgrep --quiet --error --config=.claude/skills/tenancy-choke-point-enforcer/semgrep \
+		internal/dashboard/ || (echo "FAIL: dashboard-site-query-needs-authz regression (Lesson 35)"; exit 1)
+
+## tenancy-grep-selftest: assert the dashboard-authz rule fires on
+## should-trigger fixtures and is silent on should-not-trigger fixtures.
+## Run after any change to dashboard-site-query-needs-authz.yml.
+tenancy-grep-selftest:
+	@if ! command -v semgrep >/dev/null 2>&1; then \
+		echo "tenancy-grep-selftest: semgrep not installed"; exit 2; \
+	fi
+	@semgrep --quiet --error --config=.claude/skills/tenancy-choke-point-enforcer/semgrep \
+		.claude/skills/tenancy-choke-point-enforcer/test/fixtures/should-trigger/ \
+		>/dev/null 2>&1 \
+		&& (echo "FAIL: scanner did NOT fire on should-trigger fixture"; exit 1) \
+		|| echo "OK: scanner fires on should-trigger"
+	@semgrep --quiet --error --config=.claude/skills/tenancy-choke-point-enforcer/semgrep \
+		.claude/skills/tenancy-choke-point-enforcer/test/fixtures/should-not-trigger/ \
+		>/dev/null \
+		|| (echo "FAIL: scanner fired on should-not-trigger fixture"; exit 1)
+	@echo "OK: scanner clean on should-not-trigger"
 
 ## fmt: Auto-format with gofumpt via golangci-lint
 fmt:

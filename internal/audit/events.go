@@ -72,6 +72,14 @@ const (
 	EventDashboardNotImplemented EventName = "dashboard.not_implemented"
 	EventDashboardError          EventName = "dashboard.error"
 	EventDashboardUnauthorized   EventName = "dashboard.unauthorized"
+
+	// EventDashboardForbidden fires when an authenticated request reaches a
+	// dashboard route but the actor has no qualifying per-site grant on the
+	// requested ?site=N (OWASP A01:2021 IDOR class). Emitted by
+	// RequireDashboardSiteAccess + the belt-and-braces re-check inside
+	// filterFromRequest. Pairs with EventRBACDenied which fires for the
+	// role-floor (admin/viewer/api) check.
+	EventDashboardForbidden EventName = "dashboard.forbidden"
 )
 
 // Auth events. Emitted by internal/auth/* handlers + middleware.

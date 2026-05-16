@@ -82,6 +82,44 @@ func (u *User) CanAccessSite(siteID uint32, required Role) bool {
 	return roleRank(got) <= roleRank(required)
 }
 
+// ActorCanReadSite is the canonical "is this actor allowed to read this
+// site?" predicate shared by RequireDashboardSiteAccess (middleware),
+// resolveAuthorizedSiteID (filter-level defense in depth), and
+// filterSitesForActor (/api/sites response filter). Pure-Go, no I/O:
+// callers are responsible for hydrating u.Sites (the middleware does so
+// from CachedSitesStore.LoadUserSites; the filter-level fallback uses
+// the hydrated map left by the middleware).
+//
+// Branches (in order):
+//
+//   - API-token actor (UserID == uuid.Nil) with SiteID==0: legacy
+//     admin-equivalent bearer (see cmd/statnive-live/main.go
+//     buildAPITokens / "bearer-legacy" auto-promote) — wildcard read on
+//     every site. Operator-scoped tokens MUST set SiteID > 0; only the
+//     legacy auto-promoted bearer uses SiteID=0.
+//   - API-token actor (UserID == uuid.Nil) with SiteID>0: the token's
+//     bound SiteID is the only site it can read.
+//   - Per-site-admin (u.Sites != nil): admin/viewer/api on this site
+//     all pass (RoleAPI floor; the role-floor check happens once,
+//     upstream, in RequireRole).
+//   - Legacy flag-OFF (u.Sites == nil): single-site invariant on the
+//     seeded users.site_id.
+func (u *User) ActorCanReadSite(siteID uint32) bool {
+	if u == nil {
+		return false
+	}
+
+	if u.UserID == uuid.Nil {
+		return u.SiteID == 0 || u.SiteID == siteID
+	}
+
+	if u.Sites != nil {
+		return u.CanAccessSite(siteID, RoleAPI)
+	}
+
+	return u.SiteID == siteID
+}
+
 // SiteIDs returns the deterministic-sorted list of site_ids the user
 // holds any non-revoked grant on. Used by /api/sites + /api/admin/sites
 // to scope listing responses without leaking sites the user can't see.
