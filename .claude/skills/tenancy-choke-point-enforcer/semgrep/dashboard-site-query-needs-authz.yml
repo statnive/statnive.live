@@ -12,41 +12,26 @@ rules:
     message: |
       Dashboard handler reads ?site / ?site_id directly from the request
       URL without routing through filterFromRequest (the per-site
-      choke-point) or checking auth.User.CanAccessSite explicitly.
+      choke-point) or auth.User.CanAccessSite.
 
       This is the OWASP A01:2021 Broken Access Control class — a logged-in
       user with a grant on site A could read site B's data by swapping
       ?site=A to ?site=B. Lesson 35 in LEARN.md.
 
-      Fix: either (a) call filterFromRequest(r, deps.Sites) and use the
-      Filter it returns (the canonical pattern — handles range parsing
-      AND authorization), or (b) call auth.ActiveSiteIDFromContext + fall
-      back to actor.CanAccessSite if the middleware was not mounted.
+      Fix: pass the raw value through resolveAuthorizedSiteID(r, raw) in
+      filter.go (which routes through ActiveSiteIDFromContext + actor
+      grant check), or call filterFromRequest(r, deps.Sites) for the
+      full Filter parse.
     patterns:
       - pattern-either:
           - pattern: $R.URL.Query().Get("site")
           - pattern: $R.URL.Query().Get("site_id")
+      # The raw ?site read is legitimate when it flows into one of the
+      # known choke-points. Each `pattern-not-inside` matches when the
+      # offending expression appears inside that call's argument list.
+      - pattern-not-inside: resolveAuthorizedSiteID(...)
+      - pattern-not-inside: filterFromRequest(...)
       - pattern-not-inside: |
-          func $F(...) ... {
-            ...
-            $SITE, $ERR := resolveAuthorizedSiteID($R, ...)
-            ...
-          }
+          if $ID, $OK := auth.ActiveSiteIDFromContext(...); $OK { ... }
       - pattern-not-inside: |
-          func $F(...) ... {
-            ...
-            $F2, $ERR := filterFromRequest($R, ...)
-            ...
-          }
-      - pattern-not-inside: |
-          func $F(...) ... {
-            ...
-            if $ID, $OK := auth.ActiveSiteIDFromContext(...); $OK { ... }
-            ...
-          }
-      - pattern-not-inside: |
-          func $F(...) ... {
-            ...
-            if !$A.CanAccessSite(...) { ... }
-            ...
-          }
+          if !$A.CanAccessSite(...) { ... }
