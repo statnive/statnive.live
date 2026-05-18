@@ -17,7 +17,7 @@ func TestPolicyToMode_EmptyModeStaysCurrent(t *testing.T) {
 	t.Parallel()
 
 	req := httptest.NewRequest(http.MethodGet, "/privacy", nil)
-	if got := PolicyToMode(req, sites.SitePolicy{}); got != ModeCurrent {
+	if got := PolicyToMode(req, 1, sites.SitePolicy{}); got != ModeCurrent {
 		t.Errorf("PolicyToMode(empty) = %v, want ModeCurrent", got)
 	}
 }
@@ -25,9 +25,12 @@ func TestPolicyToMode_EmptyModeStaysCurrent(t *testing.T) {
 func TestPolicyToMode_AllSixModes(t *testing.T) {
 	t.Parallel()
 
+	const testSiteID uint32 = 4
+
 	plainReq := httptest.NewRequest(http.MethodGet, "/privacy", nil)
 	consented := httptest.NewRequest(http.MethodGet, "/privacy", nil)
-	consented.AddCookie(&http.Cookie{Name: "_statnive_consent", Value: "v1"})
+	// Stage-4 per-site cookie name.
+	consented.AddCookie(&http.Cookie{Name: consentCookieName(testSiteID), Value: "v1"})
 
 	cases := []struct {
 		name string
@@ -47,7 +50,7 @@ func TestPolicyToMode_AllSixModes(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := PolicyToMode(c.req, sites.SitePolicy{ConsentMode: c.mode})
+			got := PolicyToMode(c.req, testSiteID, sites.SitePolicy{ConsentMode: c.mode})
 			if got != c.want {
 				t.Errorf("got %v, want %v", got, c.want)
 			}
@@ -61,7 +64,7 @@ func TestPolicyToMode_HybridConsentViaHeader(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/privacy", nil)
 	req.Header.Set("X-Statnive-Consent", "given")
 
-	got := PolicyToMode(req, sites.SitePolicy{ConsentMode: "hybrid"})
+	got := PolicyToMode(req, 1, sites.SitePolicy{ConsentMode: "hybrid"})
 	if got != ModeHybridPostConsent {
 		t.Errorf("got %v, want ModeHybridPostConsent (header override)", got)
 	}

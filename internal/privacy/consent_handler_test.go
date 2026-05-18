@@ -30,15 +30,17 @@ func TestConsent_GiveSetsCookie(t *testing.T) {
 
 	var consent *http.Cookie
 
+	wantName := consentCookieName(42) // matches fakeSitesResolver{siteID: 42}
+
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == "_statnive_consent" {
+		if c.Name == wantName {
 			consent = c
 			break
 		}
 	}
 
 	if consent == nil {
-		t.Fatalf("_statnive_consent cookie not set")
+		t.Fatalf("%s cookie not set", wantName)
 		return // unreachable; staticcheck SA5011 doesn't see t.Fatalf as terminal
 	}
 
@@ -48,6 +50,14 @@ func TestConsent_GiveSetsCookie(t *testing.T) {
 
 	if !consent.HttpOnly {
 		t.Errorf("consent cookie should be HttpOnly")
+	}
+
+	if consent.SameSite != http.SameSiteNoneMode {
+		t.Errorf("SameSite = %v, want None (Stage-4 cross-origin)", consent.SameSite)
+	}
+
+	if !consent.Partitioned {
+		t.Errorf("Partitioned must be true (CHIPS per-top-level-site isolation)")
 	}
 }
 
@@ -68,10 +78,20 @@ func TestConsent_WithdrawClearsAndSuppresses(t *testing.T) {
 		got[c.Name] = c
 	}
 
-	if c, ok := got["_statnive_consent"]; !ok {
-		t.Errorf("_statnive_consent expiry not set in response")
+	perSiteConsent := consentCookieName(42)
+	perSiteOptout := optoutCookieName(42)
+
+	if c, ok := got[perSiteConsent]; !ok {
+		t.Errorf("%s expiry not set in response", perSiteConsent)
 	} else if c.MaxAge >= 0 {
-		t.Errorf("_statnive_consent MaxAge = %d, want -1", c.MaxAge)
+		t.Errorf("%s MaxAge = %d, want -1", perSiteConsent, c.MaxAge)
+	}
+
+	// Legacy cookie is defanged in the same response (dual-read window).
+	if c, ok := got["_statnive_consent"]; !ok {
+		t.Errorf("legacy _statnive_consent expiry not set in response")
+	} else if c.MaxAge >= 0 {
+		t.Errorf("legacy _statnive_consent MaxAge = %d, want -1", c.MaxAge)
 	}
 
 	if c, ok := got["_statnive"]; !ok {
@@ -80,10 +100,10 @@ func TestConsent_WithdrawClearsAndSuppresses(t *testing.T) {
 		t.Errorf("_statnive MaxAge = %d, want -1", c.MaxAge)
 	}
 
-	if c, ok := got["_statnive_optout"]; !ok {
-		t.Errorf("_statnive_optout cookie not set on withdraw")
+	if c, ok := got[perSiteOptout]; !ok {
+		t.Errorf("%s cookie not set on withdraw", perSiteOptout)
 	} else if c.Value != "v1" {
-		t.Errorf("_statnive_optout value = %q, want v1", c.Value)
+		t.Errorf("%s value = %q, want v1", perSiteOptout, c.Value)
 	}
 
 	if h.cfg.Suppression.Len() != 1 {

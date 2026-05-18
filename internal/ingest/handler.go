@@ -107,13 +107,13 @@ type SuppressionChecker interface {
 	IsSuppressed(hash string) bool
 }
 
-// ModeResolver maps a request + policy to the consent posture under
-// which the event should be ingested. Production uses
-// privacy.PolicyToMode; tests inject a fixed-Mode stub. Mode itself
-// is an interface so the ingest package doesn't take a hard import
-// dep on internal/privacy (and so the surface stays narrow — only
-// the two predicates the gate actually queries).
-type ModeResolver func(r *http.Request, p sites.SitePolicy) Mode
+// ModeResolver maps a request + site_id + policy to the consent
+// posture under which the event should be ingested. Production uses
+// privacy.PolicyToMode; tests inject a fixed-Mode stub. siteID is
+// passed explicitly so the resolver can read the per-site Stage-4
+// consent cookie (_statnive_consent_<id>) without re-running the
+// LookupSitePolicy that already produced p.
+type ModeResolver func(r *http.Request, siteID uint32, p sites.SitePolicy) Mode
 
 // Mode is the consent posture the ingest gate queries. privacy.Mode
 // satisfies this shape at the call site in cmd/statnive-live/main.go.
@@ -251,7 +251,7 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashIdenti
 		// hostname → policy → mode → ingest, no inline switch.
 		var mode Mode
 		if cfg.Mode != nil {
-			mode = cfg.Mode(r, policy)
+			mode = cfg.Mode(r, siteID, policy)
 		}
 
 		// Per-site consent gate. Sec-GPC / DNT short-circuit per

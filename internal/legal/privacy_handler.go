@@ -26,10 +26,12 @@ type privacyPageData struct {
 // page that links to the LIA / DPA / privacy-policy templates and
 // exposes the opt-out button. The handler issues a fresh CSRF cookie
 // on each load (one hour TTL) and renders the same token into the
-// page's meta tag.
-func PrivacyHandler(auditLog *audit.Logger) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, err := middleware.IssueCSRFToken(w, isHTTPS(r))
+// page's meta tag. Stage-4 takes masterSecret because the HMAC-signed
+// double-submit token (Johansson defence) needs the same key the
+// /api/privacy/* RequireCSRF middleware uses to verify.
+func PrivacyHandler(auditLog *audit.Logger, masterSecret []byte) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		token, err := middleware.IssueCSRFToken(w, masterSecret)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 
@@ -56,12 +58,4 @@ func PrivacyHandler(auditLog *audit.Logger) http.Handler {
 
 		_, _ = w.Write(buf.Bytes())
 	})
-}
-
-func isHTTPS(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-
-	return r.Header.Get("X-Forwarded-Proto") == "https"
 }

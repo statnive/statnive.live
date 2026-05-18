@@ -6,6 +6,9 @@ package privacy
 
 import (
 	"net/http"
+	"strconv"
+	"sync/atomic"
+	"time"
 
 	"github.com/statnive/statnive.live/internal/sites"
 )
@@ -57,60 +60,115 @@ func (m Mode) String() string {
 	}
 }
 
+// defaultLegacyCookieCutoff is the deploy-date + 30 days cutoff after
+// which the dual-read window stops honouring the pre-Stage-4 single
+// _statnive_consent cookie. Atomic pointer so SetLegacyCookieCutoff
+// can extend the window without redeploying when ops observes the
+// legacy population is still significant. Stage-4 plan §6.
+var legacyCookieCutoff atomic.Pointer[time.Time]
+
+// LegacyCookieReadObserver is the callback the dual-read path fires
+// each time it hits the legacy cookie. main.go wires a Prometheus
+// counter increment here; tests inject a counter for assertions.
+// Nil-safe — no-op when unset.
+var legacyCookieReadObserver atomic.Pointer[func(siteID uint32)]
+
+func init() {
+	// Default: 30 days from Stage-4-B deploy date. Operators who
+	// observe csrf_legacy_cookie_reads_total > 1% past this date can
+	// extend via SetLegacyCookieCutoff.
+	t := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
+	legacyCookieCutoff.Store(&t)
+}
+
+// SetLegacyCookieCutoff lets main.go (or tests) override the
+// hardcoded 2026-06-17 default. Pass a zero time.Time to disable the
+// dual-read window entirely (read only per-site cookies).
+func SetLegacyCookieCutoff(t time.Time) {
+	legacyCookieCutoff.Store(&t)
+}
+
+// SetLegacyCookieReadObserver wires the metric callback. Production
+// passes the Prometheus counter's Inc; tests pass a closure that
+// accumulates calls. Nil clears the observer.
+func SetLegacyCookieReadObserver(f func(siteID uint32)) {
+	if f == nil {
+		legacyCookieReadObserver.Store(nil)
+
+		return
+	}
+
+	legacyCookieReadObserver.Store(&f)
+}
+
 // PolicyToMode resolves the consent posture for a request. Stage 3
 // switches on sites.SitePolicy.ConsentMode + the request's consent
-// signal. An empty ConsentMode (a row that pre-dates migration 013 or
-// the backfill default itself) falls through to ModeCurrent so the 3
+// signal. Stage 4 takes siteID so the per-site consent cookie name
+// (_statnive_consent_<id>) can be read; the dual-read fallback to the
+// legacy single cookie applies until legacyCookieCutoff.
+//
+// An empty ConsentMode (a row that pre-dates migration 013 or the
+// backfill default itself) falls through to ModeCurrent so the 3
 // live operators keep byte-for-byte identical behaviour until they
 // consciously flip jurisdiction or mode via the admin UI.
-//
-// Hybrid splits two ways:
-//   - Visitor sent _statnive_consent=v1 or X-Statnive-Consent: given
-//     → ModeHybridPostConsent (mirrors ModePermissive enforcement).
-//   - Otherwise → ModeHybridPreConsent (mirrors ModeConsentFree
-//     enforcement: no cookie, round-to-10, event-allowlist gate).
-//
-// consent-required treats a present consent signal the same way:
-// visitors who never accepted stay in the strict mode; visitors who
-// did get the permissive treatment.
-func PolicyToMode(r *http.Request, p sites.SitePolicy) Mode {
+func PolicyToMode(r *http.Request, siteID uint32, p sites.SitePolicy) Mode {
 	switch p.ConsentMode {
 	case sites.ConsentModeConsentFree:
 		return ModeConsentFree
 	case sites.ConsentModePermissive:
 		return ModePermissive
 	case sites.ConsentModeConsentRequired:
-		if hasValidConsent(r) {
+		if hasValidConsent(r, siteID) {
 			return ModePermissive
 		}
 
 		return ModeConsentRequired
 	case sites.ConsentModeHybrid:
-		if hasValidConsent(r) {
+		if hasValidConsent(r, siteID) {
 			return ModeHybridPostConsent
 		}
 
 		return ModeHybridPreConsent
 	default:
-		// Empty / unrecognised — preserve the legacy posture so a
-		// fresh deploy with a half-applied migration doesn't flip
-		// every site to permissive (which would silently widen the
-		// data surface on every existing operator).
 		return ModeCurrent
 	}
 }
 
-// hasValidConsent reports whether the visitor has accepted analytics
-// in the hybrid / consent-required flow. The strictly-necessary
-// _statnive_consent cookie is the canonical store; the
-// X-Statnive-Consent header is a server-rendered escape hatch for
-// pages that submit through the operator's own consent banner.
-func hasValidConsent(r *http.Request) bool {
-	if c, err := r.Cookie("_statnive_consent"); err == nil && c.Value == "v1" {
+// hasValidConsent reports whether the visitor accepted analytics. Stage-4
+// priority chain:
+//
+//  1. Per-site cookie `_statnive_consent_<siteID>=v1` (canonical).
+//  2. X-Statnive-Consent: given header (operator-banner escape hatch).
+//  3. Legacy single `_statnive_consent=v1` cookie — ONLY before
+//     legacyCookieCutoff (Stage-4 dual-read window).
+//
+// Each legacy-cookie hit increments the observer counter so ops can
+// confirm the legacy population has shrunk below threshold before
+// retiring the dual-read path.
+func hasValidConsent(r *http.Request, siteID uint32) bool {
+	perSite := LegacyConsentCookieName + "_" + strconv.FormatUint(uint64(siteID), 10)
+	if c, err := r.Cookie(perSite); err == nil && c.Value == consentCookieValue {
 		return true
 	}
 
-	return r.Header.Get("X-Statnive-Consent") == "given"
+	if r.Header.Get("X-Statnive-Consent") == "given" {
+		return true
+	}
+
+	cutoff := legacyCookieCutoff.Load()
+	if cutoff == nil || time.Now().After(*cutoff) {
+		return false
+	}
+
+	if c, err := r.Cookie(LegacyConsentCookieName); err == nil && c.Value == consentCookieValue {
+		if obs := legacyCookieReadObserver.Load(); obs != nil {
+			(*obs)(siteID)
+		}
+
+		return true
+	}
+
+	return false
 }
 
 // AnonymousCount reports whether the Mode's storage profile treats

@@ -5,22 +5,43 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/statnive/statnive.live/internal/audit"
 )
 
-// consentCookieName is the strictly-necessary cookie that flips a
-// hybrid-mode (or consent-required) visitor from pre-consent to
-// post-consent. Value v1 is the only currently-recognised marker;
-// future revisions bump the version so an old browser tab can't
-// replay a stale consent.
-const consentCookieName = "_statnive_consent"
+// LegacyConsentCookieName is the pre-Stage-4 single-cookie name.
+// Stage-4 switches to per-site naming (consentCookieName(siteID))
+// for multi-tenancy isolation — a visitor consenting on site A
+// must NOT auto-consent on site B served from the same SaaS host.
+// The legacy name is kept here for the dual-read window so existing
+// visitors don't get re-prompted mid-session.
+const LegacyConsentCookieName = "_statnive_consent"
+
+// LegacyOptoutCookieName is the pre-Stage-4 single opt-out cookie.
+// Same rationale as LegacyConsentCookieName.
+const LegacyOptoutCookieName = "_statnive_optout"
 
 // consentCookieValue is the wire value the handler sets and reads
 // back. Constant — no per-visitor entropy — because the cookie's
 // presence (not its value) is what carries the consent signal.
 const consentCookieValue = "v1"
+
+// consentCookieName returns the per-site Stage-4 consent cookie name.
+// Per-site naming prevents cross-tenant consent leakage on SaaS
+// instances where one visitor browser interacts with multiple
+// operator sites. Combined with Partitioned (CHIPS) attribute the
+// cookie is also browser-isolated by top-level site.
+func consentCookieName(siteID uint32) string {
+	return LegacyConsentCookieName + "_" + strconv.FormatUint(uint64(siteID), 10)
+}
+
+// optoutCookieName returns the per-site Stage-4 opt-out cookie name.
+// Mirrors consentCookieName for shape symmetry.
+func optoutCookieName(siteID uint32) string {
+	return LegacyOptoutCookieName + "_" + strconv.FormatUint(uint64(siteID), 10)
+}
 
 // consentCookieMaxAge bounds the freshness of a single consent
 // decision. One year matches the CNIL guidance ceiling and the
@@ -67,27 +88,26 @@ func (h *Handlers) Consent(w http.ResponseWriter, r *http.Request) {
 	switch req.Action {
 	case "give":
 		http.SetCookie(w, &http.Cookie{
-			Name:     consentCookieName,
-			Value:    consentCookieValue,
-			Path:     "/",
-			MaxAge:   consentCookieMaxAge,
-			HttpOnly: true,
-			Secure:   secure,
-			SameSite: http.SameSiteLaxMode,
+			Name:        consentCookieName(siteID),
+			Value:       consentCookieValue,
+			Path:        "/",
+			MaxAge:      consentCookieMaxAge,
+			HttpOnly:    true,
+			Secure:      secure,
+			SameSite:    http.SameSiteNoneMode,
+			Partitioned: true,
 		})
 
 		h.emit(r.Context(), audit.EventConsentGiven, siteID, hash)
 
 	case "withdraw":
-		// Clear both the consent marker and the identifier cookie.
-		// SameSite=Lax + Path=/ + Max-Age=-1 is the standard
-		// browser-side "delete" recipe (Set-Cookie with the same
-		// attributes + a zero Expires).
-		expireCookie(w, consentCookieName, secure)
+		// Clear both the per-site consent marker and the legacy
+		// single cookie (defang any dual-read tokens). Identifier
+		// cookie also cleared.
+		expireCookie(w, consentCookieName(siteID), secure)
+		expireCookie(w, LegacyConsentCookieName, secure)
 		expireCookie(w, "_statnive", secure)
 
-		// Add to suppression so subsequent events from this browser
-		// are dropped at the ingest gate; mirrors POST /opt-out.
 		if addErr := h.cfg.Suppression.Add(hash); addErr != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 
@@ -95,13 +115,14 @@ func (h *Handlers) Consent(w http.ResponseWriter, r *http.Request) {
 		}
 
 		http.SetCookie(w, &http.Cookie{
-			Name:     "_statnive_optout",
-			Value:    "v1",
-			Path:     "/",
-			MaxAge:   int(365 * 24 * time.Hour / time.Second),
-			HttpOnly: true,
-			Secure:   secure,
-			SameSite: http.SameSiteLaxMode,
+			Name:        optoutCookieName(siteID),
+			Value:       "v1",
+			Path:        "/",
+			MaxAge:      int(365 * 24 * time.Hour / time.Second),
+			HttpOnly:    true,
+			Secure:      secure,
+			SameSite:    http.SameSiteNoneMode,
+			Partitioned: true,
 		})
 
 		h.emit(r.Context(), audit.EventConsentWithdrawn, siteID, hash)
@@ -117,13 +138,14 @@ func (h *Handlers) Consent(w http.ResponseWriter, r *http.Request) {
 
 func expireCookie(w http.ResponseWriter, name string, secure bool) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     name,
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
+		Name:        name,
+		Value:       "",
+		Path:        "/",
+		MaxAge:      -1,
+		HttpOnly:    true,
+		Secure:      secure,
+		SameSite:    http.SameSiteNoneMode,
+		Partitioned: true,
 	})
 }
 

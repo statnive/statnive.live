@@ -466,8 +466,8 @@ func run() error {
 			ConsentRequired: cfg.Consent.Required,
 			Metrics:         metricsReg,
 			Suppression:     ingestSuppression,
-			Mode: func(r *http.Request, p sites.SitePolicy) ingest.Mode {
-				return privacy.PolicyToMode(r, p)
+			Mode: func(r *http.Request, siteID uint32, p sites.SitePolicy) ingest.Mode {
+				return privacy.PolicyToMode(r, siteID, p)
 			},
 		}))
 	})
@@ -623,8 +623,11 @@ func run() error {
 	//   /privacy                          (privacy.privacy_page)
 	//   /legal/privacy-policy/{lang}      (privacy.legal_routes)
 	//   /api/privacy/{opt-out,access,erase} (privacy.privacy_api)
+	corsMW := statnivemiddleware.CORS(originIndex.Resolver())
+
 	if cfg.Privacy.PrivacyPage {
-		router.Method(http.MethodGet, "/privacy", legal.PrivacyHandler(auditLog))
+		router.Method(http.MethodGet, "/privacy", corsMW(legal.PrivacyHandler(auditLog, masterSecret)))
+		router.Method(http.MethodOptions, "/privacy", corsMW(legal.PrivacyHandler(auditLog, masterSecret)))
 	}
 
 	if cfg.Privacy.LegalRoutes {
@@ -646,11 +649,16 @@ func run() error {
 		}
 
 		router.Group(func(r chi.Router) {
-			r.Use(statnivemiddleware.RequireCSRF)
+			r.Use(corsMW)
+			r.Use(statnivemiddleware.RequireCSRF(masterSecret))
 			r.Method(http.MethodPost, "/api/privacy/opt-out", http.HandlerFunc(privacyHandlers.OptOut))
+			r.Method(http.MethodOptions, "/api/privacy/opt-out", http.HandlerFunc(privacyHandlers.OptOut))
 			r.Method(http.MethodGet, "/api/privacy/access", http.HandlerFunc(privacyHandlers.Access))
+			r.Method(http.MethodOptions, "/api/privacy/access", http.HandlerFunc(privacyHandlers.Access))
 			r.Method(http.MethodPost, "/api/privacy/erase", http.HandlerFunc(privacyHandlers.Erase))
+			r.Method(http.MethodOptions, "/api/privacy/erase", http.HandlerFunc(privacyHandlers.Erase))
 			r.Method(http.MethodPost, "/api/privacy/consent", http.HandlerFunc(privacyHandlers.Consent))
+			r.Method(http.MethodOptions, "/api/privacy/consent", http.HandlerFunc(privacyHandlers.Consent))
 		})
 	}
 
