@@ -122,7 +122,7 @@
   function consent(action, csrfToken) {
     return w.fetch(base + '/api/privacy/consent', {
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
       body: JSON.stringify({ action: action }),
     });

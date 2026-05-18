@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="csrf-token" content="{{.CSRFToken}}">
+<meta name="statnive-site" content="{{.Site}}">
 <title>Privacy — statnive.live</title>
 <style>
 :root{color-scheme:light dark;--fg:#1f2937;--bg:#fafaf8;--accent:#00a693;--muted:#6b7280}
@@ -16,15 +17,17 @@ h2{font-size:1.1rem;margin:1.5rem 0 .5rem}
 a{color:var(--accent);text-decoration:underline}
 .muted{color:var(--muted);font-size:.9rem}
 .section{margin:1.5rem 0;padding:1rem;border:1px solid color-mix(in srgb,var(--muted) 30%,transparent);border-radius:.5rem}
-button{background:var(--accent);color:#fff;border:0;border-radius:.375rem;padding:.625rem 1rem;cursor:pointer;font:inherit}
+button{background:var(--accent);color:#fff;border:0;border-radius:.375rem;padding:.625rem 1rem;cursor:pointer;font:inherit;margin-right:.5rem}
+button.secondary{background:transparent;color:var(--fg);border:1px solid var(--muted)}
 button:disabled{opacity:.55;cursor:not-allowed}
 .status{margin-top:.5rem;font-size:.9rem;color:var(--muted);min-height:1.2em}
+[hidden]{display:none}
 </style>
 </head>
 <body>
 <main>
 <h1>Privacy</h1>
-<p class="muted">This site uses <a href="https://statnive.live/">statnive.live</a> — a privacy-first web-analytics platform. No third-party tracker is loaded; no canvas, WebGL, or font-availability probes run; your raw IP address is never stored.</p>
+<p class="muted">This site uses <a href="https://statnive.live/">statnive.live</a> — a privacy-first web-analytics platform. No third-party tracker is loaded; no canvas, WebGL, or font-availability probes run; your raw IP address is never stored.{{if .Site}} You are managing your consent for <strong>{{.Site}}</strong>.{{end}}</p>
 
 <div class="section">
 <h2>Documents</h2>
@@ -37,10 +40,12 @@ button:disabled{opacity:.55;cursor:not-allowed}
 </div>
 
 <div class="section">
-<h2>Your rights</h2>
-<p>You can object to analytics at any time. Clicking <strong>Opt out</strong> sets a strictly-necessary <code>_statnive_optout</code> cookie; the server then silently drops every subsequent event from your browser.</p>
+<h2>Manage your consent</h2>
+<p>{{if .Site}}Choose how analytics treats your visits to <strong>{{.Site}}</strong>. Your choice is per-site — accepting on one operator's site does not affect any other.{{else}}You can object to analytics at any time. Clicking <strong>Opt out</strong> sets a strictly-necessary opt-out cookie; the server then silently drops every subsequent event from your browser.{{end}}</p>
 <p>
-<button id="optout" type="button">Opt out of analytics</button>
+{{if .Site}}<button id="consent-give" type="button">Accept analytics</button>{{end}}
+{{if .Site}}<button id="consent-withdraw" type="button" class="secondary" hidden>Withdraw consent</button>{{end}}
+<button id="optout" type="button" class="secondary">Opt out of analytics</button>
 </p>
 <p class="status" id="status" aria-live="polite"></p>
 <p class="muted">Access and erasure requests are served at <code>GET /api/privacy/access</code> and <code>POST /api/privacy/erase</code> respectively. Both require your <code>_statnive</code> cookie to be present so the server can find the rows tied to your browser.</p>
@@ -50,29 +55,81 @@ button:disabled{opacity:.55;cursor:not-allowed}
 <script>
 (function(){
   var csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-  var btn = document.getElementById('optout');
+  var site = document.querySelector('meta[name="statnive-site"]').getAttribute('content');
   var status = document.getElementById('status');
 
-  btn.addEventListener('click', function(){
-    btn.disabled = true;
+  var optoutBtn = document.getElementById('optout');
+  var giveBtn = document.getElementById('consent-give');
+  var withdrawBtn = document.getElementById('consent-withdraw');
+
+  function headers() {
+    var h = {'X-CSRF-Token': csrf, 'Content-Type': 'application/json'};
+    if (site) h['X-Statnive-Site'] = site;
+    return h;
+  }
+
+  function fire(url, body) {
+    var btns = [optoutBtn, giveBtn, withdrawBtn].filter(Boolean);
+    btns.forEach(function(b){ b.disabled = true; });
     status.textContent = 'Sending…';
 
-    fetch('/api/privacy/opt-out', {
+    return fetch(url, {
       method: 'POST',
-      credentials: 'same-origin',
-      headers: {'X-CSRF-Token': csrf}
+      credentials: 'include',
+      headers: headers(),
+      body: body ? JSON.stringify(body) : null
     }).then(function(r){
-      if (r.status === 204) {
-        status.textContent = 'You are opted out. Future events from this browser will be dropped.';
-      } else {
-        status.textContent = 'Could not opt out (status ' + r.status + '). Try again later.';
-        btn.disabled = false;
-      }
-    }).catch(function(){
-      status.textContent = 'Network error. Try again.';
-      btn.disabled = false;
+      if (r.status === 204 || r.ok) return r;
+      throw new Error('status ' + r.status);
+    }).catch(function(err){
+      status.textContent = 'Error: ' + err.message;
+      btns.forEach(function(b){ b.disabled = false; });
+      throw err;
     });
-  });
+  }
+
+  // On load: detect existing per-site consent cookie and toggle
+  // accept/withdraw button visibility. The cookie is HttpOnly so we
+  // can't read its value, but we can check for its NAME presence in
+  // document.cookie via a substring probe — collision-safe because
+  // the per-site name has a numeric suffix.
+  if (site) {
+    var hasPerSiteConsent = /(?:^|;\s*)_statnive_consent_\d+=v1/.test(document.cookie);
+    if (hasPerSiteConsent && giveBtn && withdrawBtn) {
+      giveBtn.hidden = true;
+      withdrawBtn.hidden = false;
+    }
+  }
+
+  if (optoutBtn) {
+    optoutBtn.addEventListener('click', function(){
+      fire('/api/privacy/opt-out', null).then(function(){
+        status.textContent = 'You are opted out. Future events from this browser will be dropped.';
+      });
+    });
+  }
+
+  if (giveBtn) {
+    giveBtn.addEventListener('click', function(){
+      fire('/api/privacy/consent', {action: 'give'}).then(function(){
+        status.textContent = 'Analytics accepted for ' + site + '.';
+        giveBtn.hidden = true;
+        if (withdrawBtn) withdrawBtn.hidden = false;
+        [optoutBtn, withdrawBtn].filter(Boolean).forEach(function(b){ b.disabled = false; });
+      });
+    });
+  }
+
+  if (withdrawBtn) {
+    withdrawBtn.addEventListener('click', function(){
+      fire('/api/privacy/consent', {action: 'withdraw'}).then(function(){
+        status.textContent = 'Consent withdrawn. Future events will be dropped.';
+        withdrawBtn.hidden = true;
+        if (giveBtn) giveBtn.hidden = false;
+        [optoutBtn, giveBtn].filter(Boolean).forEach(function(b){ b.disabled = false; });
+      });
+    });
+  }
 })();
 </script>
 </body>

@@ -625,9 +625,16 @@ func run() error {
 	//   /api/privacy/{opt-out,access,erase} (privacy.privacy_api)
 	corsMW := statnivemiddleware.CORS(originIndex.Resolver())
 
+	siteValidator := func(hostname string) bool {
+		id, _, err := registry.LookupSitePolicy(rootCtx, hostname)
+
+		return err == nil && id != 0
+	}
+
 	if cfg.Privacy.PrivacyPage {
-		router.Method(http.MethodGet, "/privacy", corsMW(legal.PrivacyHandler(auditLog, masterSecret)))
-		router.Method(http.MethodOptions, "/privacy", corsMW(legal.PrivacyHandler(auditLog, masterSecret)))
+		privacyPage := legal.PrivacyHandler(auditLog, masterSecret, siteValidator)
+		router.Method(http.MethodGet, "/privacy", corsMW(privacyPage))
+		router.Method(http.MethodOptions, "/privacy", corsMW(privacyPage))
 	}
 
 	if cfg.Privacy.LegalRoutes {
