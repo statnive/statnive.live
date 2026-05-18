@@ -377,7 +377,11 @@ describe('consent helpers', () => {
       expect(fetchCalls).toHaveLength(1);
       expect(fetchCalls[0].url).toBe('/api/privacy/consent');
       expect(fetchCalls[0].init.method).toBe('POST');
-      expect(fetchCalls[0].init.credentials).toBe('same-origin');
+      // Stage-4 PR 4-C: cross-origin SaaS support needs `credentials: 'include'`
+      // so the __Host-statnive_csrf cookie traverses tracker.<operator> →
+      // app.statnive.live POSTs. Same-origin sites still attach cookies under
+      // the same flag.
+      expect(fetchCalls[0].init.credentials).toBe('include');
       expect(fetchCalls[0].init.headers['X-CSRF-Token']).toBe('csrf-abc');
       const body = JSON.parse(fetchCalls[0].init.body);
       expect(body.action).toBe('give');
