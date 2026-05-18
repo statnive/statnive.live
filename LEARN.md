@@ -445,6 +445,23 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
 
    PR-review checklist: any new route under `internal/dashboard/**` MUST go on `MountSiteScoped` (not `MountSiteListing`) unless it has its own intra-handler authz. Any read of `?site` outside `filterFromRequest` MUST be paired with an explicit `actor.CanAccessSite` check. The Semgrep gate catches the bug class even before reviewers see the PR.
 
+### Lesson 36
+
+**`internal/tracker/dist/tracker.js` is a committed, minified artifact embedded via `go:embed`. Editing `tracker/src/tracker.js` and committing without running `make tracker` ships the binary with the STALE dist. CI's tracker-vitest reads `src/`, not `dist/`, so the test passes and the bug rides into production. v0.0.23 went out with `credentials:"same-origin"` despite PR #120 explicitly setting `credentials:"include"` in src — cross-origin consent helpers silently failed until the v0.0.24 hot-fix.**
+
+1. **What we did** — PR #120 (Stage-4 PR 4-C) edited `tracker/src/tracker.js` to flip `credentials: 'same-origin'` → `'include'` so the operator's banner JS could attach the `__Host-statnive_csrf` cookie cross-origin. Local `cd tracker && npm test` passed. CI's `Tracker Vitest (payload-golden contract)` passed (after a separate assertion-string fix). Merged. Tagged `v0.0.23`. `release.yml` + `deploy-saas.yml` shipped the bundle. Production smoke against `/tracker.js` returned `credentials:"same-origin"` — the source change never reached the embedded blob.
+2. **Why it broke** — `internal/tracker/tracker.go:15` carries `//go:embed dist/tracker.js`. The minified `dist/tracker.js` is produced by `tracker/rollup.config.mjs` (Rollup + Terser) and **committed to the repo**. `go build` doesn't run the rollup step; only `make tracker` does. The release-bundle Makefile target does NOT invoke `make tracker` (it assumes dist is current at commit time). CI's tracker-vitest reads `tracker/src/tracker.js` directly via Vitest's jsdom loader, so a stale dist passes the test. `make tracker-size` checks `internal/tracker/dist/tracker.js` bytes against the budget but doesn't verify src↔dist parity. Three independent gates, none of them caught the mismatch.
+3. **The fix we applied** — Ran `make tracker` locally, observed dist now contains `credentials:"include"`, committed `internal/tracker/dist/tracker.js`, tagged `v0.0.24`. `release.yml` + `deploy-saas.yml` re-shipped. `curl https://app.statnive.live/tracker.js | grep credentials` now returns `"include"`. Took ~7 min from defect detection to fixed bytes on box.
+4. **Preventive measure** — Add a CI gate that fails if `tracker/src/` is touched but `internal/tracker/dist/tracker.js` isn't regenerated:
+   - **Makefile target** `make tracker-dist-fresh` runs `make tracker` and then `git diff --exit-code internal/tracker/dist/tracker.js`. Non-zero exit = stale dist.
+   - Add to `.github/workflows/ci.yml` as a new job step in the `build + test + lint` matrix.
+   - Add to `make ci-local` (so `STATNIVE_PREPUSH_FAST` catches it pre-push).
+   - The check is cheap (~150 ms rollup pass) and fails closed on the exact bug shape: src changed, dist didn't.
+
+   Sister rule for `web/dist/` (Preact SPA bundle): same shape, same risk class, same fix — `make web-dist-fresh`. Not yet observed in production but the bug class is identical and the gate is cheap.
+
+   PR-review checklist: if a PR diff includes `tracker/src/*` OR `web/src/*`, the corresponding `dist/` file MUST also appear in the diff. Reviewer-side rule until the CI gate lands.
+
 ---
 
 ## How to add a new lesson
