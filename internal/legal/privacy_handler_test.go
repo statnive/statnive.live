@@ -15,7 +15,7 @@ func TestPrivacyHandler_RendersPageAndIssuesCSRFCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/privacy", nil)
 	rec := httptest.NewRecorder()
 
-	PrivacyHandler(nil).ServeHTTP(rec, req)
+	PrivacyHandler(nil, []byte("test-secret-32-bytes-of-padding!!")).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -61,7 +61,7 @@ func TestPrivacyHandler_SecurityHeaders(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/privacy", nil)
 	rec := httptest.NewRecorder()
 
-	PrivacyHandler(nil).ServeHTTP(rec, req)
+	PrivacyHandler(nil, []byte("test-secret-32-bytes-of-padding!!")).ServeHTTP(rec, req)
 
 	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)

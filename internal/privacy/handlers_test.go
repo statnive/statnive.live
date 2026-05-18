@@ -65,15 +65,17 @@ func TestOptOut_SetsCookieAndSuppresses(t *testing.T) {
 
 	var optoutCookie *http.Cookie
 
+	wantName := optoutCookieName(42)
+
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == "_statnive_optout" {
+		if c.Name == wantName {
 			optoutCookie = c
 			break
 		}
 	}
 
 	if optoutCookie == nil {
-		t.Fatal("missing _statnive_optout cookie in response")
+		t.Fatalf("missing %s cookie in response", wantName)
 		return // unreachable; staticcheck SA5011 doesn't see t.Fatal as terminal
 	}
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/identity"
+	"github.com/statnive/statnive.live/internal/middleware"
 	"github.com/statnive/statnive.live/internal/sites"
 )
 
@@ -99,13 +100,14 @@ func (h *Handlers) OptOut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "_statnive_optout",
-		Value:    "v1",
-		Path:     "/",
-		MaxAge:   int(365 * 24 * time.Hour / time.Second),
-		HttpOnly: true,
-		Secure:   isHTTPS(r),
-		SameSite: http.SameSiteLaxMode,
+		Name:        optoutCookieName(siteID),
+		Value:       "v1",
+		Path:        "/",
+		MaxAge:      int(365 * 24 * time.Hour / time.Second),
+		HttpOnly:    true,
+		Secure:      isHTTPS(r),
+		SameSite:    http.SameSiteNoneMode,
+		Partitioned: true,
 	})
 
 	h.emit(r.Context(), audit.EventOptOutReceived, siteID, hash)
@@ -185,23 +187,20 @@ func (h *Handlers) Erase(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveSiteAndCookie does the shared prelude:
-//   - Look up site_id from the request Host
-//   - Read the _statnive cookie (raw UUID)
-//   - Hash to "h:" + hex per identity.HexCookieIDHash
+//   - Resolve site_id, in priority order:
+//     1. ctxKeySiteFromOrigin stashed by CORS middleware (cross-origin).
+//     2. X-Statnive-Site header (same-origin /privacy fallback —
+//     validated against the registry).
+//     3. r.Host (legacy same-origin path).
+//   - Read the _statnive cookie (raw UUID).
+//   - Hash to "h:" + hex per identity.HexCookieIDHash.
 //
 // Writes the appropriate error response and returns ok=false on any
 // failure so callers can early-return.
 func (h *Handlers) resolveSiteAndCookie(w http.ResponseWriter, r *http.Request) (uint32, string, bool) {
-	host := requestHost(r)
-	if host == "" {
-		http.Error(w, "host required", http.StatusBadRequest)
-
-		return 0, "", false
-	}
-
-	siteID, _, err := h.cfg.Sites.LookupSitePolicy(r.Context(), host)
-	if err != nil {
-		http.Error(w, "unknown site", http.StatusNotFound)
+	siteID, status := h.resolveSiteID(r)
+	if status != 0 {
+		http.Error(w, http.StatusText(status), status)
 
 		return 0, "", false
 	}
@@ -216,6 +215,41 @@ func (h *Handlers) resolveSiteAndCookie(w http.ResponseWriter, r *http.Request) 
 	hash := identity.HexCookieIDHash(h.cfg.MasterSecret, siteID, cookie.Value)
 
 	return siteID, hash, true
+}
+
+// resolveSiteID applies the Stage-4 priority chain. Returns site_id
+// + the HTTP status to write on failure: 0 = success, 400 = no host
+// signal at all, 404 = host signal present but unrecognised.
+//
+// Priority:
+//  1. ctxKeySiteFromOrigin stashed by CORS middleware (cross-origin).
+//  2. X-Statnive-Site header (same-origin /privacy fallback).
+//  3. r.Host (legacy same-origin path).
+func (h *Handlers) resolveSiteID(r *http.Request) (uint32, int) {
+	if id, ok := middleware.SiteIDFromOriginContext(r.Context()); ok && id != 0 {
+		return id, 0
+	}
+
+	if hint := r.Header.Get("X-Statnive-Site"); hint != "" {
+		id, _, err := h.cfg.Sites.LookupSitePolicy(r.Context(), hint)
+		if err != nil || id == 0 {
+			return 0, http.StatusNotFound
+		}
+
+		return id, 0
+	}
+
+	host := requestHost(r)
+	if host == "" {
+		return 0, http.StatusBadRequest
+	}
+
+	id, _, err := h.cfg.Sites.LookupSitePolicy(r.Context(), host)
+	if err != nil || id == 0 {
+		return 0, http.StatusNotFound
+	}
+
+	return id, 0
 }
 
 func (h *Handlers) emit(ctx context.Context, name audit.EventName, siteID uint32, hash string, extra ...slog.Attr) {
