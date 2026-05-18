@@ -58,6 +58,12 @@ import (
 // + first ~100 SaaS tenants. Bump for SaaS deployments past ~1K tenants.
 const dashboardCacheCapacity = 4096
 
+// errBootPreflightSelfHost is the sentinel returned by the Stage-4
+// boot pre-flight when an operator has the SaaS host itself in their
+// allowed_origins (would defeat the CSRF + CORS defence). Ops grep on
+// the stable prefix "boot preflight: self-host in allowed_origins".
+var errBootPreflightSelfHost = errors.New("boot preflight: self-host in allowed_origins")
+
 const (
 	bloomCapacity = 10_000_000
 	bloomFPRate   = 0.001
@@ -290,6 +296,35 @@ func run() error {
 	}, auditLog, logger)
 
 	registry := sites.New(store.Conn())
+
+	// Stage-4 — origin allowlist index built from migration 017's
+	// allowed_origins column. Hot-swap on every admin write (Deps
+	// wiring below) and on SIGHUP as a safety valve. Initial build
+	// happens here so the boot pre-flight has a populated map to
+	// inspect.
+	originIndex := sites.NewOriginIndex()
+	if _, oErr := originIndex.Rebuild(rootCtx, registry); oErr != nil {
+		// Migration 017 may not yet be applied on an older deployment
+		// mid-upgrade; degrade gracefully rather than blocking boot.
+		// The index then resolves nothing — every cross-origin request
+		// is refused, which is the safe default.
+		logger.Warn("origin index initial rebuild failed; cross-origin disabled until next reload", "err", oErr)
+	}
+
+	// Stage-4 plan §5 boot pre-flight — refuse to start if any
+	// operator has the SaaS host itself in their allowed_origins.
+	// Would defeat the per-site CORS isolation. Skipped when
+	// cfg.Server.PublicHost is unset (dev / self-hosted shape).
+	// Reads the in-memory map populated just above; no extra DB roundtrip.
+	if collidingID := originIndex.HasSelfHostInAnyAllowlist(cfg.Server.PublicHost); collidingID != 0 {
+		auditLog.Event(rootCtx, audit.EventDashboardError,
+			slog.String("reason", "sites.boot_preflight_failed"),
+			slog.Uint64("site_id", uint64(collidingID)),
+			slog.String("self_host", cfg.Server.PublicHost),
+		)
+
+		return fmt.Errorf("%w: site_id %d has %q in allowed_origins (remove via admin PATCH before restart)", errBootPreflightSelfHost, collidingID, cfg.Server.PublicHost)
+	}
 
 	// Stage 2 — opt-out suppression list. Opens its own WAL (separate
 	// from the ingest WAL per B3-A4 review) and replays it before
@@ -531,6 +566,7 @@ func run() error {
 		Audit:              auditLog,
 		Logger:             logger,
 		DefaultSiteID:      cfg.Auth.DefaultSiteID,
+		OriginIndex:        originIndex,
 	}
 
 	router.Group(func(r chi.Router) {
@@ -721,7 +757,7 @@ func run() error {
 	}
 
 	g.Go(func() error {
-		runSIGHUP(gctx, logger, auditLog, alertsSink, tlsLoader, channelMapper, goalSnapshot, geoIP, cfg.Enrich.GeoIPBinPath)
+		runSIGHUP(gctx, logger, auditLog, alertsSink, tlsLoader, channelMapper, goalSnapshot, geoIP, cfg.Enrich.GeoIPBinPath, originIndex, registry)
 
 		return nil
 	})
@@ -775,13 +811,14 @@ func newTLSLoader(cfg appConfig, auditLog *audit.Logger, logger *slog.Logger) (*
 
 // runSIGHUP fans SIGHUP out to every reload-aware subsystem: TLS cert
 // reload, audit-log file reopen, the channel mapper's sources reload,
-// the goals snapshot, and (Phase 8) the GeoIP BIN hot-swap. One signal
-// handler avoids per-package signal.Notify calls that race on the same
-// signal.
+// the goals snapshot, the GeoIP BIN hot-swap, and (Stage 4) the
+// allowed_origins index rebuild. One signal handler avoids per-package
+// signal.Notify calls that race on the same signal.
 //
-// Order is TLS → audit.Reopen → channels → goals → GeoIP. Each reload
-// is independent: a failure in one does NOT short-circuit the others
-// (cert-expiry refresh must never be blocked by a goals SQL hiccup).
+// Order is TLS → audit.Reopen → channels → goals → GeoIP → OriginIndex.
+// Each reload is independent: a failure in one does NOT short-circuit
+// the others (cert-expiry refresh must never be blocked by a goals SQL
+// hiccup or origin index rebuild).
 //
 //nolint:gocyclo // fan-out is linear; each branch is a one-reload check that can't usefully share code with the next
 func runSIGHUP(
@@ -789,6 +826,7 @@ func runSIGHUP(
 	alertsSink *alerts.Sink,
 	tlsLoader *cert.Loader, mapper *enrich.ChannelMapper, goalSnap *goals.Snapshot,
 	geoIP enrich.GeoIPEnricher, geoIPPath string,
+	originIndex *sites.OriginIndex, siteRegistry *sites.Registry,
 ) {
 	ch := make(chan os.Signal, 1)
 
@@ -849,6 +887,18 @@ func runSIGHUP(
 					auditLog.Event(ctx, audit.EventGeoIPReloaded,
 						slog.String("path", geoIPPath),
 					)
+				}
+			}
+
+			// Stage-4 origin index rebuild — admin writes already
+			// rebuild write-through, so this SIGHUP path is the
+			// safety valve for operators who manually edited the DB
+			// or restored from backup without a process restart.
+			if originIndex != nil && siteRegistry != nil {
+				if n, err := originIndex.Rebuild(ctx, siteRegistry); err != nil {
+					logger.Warn("origin index reload failed", "err", err)
+				} else {
+					logger.Info("origin index reloaded", "entries", n)
 				}
 			}
 		}
@@ -1012,6 +1062,16 @@ type appConfig struct {
 		Listen       string
 		ReadTimeout  time.Duration
 		WriteTimeout time.Duration
+		// PublicHost is the externally-resolvable host the binary
+		// serves under (e.g. "app.statnive.live" for the SaaS
+		// instance). When non-empty, the Stage-4 boot pre-flight
+		// refuses to start if any operator's allowed_origins list
+		// contains this host — preventing a confused-deputy attack
+		// where an operator allowlists the SaaS host itself and
+		// thereby grants any attacker page permission to read the
+		// CSRF response. Leave empty in dev / self-hosted to skip
+		// the check.
+		PublicHost string
 	}
 	ClickHouse struct {
 		Addr     string
@@ -1299,6 +1359,7 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.Server.Listen = v.GetString("server.listen")
 	cfg.Server.ReadTimeout = v.GetDuration("server.read_timeout")
 	cfg.Server.WriteTimeout = v.GetDuration("server.write_timeout")
+	cfg.Server.PublicHost = strings.TrimSpace(v.GetString("server.public_host"))
 
 	cfg.ClickHouse.Addr = v.GetString("clickhouse.addr")
 	cfg.ClickHouse.Database = v.GetString("clickhouse.database")

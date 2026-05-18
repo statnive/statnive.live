@@ -59,6 +59,12 @@ type Deps struct {
 	// match this value or login cannot find the user — per-site
 	// authorization lives in user_sites grants, not the users row.
 	DefaultSiteID uint32
+	// OriginIndex is the cross-origin CORS allowlist's in-memory map.
+	// Admin writes that mutate allowed_origins trigger a Rebuild so
+	// the CORS middleware sees the change without waiting for SIGHUP.
+	// Nil disables the rebuild trigger — used by handler tests that
+	// don't exercise the index path.
+	OriginIndex *sites.OriginIndex
 }
 
 // emitDashboardError emits a single audit record for a handler that
