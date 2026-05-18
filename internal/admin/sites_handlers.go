@@ -42,6 +42,7 @@ type siteAdminResponse struct {
 	Jurisdiction   string   `json:"jurisdiction,omitempty"`
 	ConsentMode    string   `json:"consent_mode,omitempty"`
 	EventAllowlist []string `json:"event_allowlist,omitempty"`
+	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 }
 
 func toSiteResponse(s sites.SiteAdmin) siteAdminResponse {
@@ -60,6 +61,7 @@ func toSiteResponse(s sites.SiteAdmin) siteAdminResponse {
 		Jurisdiction:   s.Jurisdiction,
 		ConsentMode:    s.ConsentMode,
 		EventAllowlist: s.EventAllowlist,
+		AllowedOrigins: s.AllowedOrigins,
 	}
 }
 
@@ -114,13 +116,43 @@ type createSiteRequest struct {
 	Jurisdiction   string   `json:"jurisdiction,omitempty"`
 	ConsentMode    string   `json:"consent_mode,omitempty"`
 	EventAllowlist []string `json:"event_allowlist,omitempty"`
+	AllowedOrigins []string `json:"allowed_origins,omitempty"`
+}
+
+// buildPolicyFromCreateRequest folds the policy-relevant fields of a
+// POST body into a sites.SitePolicy. Returns ok=false when no policy
+// field was supplied (Create skips the UpdateSitePolicy call entirely
+// — the new row sits at the migration-013/017 backfill defaults). When
+// ok=true the caller MUST Validate before UpdateSitePolicy.
+//
+// Mode-derivation rule: explicit ConsentMode wins; otherwise
+// DerivedConsentMode(Jurisdiction) supplies a sensible default for the
+// chosen jurisdiction. Empty jurisdiction + non-empty AllowedOrigins
+// is permitted — the operator wants cross-origin without choosing a
+// jurisdiction yet.
+func buildPolicyFromCreateRequest(req createSiteRequest) (sites.SitePolicy, bool) {
+	if req.Jurisdiction == "" && len(req.AllowedOrigins) == 0 {
+		return sites.SitePolicy{}, false
+	}
+
+	mode := req.ConsentMode
+	if mode == "" && req.Jurisdiction != "" {
+		mode = sites.DerivedConsentMode(req.Jurisdiction)
+	}
+
+	return sites.SitePolicy{
+		Jurisdiction:   req.Jurisdiction,
+		ConsentMode:    mode,
+		EventAllowlist: req.EventAllowlist,
+		AllowedOrigins: req.AllowedOrigins,
+	}, true
 }
 
 // Create handles POST /api/admin/sites. Returns 201 with the full site
 // projection on success, 409 on hostname-taken or slug-taken, 400 on
 // invalid hostname or unknown field.
 //
-//nolint:gocyclo,funlen // switch over 7 distinct store error types + Stage-3 jurisdiction pre-validate + post-CreateSite policy write; splitting them obscures the linear create flow
+//nolint:gocyclo // switch over 7 distinct store error types + Stage-3 jurisdiction pre-validate + post-CreateSite policy write; splitting them obscures the linear create flow
 func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	if actor == nil {
@@ -132,7 +164,7 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 	var req createSiteRequest
 	if err := httpjson.DecodeAllowed(r, &req, []string{
 		"hostname", "slug", "tz", "currency",
-		"jurisdiction", "consent_mode", "event_allowlist",
+		"jurisdiction", "consent_mode", "event_allowlist", "allowed_origins",
 	}); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 
@@ -145,19 +177,27 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 	// policy in a second UpdateSitePolicy call after creation. Doing
 	// the Validate here avoids a half-created site if the operator
 	// passed an invalid combination (e.g. DE+permissive).
-	if req.Jurisdiction != "" {
-		mode := req.ConsentMode
-		if mode == "" {
-			mode = sites.DerivedConsentMode(req.Jurisdiction)
-		}
-
-		probe := sites.SitePolicy{
-			Jurisdiction:   req.Jurisdiction,
-			ConsentMode:    mode,
-			EventAllowlist: req.EventAllowlist,
-		}
-		if err := probe.Validate(); err != nil {
+	policy, hasPolicy := buildPolicyFromCreateRequest(req)
+	if hasPolicy {
+		if err := policy.Validate(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+
+			return
+		}
+	}
+
+	// Cross-site origin uniqueness: refuse if any of the requested
+	// allowed_origins is already claimed by another site. Plan
+	// validation §4 — global uniqueness is the invariant that lets
+	// the CORS middleware safely echo Origin without ambiguity.
+	if len(req.AllowedOrigins) > 0 {
+		if collidingID, err := h.checkOriginCollision(r, 0, req.AllowedOrigins); err != nil {
+			h.deps.emitDashboardError(r, "create_site_origin_check", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+
+			return
+		} else if collidingID != 0 {
+			http.Error(w, "allowed_origins entry already registered to another site", http.StatusConflict)
 
 			return
 		}
@@ -204,24 +244,18 @@ func (h *Sites) Create(w http.ResponseWriter, r *http.Request) {
 	// backfill default (OTHER-NON-EU + permissive) for the time
 	// between insert and first PATCH. The Validate above already
 	// approved the combination so this UPDATE can't fail on
-	// invariants.
-	if req.Jurisdiction != "" {
-		mode := req.ConsentMode
-		if mode == "" {
-			mode = sites.DerivedConsentMode(req.Jurisdiction)
-		}
-
-		policy := sites.SitePolicy{
-			Jurisdiction:   req.Jurisdiction,
-			ConsentMode:    mode,
-			EventAllowlist: req.EventAllowlist,
-		}
+	// invariants. Stage-4 extends this to allowed_origins so a single
+	// POST can set the cross-origin allowlist atomically with the
+	// jurisdiction.
+	if hasPolicy {
 		if upErr := h.deps.Sites.UpdateSitePolicy(r.Context(), siteID, policy); upErr != nil {
 			h.deps.emitDashboardError(r, "create_site_policy", upErr)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 
 			return
 		}
+
+		h.rebuildOriginIndex(r, "create_site")
 	}
 
 	// Re-read via ListAdmin so the response carries server-computed fields
@@ -278,6 +312,7 @@ type updateSiteRequest struct {
 	Jurisdiction   *string   `json:"jurisdiction,omitempty"`
 	ConsentMode    *string   `json:"consent_mode,omitempty"`
 	EventAllowlist *[]string `json:"event_allowlist,omitempty"`
+	AllowedOrigins *[]string `json:"allowed_origins,omitempty"`
 }
 
 // Update handles PATCH /api/admin/sites/{id}. Payload may include any
@@ -303,7 +338,7 @@ func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 	var req updateSiteRequest
 	if err := httpjson.DecodeAllowed(r, &req, []string{
 		"enabled", "respect_dnt", "respect_gpc", "track_bots", "currency", "tz",
-		"jurisdiction", "consent_mode", "event_allowlist",
+		"jurisdiction", "consent_mode", "event_allowlist", "allowed_origins",
 	}); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 
@@ -364,7 +399,8 @@ func (h *Sites) Update(w http.ResponseWriter, r *http.Request) {
 //nolint:gocyclo // 6 pointer-field merges + Validate + UpdateSitePolicy; splitting them obscures the read-modify-write flow.
 func (h *Sites) applyPolicyPatch(r *http.Request, siteID uint32, req updateSiteRequest) (int, string) {
 	if req.RespectDNT == nil && req.RespectGPC == nil && req.TrackBots == nil &&
-		req.Jurisdiction == nil && req.ConsentMode == nil && req.EventAllowlist == nil {
+		req.Jurisdiction == nil && req.ConsentMode == nil && req.EventAllowlist == nil &&
+		req.AllowedOrigins == nil {
 		return 0, ""
 	}
 
@@ -404,11 +440,32 @@ func (h *Sites) applyPolicyPatch(r *http.Request, siteID uint32, req updateSiteR
 		policy.EventAllowlist = *req.EventAllowlist
 	}
 
+	if req.AllowedOrigins != nil {
+		policy.AllowedOrigins = *req.AllowedOrigins
+	}
+
 	if err := policy.Validate(); err != nil {
 		// Validate already prefixes "sites: " for log readability;
 		// surface the rejection text verbatim so the admin UI can
 		// render it.
 		return http.StatusBadRequest, err.Error()
+	}
+
+	// Cross-site origin uniqueness check — must happen AFTER Validate
+	// (which canonicalises the entries) and BEFORE UpdateSitePolicy
+	// (which writes them). Exclude this site_id so a no-op write that
+	// keeps the same origins doesn't self-collide.
+	if req.AllowedOrigins != nil {
+		collidingID, err := h.checkOriginCollision(r, siteID, *req.AllowedOrigins)
+		if err != nil {
+			h.deps.emitDashboardError(r, "update_site_origin_check", err)
+
+			return http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)
+		}
+
+		if collidingID != 0 {
+			return http.StatusConflict, "allowed_origins entry already registered to another site"
+		}
 	}
 
 	if err := h.deps.Sites.UpdateSitePolicy(r.Context(), siteID, policy); err != nil {
@@ -417,7 +474,76 @@ func (h *Sites) applyPolicyPatch(r *http.Request, siteID uint32, req updateSiteR
 		return http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)
 	}
 
+	if req.AllowedOrigins != nil {
+		h.rebuildOriginIndex(r, "update_site")
+	}
+
 	return 0, ""
+}
+
+// checkOriginCollision reports whether any of the proposed origins
+// (after NormalizeOrigin canonicalisation) is already claimed by
+// another site. Returns the colliding site_id, or 0 on no collision.
+// ignoreID lets the PATCH path skip its own row so a no-op write
+// (re-setting the same origins) doesn't self-collide.
+//
+// Per-admin-write cost: one ListAdmin + N×M canonicalisation. Low-
+// frequency surface (operator-driven), small N (≤ 1K SaaS tenants),
+// small M (≤ MaxAllowedOriginsPerSite=10). The post-write rebuild
+// does a second ListAdmin so the new row's origins land in the
+// OriginIndex; the two reads are sequential by necessity (pre-check
+// must see the world before the write; post-rebuild must see it
+// after).
+func (h *Sites) checkOriginCollision(r *http.Request, ignoreID uint32, proposed []string) (uint32, error) {
+	canon := make(map[string]struct{}, len(proposed))
+
+	for _, raw := range proposed {
+		c, err := sites.NormalizeOrigin(raw)
+		if err != nil {
+			return 0, err
+		}
+
+		canon[c] = struct{}{}
+	}
+
+	list, err := h.deps.Sites.ListAdmin(r.Context())
+	if err != nil {
+		return 0, err
+	}
+
+	for _, s := range list {
+		if s.ID == ignoreID {
+			continue
+		}
+
+		for _, raw := range s.AllowedOrigins {
+			c, err := sites.NormalizeOrigin(raw)
+			if err != nil {
+				continue
+			}
+
+			if _, hit := canon[c]; hit {
+				return s.ID, nil
+			}
+		}
+	}
+
+	return 0, nil
+}
+
+// rebuildOriginIndex triggers a write-through rebuild after a
+// successful admin write. Nil-safe (handler tests that don't wire
+// the index simply skip). Rebuild errors are audit-logged but do NOT
+// fail the admin request: the write succeeded, the index self-heals
+// on the next SIGHUP.
+func (h *Sites) rebuildOriginIndex(r *http.Request, reason string) {
+	if h.deps.OriginIndex == nil {
+		return
+	}
+
+	if _, err := h.deps.OriginIndex.Rebuild(r.Context(), h.deps.Sites); err != nil {
+		h.deps.emitDashboardError(r, reason+"_origin_rebuild", err)
+	}
 }
 
 // applyAttributesPatch read-modify-writes the per-site display

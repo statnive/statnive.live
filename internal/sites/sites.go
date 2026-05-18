@@ -13,10 +13,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"golang.org/x/net/idna"
 )
 
 // ErrUnknownHostname is returned when no row in statnive.sites matches the
@@ -46,6 +48,21 @@ var ErrInvalidTimezone = errors.New("sites: invalid timezone")
 // verbatim. TDDDG § 25 forbids unconditional client storage on a
 // DE-targeted site, so permissive is hard-rejected at write time.
 var errDEPermissiveForbidden = errors.New("sites: jurisdiction=DE requires consent_mode in {consent-free, hybrid, consent-required}, got permissive")
+
+// ErrInvalidOrigin is returned when an allowed_origins entry fails the
+// RFC 6454 origin-tuple validation (scheme/host/port only, no path).
+// Maps to HTTP 400 from the admin handler.
+var ErrInvalidOrigin = errors.New("sites: invalid origin")
+
+// ErrOriginCollision is returned when admin write would register an
+// origin that another site already claims. Maps to HTTP 409 so the
+// admin UI can surface "origin already in use by site X".
+var ErrOriginCollision = errors.New("sites: origin already registered to another site")
+
+// MaxAllowedOriginsPerSite caps the per-site CORS allowlist. 10 origins
+// covers the common operator shape (apex + www + a couple of locale
+// subdomains + staging) without blowing up the in-memory OriginIndex.
+const MaxAllowedOriginsPerSite = 10
 
 // Site is the JSON-serialized row the dashboard's site-switcher consumes.
 // TZ is an IANA zone name — the dashboard's date picker renders midnight
@@ -79,6 +96,13 @@ type SitePolicy struct {
 	Jurisdiction   string   `json:"jurisdiction"`
 	ConsentMode    string   `json:"consent_mode"`
 	EventAllowlist []string `json:"event_allowlist"`
+
+	// AllowedOrigins is the per-site CORS allowlist (migration 017).
+	// Each entry is an RFC 6454 origin tuple: scheme + host + optional
+	// port, no path / query / fragment. Empty list means same-origin
+	// only — the current pre-Stage-4 behaviour, preserved for the 3
+	// live operators after the backfill.
+	AllowedOrigins []string `json:"allowed_origins"`
 }
 
 // Jurisdiction enum values. Kept as string constants (not a typed
@@ -136,14 +160,27 @@ var euJurisdictions = map[string]struct{}{
 // Validate enforces the cross-field invariants the admin handler and
 // the migration backfill MUST hold. Reasoning is encoded in the
 // returned error so the admin UI can surface it verbatim.
+//
+// Order: AllowedOrigins first (independent of jurisdiction — a Stage-3
+// migrated row with empty Jurisdiction can still receive a Stage-4
+// AllowedOrigins PATCH), then short-circuit on empty Jurisdiction
+// (migrated default), then the jurisdiction × consent_mode matrix.
 func (p SitePolicy) Validate() error {
+	if err := validateAllowedOrigins(p.AllowedOrigins); err != nil {
+		return err
+	}
+
 	if p.Jurisdiction == "" {
-		// Empty is treated as the backfill default. Other layers
-		// (CreateSite, the admin PATCH decoder) refuse empty
-		// upfront; Validate just leaves it alone for migrated rows.
 		return nil
 	}
 
+	return validateJurisdictionAndConsentMode(p)
+}
+
+// validateJurisdictionAndConsentMode owns the Stage-3 invariants.
+// Split out from Validate to keep cyclomatic complexity below the
+// linter ceiling without losing per-invariant error messages.
+func validateJurisdictionAndConsentMode(p SitePolicy) error {
 	if _, ok := validJurisdictions[p.Jurisdiction]; !ok {
 		return fmt.Errorf("sites: invalid jurisdiction %q", p.Jurisdiction)
 	}
@@ -162,10 +199,6 @@ func (p SitePolicy) Validate() error {
 		return errDEPermissiveForbidden
 	}
 
-	// Hybrid only makes sense in jurisdictions where consent has a
-	// legal effect (the EU GDPR set). Outside the set, the
-	// pre-consent vs post-consent split is theatre without a legal
-	// hook to anchor it.
 	if p.ConsentMode == ConsentModeHybrid {
 		if _, ok := euJurisdictions[p.Jurisdiction]; !ok {
 			return fmt.Errorf("sites: consent_mode=hybrid only valid in EU jurisdictions, got %s", p.Jurisdiction)
@@ -176,12 +209,95 @@ func (p SitePolicy) Validate() error {
 		}
 	}
 
-	// consent-free also lives under the CNIL 3-event cap.
 	if p.ConsentMode == ConsentModeConsentFree && len(p.EventAllowlist) > 3 {
 		return fmt.Errorf("sites: consent_mode=consent-free caps event_allowlist at 3 entries (CNIL), got %d", len(p.EventAllowlist))
 	}
 
 	return nil
+}
+
+// validateAllowedOrigins runs the per-entry RFC 6454 origin-tuple check
+// and caps the list at MaxAllowedOriginsPerSite. Uses url.Parse +
+// idna.Lookup.ToASCII rather than a regex so IPv6 literals
+// (https://[::1]:8443) and IDN edge cases (https://тelevika.com vs
+// https://televika.com) are handled the same way a browser would.
+// Validation per the Stage-4 plan validation §7.
+func validateAllowedOrigins(origins []string) error {
+	if len(origins) > MaxAllowedOriginsPerSite {
+		return fmt.Errorf("sites: allowed_origins capped at %d entries, got %d", MaxAllowedOriginsPerSite, len(origins))
+	}
+
+	for _, raw := range origins {
+		if _, err := NormalizeOrigin(raw); err != nil {
+			return fmt.Errorf("sites: allowed_origins entry %q: %w", raw, err)
+		}
+	}
+
+	return nil
+}
+
+// NormalizeOrigin parses an operator-supplied origin string and returns
+// its canonical form (lowercased ASCII, punycode-normalised, no
+// trailing slash) or ErrInvalidOrigin. Exported so the admin handler
+// can deduplicate the canonical form before the uniqueness check, and
+// so OriginIndex stores the same shape the CORS middleware compares
+// against an incoming Origin header.
+//
+// Rules (Stage-4 plan key decision §5):
+//   - scheme must be "https"
+//   - host non-empty, no userinfo
+//   - path / query / fragment empty
+//   - punycode-normalised via idna.Lookup.ToASCII (strict profile)
+//   - port preserved if explicitly set (e.g. https://staging:8443)
+//
+// "null" is rejected here too — the CORS middleware also rejects it
+// at request time, but rejecting at write time means an admin can
+// never accidentally store the literal "null" via a copy-paste from a
+// browser DevTools console.
+func NormalizeOrigin(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "null" {
+		return "", ErrInvalidOrigin
+	}
+
+	u, err := url.Parse(s)
+	if err != nil {
+		return "", ErrInvalidOrigin
+	}
+
+	if u.Scheme != "https" {
+		return "", ErrInvalidOrigin
+	}
+
+	if u.User != nil {
+		return "", ErrInvalidOrigin
+	}
+
+	if u.Path != "" && u.Path != "/" {
+		return "", ErrInvalidOrigin
+	}
+
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", ErrInvalidOrigin
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		return "", ErrInvalidOrigin
+	}
+
+	asciiHost, err := idna.Lookup.ToASCII(host)
+	if err != nil {
+		return "", ErrInvalidOrigin
+	}
+
+	asciiHost = strings.ToLower(asciiHost)
+
+	if port := u.Port(); port != "" {
+		return "https://" + asciiHost + ":" + port, nil
+	}
+
+	return "https://" + asciiHost, nil
 }
 
 // DerivedConsentMode returns the recommended consent_mode for a fresh
@@ -271,18 +387,19 @@ func (r *Registry) lookupExactPolicy(ctx context.Context, host string) (uint32, 
 		respectDNT, respectGPC, trackBots uint8
 		jurisdiction, consentMode         string
 		eventAllowlistJSON                string
+		allowedOriginsJSON                string
 	)
 
 	row := r.conn.QueryRow(ctx,
 		`SELECT site_id, respect_dnt, respect_gpc, track_bots,
-		        jurisdiction, consent_mode, event_allowlist
+		        jurisdiction, consent_mode, event_allowlist, allowed_origins
 		 FROM statnive.sites
 		 WHERE hostname = ? AND enabled = 1 LIMIT 1`,
 		host,
 	)
 
 	if err := row.Scan(&siteID, &respectDNT, &respectGPC, &trackBots,
-		&jurisdiction, &consentMode, &eventAllowlistJSON); err != nil {
+		&jurisdiction, &consentMode, &eventAllowlistJSON, &allowedOriginsJSON); err != nil {
 		// ClickHouse driver returns a generic error on no-rows; treat any
 		// scan failure as ErrUnknownHostname. The handler then 204s the
 		// event silently. Real connection failures bubble through ping/health.
@@ -300,14 +417,16 @@ func (r *Registry) lookupExactPolicy(ctx context.Context, host string) (uint32, 
 		Jurisdiction:   jurisdiction,
 		ConsentMode:    consentMode,
 		EventAllowlist: parseEventAllowlist(eventAllowlistJSON),
+		AllowedOrigins: parseAllowedOrigins(allowedOriginsJSON),
 	}, nil
 }
 
-// parseEventAllowlist decodes the JSON-encoded list stored in
-// statnive.sites.event_allowlist. Malformed JSON or empty input
-// returns a nil slice (no enforcement) — Privacy Rule 9 style:
-// failures default toward more-permissive ingest, not silent drop.
-func parseEventAllowlist(s string) []string {
+// parseJSONStringSlice decodes a JSON-encoded []string stored in a
+// LowCardinality(String) column. Malformed JSON or empty input → nil
+// slice. Shared by event_allowlist and allowed_origins; failures
+// default toward more-permissive ingest (Privacy Rule 9 style — never
+// silent drop on a malformed config row).
+func parseJSONStringSlice(s string) []string {
 	s = strings.TrimSpace(s)
 	if s == "" || s == "[]" {
 		return nil
@@ -320,6 +439,9 @@ func parseEventAllowlist(s string) []string {
 
 	return out
 }
+
+func parseEventAllowlist(s string) []string { return parseJSONStringSlice(s) }
+func parseAllowedOrigins(s string) []string { return parseJSONStringSlice(s) }
 
 // NormalizeHostname coerces a tracker-supplied hostname into the registry
 // shape (lowercase, no scheme, no path/port). Tracker payloads occasionally
@@ -594,6 +716,31 @@ func (r *Registry) UpdateSitePolicy(ctx context.Context, siteID uint32, policy S
 		args = append(args, string(buf))
 	}
 
+	if policy.AllowedOrigins != nil {
+		// Normalize before write so the stored shape matches what
+		// OriginIndex compares against (lowercased ASCII, no trailing
+		// slash). Validate is the caller's contract — admin handler
+		// runs it before reaching here, so any error here is an
+		// internal bug, not operator input.
+		normalized := make([]string, 0, len(policy.AllowedOrigins))
+		for _, raw := range policy.AllowedOrigins {
+			canon, err := NormalizeOrigin(raw)
+			if err != nil {
+				return fmt.Errorf("sites: allowed_origins normalize: %w", err)
+			}
+
+			normalized = append(normalized, canon)
+		}
+
+		buf, err := json.Marshal(normalized)
+		if err != nil {
+			return fmt.Errorf("sites marshal allowed_origins: %w", err)
+		}
+
+		sets = append(sets, "allowed_origins = ?")
+		args = append(args, string(buf))
+	}
+
 	args = append(args, siteID)
 
 	stmt := fmt.Sprintf(
@@ -668,13 +815,14 @@ func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin
 		enabled, respectDNT, respectGPC, trackBots uint8
 		jurisdiction, consentMode                  string
 		eventAllowlistJSON                         string
+		allowedOriginsJSON                         string
 	)
 
 	row := r.conn.QueryRow(ctx,
 		`SELECT site_id, hostname, slug, plan, enabled, tz, currency,
 		        toInt64(toUnixTimestamp(created_at)),
 		        respect_dnt, respect_gpc, track_bots,
-		        jurisdiction, consent_mode, event_allowlist
+		        jurisdiction, consent_mode, event_allowlist, allowed_origins
 		 FROM statnive.sites WHERE site_id = ? LIMIT 1`,
 		siteID,
 	)
@@ -682,7 +830,7 @@ func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin
 	if err := row.Scan(
 		&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.Currency, &sa.CreatedAt,
 		&respectDNT, &respectGPC, &trackBots,
-		&jurisdiction, &consentMode, &eventAllowlistJSON,
+		&jurisdiction, &consentMode, &eventAllowlistJSON, &allowedOriginsJSON,
 	); err != nil {
 		return SiteAdmin{}, ErrUnknownHostname
 	}
@@ -698,6 +846,7 @@ func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin
 	sa.Jurisdiction = jurisdiction
 	sa.ConsentMode = consentMode
 	sa.EventAllowlist = parseEventAllowlist(eventAllowlistJSON)
+	sa.AllowedOrigins = parseAllowedOrigins(allowedOriginsJSON)
 
 	return sa, nil
 }
@@ -713,7 +862,7 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 		`SELECT site_id, hostname, slug, plan, enabled, tz, currency,
 		        toInt64(toUnixTimestamp(created_at)),
 		        respect_dnt, respect_gpc, track_bots,
-		        jurisdiction, consent_mode, event_allowlist
+		        jurisdiction, consent_mode, event_allowlist, allowed_origins
 		 FROM statnive.sites ORDER BY site_id ASC`,
 	)
 	if err != nil {
@@ -730,12 +879,13 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 			enabled, respectDNT, respectGPC, trackBots uint8
 			jurisdiction, consentMode                  string
 			eventAllowlistJSON                         string
+			allowedOriginsJSON                         string
 		)
 
 		if scanErr := rows.Scan(
 			&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.Currency, &sa.CreatedAt,
 			&respectDNT, &respectGPC, &trackBots,
-			&jurisdiction, &consentMode, &eventAllowlistJSON,
+			&jurisdiction, &consentMode, &eventAllowlistJSON, &allowedOriginsJSON,
 		); scanErr != nil {
 			return nil, fmt.Errorf("sites scan admin: %w", scanErr)
 		}
@@ -747,6 +897,7 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 		sa.Jurisdiction = jurisdiction
 		sa.ConsentMode = consentMode
 		sa.EventAllowlist = parseEventAllowlist(eventAllowlistJSON)
+		sa.AllowedOrigins = parseAllowedOrigins(allowedOriginsJSON)
 
 		out = append(out, sa)
 	}
