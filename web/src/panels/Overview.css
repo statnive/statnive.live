@@ -95,6 +95,23 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+/* Always-on identity marker that links the card to its chart-series
+   color. Same ring style as the tooltip dot so the card / chart /
+   tooltip read as one visual system (DESIGN.md — colour is never the
+   only carrier; pair with the label text). */
+#statnive-app .statnive-card-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  border: 2px solid var(--card-active-color, var(--rule-soft));
+  background: var(--paper-2);
+  flex-shrink: 0;
 }
 
 #statnive-app .statnive-num-primary {

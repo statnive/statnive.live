@@ -42,20 +42,24 @@
   /* Admin accent — amber underline when Admin tab is active. */
   --amber:     #C47A0E;
 
-  /* Chart series — navy + teal lead the brand; the other four hues
-     round out a calm warm/cool axis without echoing channel-chip or
-     Admin amber. The metric-named tokens below alias these so a palette
-     tweak ripples to both the Overview chart and the comparative bars
-     on Campaigns / Pages / Sources. */
+  /* Chart series.
+     - visitors + revenue are brand-locked at their existing hex values.
+     - The remaining four metric-named tokens are tuned to OKLCH
+       L≈0.55-0.62 / C 0.13-0.18 so every line carries similar visual
+       weight on the multi-metric Overview chart and every pair stays
+       distinguishable (no two adjacent hues, no two in the same family).
+     - Legacy ochre/plum/rust tokens are retained at their original hex
+       so Sources / Pages / Campaigns dual-bar charts don't visually
+       drift — they read from these names, not the metric-named ones. */
   --chart-visitors:  #0A2540;
   --chart-revenue:   #00A693;
-  --chart-ochre:     #B87B1A;
-  --chart-plum:      #5F3B6E;
-  --chart-rust:      #A84628;
-  --chart-pageviews:  #2E5C8F;   /* storm blue — navy's lighter sibling */
-  --chart-conversion: var(--chart-plum);
-  --chart-rpv:        var(--chart-ochre);
-  --chart-goals:      var(--chart-rust);
+  --chart-ochre:     #B87B1A;   /* legacy, dual-bar use */
+  --chart-plum:      #5F3B6E;   /* legacy, dual-bar use */
+  --chart-rust:      #A84628;   /* legacy, dual-bar use */
+  --chart-pageviews:  oklch(0.58 0.13 235);   /* bright sky blue */
+  --chart-conversion: oklch(0.48 0.16 320);   /* punchy plum-magenta */
+  --chart-rpv:        oklch(0.62 0.13 75);    /* warm gold */
+  --chart-goals:      oklch(0.55 0.18 25);    /* saturated rust-coral */
   /* Wash beneath the visitors line, single-active state only. ~13%
      alpha over the brand teal. Token keeps the alpha out of TSX
      ("no hand-rolled hex in components"). */

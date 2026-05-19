@@ -59,11 +59,17 @@ function KpiCard({ id, label, value, tier, deltaPct, selected }: KpiCardProps) {
     >
       {tier === 'primary' ? (
         <div class="statnive-card-head">
-          <div class="statnive-label">{label}</div>
+          <div class="statnive-label">
+            <span class="statnive-card-dot" aria-hidden="true" />
+            {label}
+          </div>
           <DeltaPill deltaPct={deltaPct} />
         </div>
       ) : (
-        <div class="statnive-label">{label}</div>
+        <div class="statnive-label">
+          <span class="statnive-card-dot" aria-hidden="true" />
+          {label}
+        </div>
       )}
       <div class={numClass}>{value}</div>
     </button>

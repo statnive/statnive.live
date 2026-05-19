@@ -42,12 +42,13 @@ const EXPECTED: Expected[] = [
   { name: '--chart-ochre', value: '#B87B1A' },
   { name: '--chart-plum', value: '#5F3B6E' },
   { name: '--chart-rust', value: '#A84628' },
-  // Metric-named tokens — three alias to the existing palette so a
-  // palette tweak ripples to both the Overview chart and the bars.
-  { name: '--chart-pageviews', value: '#2E5C8F' },
-  { name: '--chart-conversion', value: 'var(--chart-plum)' },
-  { name: '--chart-rpv', value: 'var(--chart-ochre)' },
-  { name: '--chart-goals', value: 'var(--chart-rust)' },
+  // Metric-named tokens for the Overview multi-metric chart. Tuned to
+  // OKLCH at uniform L 0.55-0.62 + C 0.13-0.18 so all six chart series
+  // carry similar visual weight and every pair is distinguishable.
+  { name: '--chart-pageviews', value: 'oklch(0.58 0.13 235)' },
+  { name: '--chart-conversion', value: 'oklch(0.48 0.16 320)' },
+  { name: '--chart-rpv', value: 'oklch(0.62 0.13 75)' },
+  { name: '--chart-goals', value: 'oklch(0.55 0.18 25)' },
   { name: '--ch-direct', value: '#00A693' },
   { name: '--ch-search', value: '#1A73E8' },
   { name: '--ch-social', value: '#1A1A1A' },
