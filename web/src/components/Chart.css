@@ -1,40 +1,23 @@
 /*
- * uPlot legend overrides — opaque value-at-cursor strip (DESIGN.md
- * no-glassmorphism rule). Scoped under #statnive-app so overrides never
- * leak. Layered on top of uplot/dist/uPlot.min.css.
+ * uPlot cursor + axis overrides — light paper, no glassmorphism. Scoped
+ * under #statnive-app so they never leak to other surfaces. Layered on
+ * top of uplot/dist/uPlot.min.css. The Overview multi-metric tooltip is
+ * a sibling Preact component (ChartTooltip), not the uPlot built-in
+ * legend; the .u-legend rules below hide that built-in when present.
  */
 
 #statnive-app .u-legend {
-  background: var(--paper-2);
-  border-top: 1px solid var(--rule-soft);
-  padding: var(--s-2) var(--s-3);
-  font-family: var(--sans);
-  font-size: var(--text-meta);
-  color: var(--ink-2);
+  display: none;
 }
 
-#statnive-app .u-legend .u-series th {
-  font-family: var(--mono);
-  font-size: var(--text-label-sm);
-  font-weight: 500;
-  color: var(--ink-2);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+/* Vertical guide line at the cursor x — hairline in rule-soft, matches
+   the "tonal shift only" hover rule from DESIGN.md. */
+#statnive-app .u-cursor-x {
+  border-right: 1px solid var(--rule-soft) !important;
 }
 
-#statnive-app .u-legend .u-series td {
-  font-family: var(--mono);
-  font-size: var(--text-body);
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Replace uPlot's default colored swatch with a calmer 8px circle in
-   the series stroke color. uPlot paints background-color from the
-   series stroke onto .u-marker — we keep that signal but reshape it. */
-#statnive-app .u-legend .u-marker {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  border: none;
+/* Hide the uPlot horizontal cursor line — the multi-metric chart only
+   uses the vertical guide. */
+#statnive-app .u-cursor-y {
+  display: none;
 }

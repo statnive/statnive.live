@@ -3,7 +3,7 @@ import { useSignal } from '@preact/signals';
 import { apiGet } from '../api/client';
 import type { DailyPoint } from '../api/types';
 import { rangeSignal } from '../state/range';
-import { siteSignal } from '../state/site';
+import { siteSignal, activeSiteSignal } from '../state/site';
 import { filtersSignal, selectedMetrics } from '../state/filters';
 import { LazyChart } from '../components/LazyChart';
 import { buildMetricSpecs, toMetricSeries, metricsLineChartOptions } from '../lib/chart';
@@ -57,8 +57,9 @@ export function TrendChart() {
   ]);
 
   const metrics = selectedMetrics(filters);
+  const currency = activeSiteSignal.value?.currency ?? 'EUR';
   const tokens = useMemo(() => readBrandTokens(), []);
-  const specs = useMemo(() => buildMetricSpecs(tokens), [tokens]);
+  const specs = useMemo(() => buildMetricSpecs(tokens, currency), [tokens, currency]);
   const chartData = useMemo(
     () => (data.value ? toMetricSeries(data.value, metrics, specs) : null),
     [data.value, filters.metrics, specs],
@@ -73,7 +74,12 @@ export function TrendChart() {
 
   return (
     <div data-testid="overview-trend" style={{ marginTop: 'var(--s-3)' }}>
-      <LazyChart data={chartData} options={chartOptions} height={180} />
+      <LazyChart
+        data={chartData}
+        options={chartOptions}
+        height={180}
+        tooltip={{ data: data.value, metrics, specs }}
+      />
     </div>
   );
 }

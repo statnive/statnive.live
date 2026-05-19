@@ -2,6 +2,7 @@ import type { Options, AlignedData } from 'uplot';
 import { readBrandTokens, type BrandTokens } from '../state/tokens';
 import type { DailyPoint } from '../api/types';
 import type { MetricId } from '../state/filters';
+import { fmtInt, fmtPct, fmtMoney, fmtRpv } from './fmt';
 
 // toVisitorSeries converts any row type with a `day` ISO string and a
 // `visitors` count into uPlot's AlignedData shape ([xs, ys]) with x in
@@ -56,22 +57,23 @@ export function visitorLineChartOptions(): Omit<Options, 'width' | 'height'> {
   };
 }
 
-interface MetricSpec {
+export interface MetricSpec {
   label: string;
   stroke: string;
   value: (d: DailyPoint) => number;
+  format: (n: number) => string;
 }
 
-type MetricSpecs = Record<MetricId, MetricSpec>;
+export type MetricSpecs = Record<MetricId, MetricSpec>;
 
-export function buildMetricSpecs(tokens: BrandTokens): MetricSpecs {
+export function buildMetricSpecs(tokens: BrandTokens, currency: string): MetricSpecs {
   return {
-    visitors:   { label: 'Visitors',   stroke: tokens.chartVisitors,   value: (d) => d.visitors },
-    pageviews:  { label: 'Pageviews',  stroke: tokens.chartPageviews,  value: (d) => d.pageviews },
-    conversion: { label: 'Conversion', stroke: tokens.chartConversion, value: (d) => (d.visitors > 0 ? (d.goals / d.visitors) * 100 : 0) },
-    revenue:    { label: 'Revenue',    stroke: tokens.chartRevenue,    value: (d) => d.revenue },
-    rpv:        { label: 'RPV',        stroke: tokens.chartRpv,        value: (d) => (d.visitors > 0 ? d.revenue / d.visitors : 0) },
-    goals:      { label: 'Goals',      stroke: tokens.chartGoals,      value: (d) => d.goals },
+    visitors:   { label: 'Visitors',   stroke: tokens.chartVisitors,   value: (d) => d.visitors,                                                          format: fmtInt },
+    pageviews:  { label: 'Pageviews',  stroke: tokens.chartPageviews,  value: (d) => d.pageviews,                                                         format: fmtInt },
+    conversion: { label: 'Conversion', stroke: tokens.chartConversion, value: (d) => (d.visitors > 0 ? (d.goals / d.visitors) * 100 : 0),                  format: fmtPct },
+    revenue:    { label: 'Revenue',    stroke: tokens.chartRevenue,    value: (d) => d.revenue,                                                           format: (n) => fmtMoney(n, currency) },
+    rpv:        { label: 'RPV',        stroke: tokens.chartRpv,        value: (d) => (d.visitors > 0 ? d.revenue / d.visitors : 0),                       format: (n) => fmtRpv(n, currency) },
+    goals:      { label: 'Goals',      stroke: tokens.chartGoals,      value: (d) => d.goals,                                                             format: fmtInt },
   };
 }
 
@@ -89,22 +91,24 @@ export function toMetricSeries(
 }
 
 // metricsLineChartOptions builds uPlot options for the multi-series
-// trend chart. Per-metric Y-scales handle the magnitude gap (visitors
-// in thousands vs conversion as a percent). Numeric Y-axis ticks
-// stay hidden — KPI cards above carry range totals, legend below
-// carries per-day values on hover. The visitors fill wash is
-// single-active only to keep the Persian Teal budget under DESIGN.md's
-// ≤10% rule when revenue (also teal) is on.
+// trend chart. Each metric gets its own auto-scale so a 3,479-visitors
+// line and a 1.15% conversion line are both visible on their own y-band.
+// Y-axis ticks stay hidden — the ChartTooltip rendered alongside reads
+// per-day values on hover and formats each via spec.format.
+//
+// Per-series cursor points (size 6 ring in the series stroke) appear at
+// the cursor's x so the user can still see exactly where each metric is
+// in the rare cases that two lines happen to overlap visually.
 export function metricsLineChartOptions(
   metrics: readonly MetricId[],
   specs: MetricSpecs,
   tokens: BrandTokens,
 ): Omit<Options, 'width' | 'height'> {
   const isSingleVisitors = metrics.length === 1 && metrics[0] === 'visitors';
-  const scales: Record<string, { auto: true }> = {};
-  for (const m of metrics) scales[m] = { auto: true };
+  const scales: Options['scales'] = { x: { time: true } };
+  for (const m of metrics) scales![m] = { auto: true };
   return {
-    scales: { x: { time: true }, ...scales },
+    scales,
     series: [
       {},
       ...metrics.map((m) => ({
@@ -113,7 +117,13 @@ export function metricsLineChartOptions(
         width: 2,
         fill: isSingleVisitors ? tokens.chartVisitorsFillWash : undefined,
         scale: m,
-        points: { show: false },
+        points: {
+          show: true,
+          size: 6,
+          stroke: specs[m].stroke,
+          fill: tokens.paper2,
+          width: 2,
+        },
       })),
     ],
     axes: [
@@ -126,6 +136,6 @@ export function metricsLineChartOptions(
       { show: false, scale: metrics[0] },
     ],
     cursor: { drag: { x: true, y: false } },
-    legend: { show: true, live: true },
+    legend: { show: false },
   };
 }
