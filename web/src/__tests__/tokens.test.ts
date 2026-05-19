@@ -42,6 +42,12 @@ const EXPECTED: Expected[] = [
   { name: '--chart-ochre', value: '#B87B1A' },
   { name: '--chart-plum', value: '#5F3B6E' },
   { name: '--chart-rust', value: '#A84628' },
+  // Metric-named tokens — three alias to the existing palette so a
+  // palette tweak ripples to both the Overview chart and the bars.
+  { name: '--chart-pageviews', value: '#2E5C8F' },
+  { name: '--chart-conversion', value: 'var(--chart-plum)' },
+  { name: '--chart-rpv', value: 'var(--chart-ochre)' },
+  { name: '--chart-goals', value: 'var(--chart-rust)' },
   { name: '--ch-direct', value: '#00A693' },
   { name: '--ch-search', value: '#1A73E8' },
   { name: '--ch-social', value: '#1A1A1A' },
@@ -51,10 +57,16 @@ const EXPECTED: Expected[] = [
   { name: '--ch-paid', value: '#8A5508' },
 ];
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 describe('brand tokens (docs/brand.md — statnive-live operator console)', () => {
   for (const { name, value } of EXPECTED) {
     it(`${name} = ${value}`, () => {
-      const re = new RegExp(`${name}:\\s*${value}\\b`, 'i');
+      // value may contain regex metacharacters (e.g. var(--chart-plum)
+      // for the alias tokens), so escape before matching.
+      const re = new RegExp(`${escapeRegex(name)}:\\s*${escapeRegex(value)}`, 'i');
       expect(tokens).toMatch(re);
     });
   }

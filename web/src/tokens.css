@@ -42,13 +42,24 @@
   /* Admin accent — amber underline when Admin tab is active. */
   --amber:     #C47A0E;
 
-  /* Chart series — visitors (navy) + revenue (green) lead, remaining
-     3 cover Campaigns / Pages / Sources comparative rows. */
-  --chart-visitors: #0A2540;
-  --chart-revenue:  #00A693;
-  --chart-ochre:    #B87B1A;
-  --chart-plum:     #5F3B6E;
-  --chart-rust:     #A84628;
+  /* Chart series — navy + teal lead the brand; the other four hues
+     round out a calm warm/cool axis without echoing channel-chip or
+     Admin amber. The metric-named tokens below alias these so a palette
+     tweak ripples to both the Overview chart and the comparative bars
+     on Campaigns / Pages / Sources. */
+  --chart-visitors:  #0A2540;
+  --chart-revenue:   #00A693;
+  --chart-ochre:     #B87B1A;
+  --chart-plum:      #5F3B6E;
+  --chart-rust:      #A84628;
+  --chart-pageviews:  #2E5C8F;   /* storm blue — navy's lighter sibling */
+  --chart-conversion: var(--chart-plum);
+  --chart-rpv:        var(--chart-ochre);
+  --chart-goals:      var(--chart-rust);
+  /* Wash beneath the visitors line, single-active state only. ~13%
+     alpha over the brand teal. Token keeps the alpha out of TSX
+     ("no hand-rolled hex in components"). */
+  --chart-visitors-fill-wash: rgba(0, 166, 147, 0.13);
 
   /* Channel palette — chips + source-table chip colors. Mirrors the
      17-step channel mapper in internal/enrich/channel.go. */

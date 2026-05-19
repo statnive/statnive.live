@@ -1,0 +1,40 @@
+/*
+ * uPlot legend overrides — opaque value-at-cursor strip (DESIGN.md
+ * no-glassmorphism rule). Scoped under #statnive-app so overrides never
+ * leak. Layered on top of uplot/dist/uPlot.min.css.
+ */
+
+#statnive-app .u-legend {
+  background: var(--paper-2);
+  border-top: 1px solid var(--rule-soft);
+  padding: var(--s-2) var(--s-3);
+  font-family: var(--sans);
+  font-size: var(--text-meta);
+  color: var(--ink-2);
+}
+
+#statnive-app .u-legend .u-series th {
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+#statnive-app .u-legend .u-series td {
+  font-family: var(--mono);
+  font-size: var(--text-body);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Replace uPlot's default colored swatch with a calmer 8px circle in
+   the series stroke color. uPlot paints background-color from the
+   series stroke onto .u-marker — we keep that signal but reshape it. */
+#statnive-app .u-legend .u-marker {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: none;
+}

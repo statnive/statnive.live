@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import uPlot from 'uplot';
 import type { Options, AlignedData } from 'uplot';
 import 'uplot/dist/uPlot.min.css';
+import './Chart.css';
 
 // Chart is a thin Preact wrapper around uPlot (~7 KB gz, MIT). Mounts
 // into a div ref on first render, disposes on unmount, and reinstantiates

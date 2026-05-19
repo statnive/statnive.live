@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/preact';
+import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/preact';
 import { Overview } from '../panels/Overview';
+import { filtersSignal, selectedMetrics } from '../state/filters';
+import { replaceHashParams } from '../state/hash';
 
 describe('Overview panel', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -9,6 +11,11 @@ describe('Overview panel', () => {
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
+    // Reset URL hash. replaceHashParams writes the hash and updates
+    // hashSignal in the same call; the hash-to-filters effect picks
+    // that up and resets filtersSignal to EMPTY_FILTERS automatically.
+    // Setting filtersSignal directly here would race with that effect.
+    replaceHashParams(new URLSearchParams());
   });
 
   afterEach(() => {
@@ -128,5 +135,79 @@ describe('Overview panel', () => {
     await waitFor(() => {
       expect(screen.queryByText(/could not load/)).toBeTruthy();
     });
+  });
+
+  it('renders KPI cards as toggle buttons with aria-pressed reflecting selection', async () => {
+    mockResponse({ pageviews: 100, visitors: 50, goals: 5, revenue: 100, rpv: 2 });
+
+    render(<Overview />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('kpi-primary')).toBeTruthy();
+    });
+
+    const visitorsCard = document.querySelector('[data-kpi="visitors"]') as HTMLButtonElement | null;
+    const revenueCard = document.querySelector('[data-kpi="revenue"]') as HTMLButtonElement | null;
+
+    expect(visitorsCard?.tagName).toBe('BUTTON');
+    expect(visitorsCard?.getAttribute('type')).toBe('button');
+    expect(visitorsCard?.getAttribute('aria-pressed')).toBe('true');
+    expect(revenueCard?.getAttribute('aria-pressed')).toBe('false');
+    expect(visitorsCard?.getAttribute('aria-label')).toBe('Toggle Visitors on chart');
+  });
+
+  it('toggles a metric in/out of selection and updates the URL hash', async () => {
+    mockResponse({ pageviews: 100, visitors: 50, goals: 5, revenue: 100, rpv: 2 });
+
+    render(<Overview />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('kpi-primary')).toBeTruthy();
+    });
+
+    const revenueCard = document.querySelector('[data-kpi="revenue"]') as HTMLButtonElement;
+    fireEvent.click(revenueCard);
+
+    await waitFor(() => {
+      expect(selectedMetrics(filtersSignal.value)).toEqual(['visitors', 'revenue']);
+    });
+
+    expect(revenueCard.getAttribute('aria-pressed')).toBe('true');
+    expect(window.location.hash).toContain('metrics=visitors%2Crevenue');
+  });
+
+  it('keeps at least one metric active — clicking the last active card is a no-op', async () => {
+    mockResponse({ pageviews: 100, visitors: 50, goals: 5, revenue: 100, rpv: 2 });
+
+    render(<Overview />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('kpi-primary')).toBeTruthy();
+    });
+
+    const visitorsCard = document.querySelector('[data-kpi="visitors"]') as HTMLButtonElement;
+    expect(visitorsCard.getAttribute('aria-pressed')).toBe('true');
+    expect(selectedMetrics(filtersSignal.value)).toEqual(['visitors']);
+
+    fireEvent.click(visitorsCard);
+
+    // Selection unchanged — min-1 invariant.
+    expect(selectedMetrics(filtersSignal.value)).toEqual(['visitors']);
+    expect(visitorsCard.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('tags every KPI card with its metric id so Overview.css can bind --card-active-color', async () => {
+    mockResponse({ pageviews: 100, visitors: 50, goals: 5, revenue: 100, rpv: 2 });
+
+    render(<Overview />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('kpi-primary')).toBeTruthy();
+    });
+
+    for (const id of ['visitors', 'pageviews', 'conversion', 'revenue', 'rpv', 'goals']) {
+      const card = document.querySelector(`[data-kpi="${id}"]`);
+      expect(card?.tagName).toBe('BUTTON');
+    }
   });
 });

@@ -34,10 +34,57 @@
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
+  /* Cards are toggle buttons that drive the Overview chart series. */
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  transition: border-color 120ms ease, color 120ms ease;
 }
 
 #statnive-app .statnive-kpi-grid-secondary .statnive-card {
   padding: var(--s-2) var(--s-3);
+}
+
+/* Hover (inactive): tonal shift only — DESIGN.md Hover-Tone Rule
+   forbids lift / shadow / background change on cards. */
+#statnive-app .statnive-card:hover:not(.is-active) {
+  border-color: var(--ink-2);
+}
+#statnive-app .statnive-card:hover:not(.is-active) .statnive-label {
+  color: var(--ink);
+}
+
+#statnive-app .statnive-card:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Bind each card's --card-active-color from its data-kpi attribute.
+   Static CSS instead of an inline style on every render. */
+#statnive-app .statnive-card[data-kpi="visitors"]   { --card-active-color: var(--chart-visitors); }
+#statnive-app .statnive-card[data-kpi="pageviews"]  { --card-active-color: var(--chart-pageviews); }
+#statnive-app .statnive-card[data-kpi="conversion"] { --card-active-color: var(--chart-conversion); }
+#statnive-app .statnive-card[data-kpi="revenue"]    { --card-active-color: var(--chart-revenue); }
+#statnive-app .statnive-card[data-kpi="rpv"]        { --card-active-color: var(--chart-rpv); }
+#statnive-app .statnive-card[data-kpi="goals"]      { --card-active-color: var(--chart-goals); }
+
+/* Active: Nav Tab idiom — 2px bottom underline in the metric's chart
+   color, label color shifts to ink. The 2px overlaps the existing 1px
+   rule-soft via -1px margin-bottom so the card height stays constant
+   and the grid doesn't reflow on toggle. */
+#statnive-app .statnive-card.is-active {
+  border-bottom-width: 2px;
+  border-bottom-color: var(--card-active-color, var(--chart-visitors));
+  margin-bottom: -1px;
+}
+#statnive-app .statnive-card.is-active .statnive-label {
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #statnive-app .statnive-card { transition: none; }
 }
 
 #statnive-app .statnive-label {
