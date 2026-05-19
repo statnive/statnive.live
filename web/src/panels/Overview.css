@@ -71,13 +71,18 @@
 #statnive-app .statnive-card[data-kpi="goals"]      { --card-active-color: var(--chart-goals); }
 
 /* Active: Nav Tab idiom — 2px bottom underline in the metric's chart
-   color, label color shifts to ink. The 2px overlaps the existing 1px
-   rule-soft via -1px margin-bottom so the card height stays constant
-   and the grid doesn't reflow on toggle. */
+   color, label color shifts to ink, AND a soft 8% tint of the metric
+   color washes the card body so the selection cue is unmistakable on
+   the eye-scan. color-mix() interpolates in OKLCH so the wash inherits
+   the metric's hue without darkening or graying the surface. The 2px
+   underline overlaps the existing 1px rule-soft via -1px margin-bottom
+   so the card height stays constant and the grid doesn't reflow on
+   toggle. */
 #statnive-app .statnive-card.is-active {
   border-bottom-width: 2px;
   border-bottom-color: var(--card-active-color, var(--chart-visitors));
   margin-bottom: -1px;
+  background: color-mix(in oklch, var(--card-active-color, var(--chart-visitors)) 8%, var(--paper-2));
 }
 #statnive-app .statnive-card.is-active .statnive-label {
   color: var(--ink);
