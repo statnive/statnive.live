@@ -45,10 +45,10 @@ const EXPECTED: Expected[] = [
   // Metric-named tokens for the Overview multi-metric chart. Tuned to
   // OKLCH at uniform L 0.55-0.62 + C 0.13-0.18 so all six chart series
   // carry similar visual weight and every pair is distinguishable.
-  { name: '--chart-pageviews', value: 'oklch(0.70 0.10 210)' },
-  { name: '--chart-conversion', value: 'oklch(0.45 0.17 315)' },
-  { name: '--chart-rpv', value: 'oklch(0.72 0.13 85)' },
-  { name: '--chart-goals', value: 'oklch(0.52 0.18 15)' },
+  { name: '--chart-pageviews', value: 'oklch(0.70 0.15 118)' },
+  { name: '--chart-conversion', value: 'oklch(0.50 0.18 307)' },
+  { name: '--chart-rpv', value: 'oklch(0.72 0.14 61)' },
+  { name: '--chart-goals', value: 'oklch(0.55 0.20 4)' },
   { name: '--ch-direct', value: '#00A693' },
   { name: '--ch-search', value: '#1A73E8' },
   { name: '--ch-social', value: '#1A1A1A' },

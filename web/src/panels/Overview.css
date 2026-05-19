@@ -82,7 +82,7 @@
   border-bottom-width: 2px;
   border-bottom-color: var(--card-active-color, var(--chart-visitors));
   margin-bottom: -1px;
-  background: color-mix(in oklch, var(--card-active-color, var(--chart-visitors)) 8%, var(--paper-2));
+  background: color-mix(in oklch, var(--card-active-color, var(--chart-visitors)) 20%, var(--paper-2));
 }
 #statnive-app .statnive-card.is-active .statnive-label {
   color: var(--ink);

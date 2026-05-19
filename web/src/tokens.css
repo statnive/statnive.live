@@ -56,16 +56,21 @@
   --chart-ochre:     #B87B1A;   /* legacy, dual-bar use */
   --chart-plum:      #5F3B6E;   /* legacy, dual-bar use */
   --chart-rust:      #A84628;   /* legacy, dual-bar use */
-  /* The four non-brand-locked metric colors mix BOTH hue and lightness
-     for separation: the cool trio (visitors / pageviews / conversion)
-     stretches across the lightness axis (deep navy → bright sky →
-     mid plum), the warm pair (rpv / goals) sits at clearly different
-     lightness (bright gold vs deep coral). Visitors stays dark for
-     primary identity; everything else carries similar visual weight. */
-  --chart-pageviews:  oklch(0.70 0.10 210);   /* bright sky blue, light */
-  --chart-conversion: oklch(0.45 0.17 315);   /* mid plum-magenta */
-  --chart-rpv:        oklch(0.72 0.13 85);    /* bright warm gold */
-  --chart-goals:      oklch(0.52 0.18 15);    /* deep coral */
+  /* The four non-brand-locked metric colors are spread across the hue
+     wheel AND the lightness axis so every pair is distinguishable on
+     a quick scan. Two anchor positions are fixed (visitors=navy,
+     revenue=teal); the remaining four occupy the long arc between
+     them at roughly equal intervals, each at a distinct lightness:
+       - pageviews L 0.70 H 118 → light yellow-green
+       - conversion L 0.50 H 307 → mid magenta-purple
+       - rpv L 0.72 H 61 → bright gold
+       - goals L 0.55 H 4 → deep red
+     visitors stays the darkest line so the default-active metric
+     keeps its primary-identity heft. */
+  --chart-pageviews:  oklch(0.70 0.15 118);   /* light yellow-green */
+  --chart-conversion: oklch(0.50 0.18 307);   /* mid magenta-purple */
+  --chart-rpv:        oklch(0.72 0.14 61);    /* bright gold */
+  --chart-goals:      oklch(0.55 0.20 4);     /* deep red */
   /* Wash beneath the visitors line, single-active state only. ~13%
      alpha over the brand teal. Token keeps the alpha out of TSX
      ("no hand-rolled hex in components"). */
