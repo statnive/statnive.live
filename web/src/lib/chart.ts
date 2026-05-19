@@ -91,22 +91,46 @@ export function toMetricSeries(
 }
 
 // metricsLineChartOptions builds uPlot options for the multi-series
-// trend chart. Each metric gets its own auto-scale so a 3,479-visitors
-// line and a 1.15% conversion line are both visible on their own y-band.
-// Y-axis ticks stay hidden — the ChartTooltip rendered alongside reads
-// per-day values on hover and formats each via spec.format.
+// trend chart. Single-metric mode uses a plain auto-scale and the
+// visitors teal fill wash. Multi-metric mode stacks each series into
+// its own vertical swimlane (top-to-bottom, 1/n-tall band per metric)
+// by padding the scale outside the data range, so lines never overlap
+// even when underlying shapes are identical (e.g. sparse data with a
+// single spike day).
 //
-// Per-series cursor points (size 6 ring in the series stroke) appear at
-// the cursor's x so the user can still see exactly where each metric is
-// in the rare cases that two lines happen to overlap visually.
+// Y-axis ticks stay hidden — every metric has a different scale, so
+// one set of numbers would be misleading. The ChartTooltip rendered
+// alongside reads per-day values on hover and formats each via
+// spec.format.
 export function metricsLineChartOptions(
   metrics: readonly MetricId[],
   specs: MetricSpecs,
   tokens: BrandTokens,
 ): Omit<Options, 'width' | 'height'> {
-  const isSingleVisitors = metrics.length === 1 && metrics[0] === 'visitors';
+  const n = metrics.length;
+  const isSingleVisitors = n === 1 && metrics[0] === 'visitors';
   const scales: Options['scales'] = { x: { time: true } };
-  for (const m of metrics) scales![m] = { auto: true };
+  metrics.forEach((m, i) => {
+    if (n === 1) {
+      scales![m] = { auto: true };
+      return;
+    }
+    // Swimlane: keep `auto: true` so uPlot computes the data range,
+    // then `range` expands the scale by adding empty space below/above.
+    // The data band then renders in a 1/n-tall slice of the chart
+    // height; metric i sits in the i-th band from the top.
+    scales![m] = {
+      auto: true,
+      range: (_u, dataMin, dataMax) => {
+        const lo = Number.isFinite(dataMin) ? dataMin : 0;
+        const hi = Number.isFinite(dataMax) ? dataMax : 1;
+        const span = (hi - lo) || 1;
+        const bandsAbove = i;
+        const bandsBelow = n - 1 - i;
+        return [lo - bandsBelow * span, hi + bandsAbove * span];
+      },
+    };
+  });
   return {
     scales,
     series: [
@@ -117,13 +141,10 @@ export function metricsLineChartOptions(
         width: 2,
         fill: isSingleVisitors ? tokens.chartVisitorsFillWash : undefined,
         scale: m,
-        points: {
-          show: true,
-          size: 6,
-          stroke: specs[m].stroke,
-          fill: tokens.paper2,
-          width: 2,
-        },
+        // Always-on data-point markers feel busy on a calm panel; uPlot
+        // still renders a cursor marker per series on hover, which is
+        // the affordance we actually need.
+        points: { show: false },
       })),
     ],
     axes: [

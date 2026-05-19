@@ -21,3 +21,20 @@
 #statnive-app .u-cursor-y {
   display: none;
 }
+
+/* Fade-in on chart mount / re-render. The Chart wrapper destroys and
+   re-creates uPlot when data or options change (e.g. toggling a metric
+   adds/removes a series); the canvas paints synchronously, but the
+   animation softens the swap so it doesn't feel like a hard cut. */
+#statnive-app .statnive-chart .uplot {
+  animation: statnive-chart-fade-in 180ms ease-out;
+}
+
+@keyframes statnive-chart-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #statnive-app .statnive-chart .uplot { animation: none; }
+}
