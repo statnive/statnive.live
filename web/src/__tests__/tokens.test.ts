@@ -42,6 +42,13 @@ const EXPECTED: Expected[] = [
   { name: '--chart-ochre', value: '#B87B1A' },
   { name: '--chart-plum', value: '#5F3B6E' },
   { name: '--chart-rust', value: '#A84628' },
+  // Metric-named tokens for the Overview multi-metric chart. Tuned to
+  // OKLCH at uniform L 0.55-0.62 + C 0.13-0.18 so all six chart series
+  // carry similar visual weight and every pair is distinguishable.
+  { name: '--chart-pageviews', value: 'oklch(0.70 0.15 118)' },
+  { name: '--chart-conversion', value: 'oklch(0.50 0.18 307)' },
+  { name: '--chart-rpv', value: 'oklch(0.72 0.14 61)' },
+  { name: '--chart-goals', value: 'oklch(0.55 0.20 4)' },
   { name: '--ch-direct', value: '#00A693' },
   { name: '--ch-search', value: '#1A73E8' },
   { name: '--ch-social', value: '#1A1A1A' },
@@ -51,10 +58,16 @@ const EXPECTED: Expected[] = [
   { name: '--ch-paid', value: '#8A5508' },
 ];
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 describe('brand tokens (docs/brand.md — statnive-live operator console)', () => {
   for (const { name, value } of EXPECTED) {
     it(`${name} = ${value}`, () => {
-      const re = new RegExp(`${name}:\\s*${value}\\b`, 'i');
+      // value may contain regex metacharacters (e.g. var(--chart-plum)
+      // for the alias tokens), so escape before matching.
+      const re = new RegExp(`${escapeRegex(name)}:\\s*${escapeRegex(value)}`, 'i');
       expect(tokens).toMatch(re);
     });
   }

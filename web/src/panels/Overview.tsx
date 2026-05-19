@@ -4,7 +4,12 @@ import { apiGet } from '../api/client';
 import type { OverviewResponse } from '../api/types';
 import { rangeSignal } from '../state/range';
 import { siteSignal, activeSiteSignal } from '../state/site';
-import { filtersSignal } from '../state/filters';
+import {
+  filtersSignal,
+  selectedMetrics,
+  toggleMetric,
+  type MetricId,
+} from '../state/filters';
 import { fmtInt, fmtPct, fmtMoney, fmtRpv } from '../lib/fmt';
 import { DeltaPill } from '../components/DeltaPill';
 import { TrendChart } from './TrendChart';
@@ -24,6 +29,51 @@ interface WithDelta {
   conversion_delta_pct?: number;
   revenue_delta_pct?: number;
   rpv_delta_pct?: number;
+}
+
+// Toggle-button KPI tile. Active state = 2px bottom underline in the
+// metric's chart color (Nav Tab idiom, DESIGN.md §5). The
+// --card-active-color CSS var is bound by Overview.css via the
+// [data-kpi="..."] attribute selector so this component stays free of
+// inline style allocations.
+interface KpiCardProps {
+  id: MetricId;
+  label: string;
+  value: string;
+  tier: 'primary' | 'secondary';
+  deltaPct?: number;
+  selected: readonly MetricId[];
+}
+
+function KpiCard({ id, label, value, tier, deltaPct, selected }: KpiCardProps) {
+  const isActive = selected.includes(id);
+  const numClass = tier === 'primary' ? 'statnive-num-primary' : 'statnive-num-secondary';
+  return (
+    <button
+      type="button"
+      class={'statnive-card' + (isActive ? ' is-active' : '')}
+      data-kpi={id}
+      aria-pressed={isActive}
+      aria-label={`Toggle ${label} on chart`}
+      onClick={() => toggleMetric(id)}
+    >
+      {tier === 'primary' ? (
+        <div class="statnive-card-head">
+          <div class="statnive-label">
+            <span class="statnive-card-dot" aria-hidden="true" />
+            {label}
+          </div>
+          <DeltaPill deltaPct={deltaPct} />
+        </div>
+      ) : (
+        <div class="statnive-label">
+          <span class="statnive-card-dot" aria-hidden="true" />
+          {label}
+        </div>
+      )}
+      <div class={numClass}>{value}</div>
+    </button>
+  );
 }
 
 export function Overview() {
@@ -80,56 +130,29 @@ export function Overview() {
   }
 
   const withDelta = d as OverviewResponse & WithDelta;
+  const selected = selectedMetrics(filtersSignal.value);
+  const currency = activeSiteSignal.value?.currency ?? 'EUR';
 
   // Primary tier — leads with revenue-connected metrics per CLAUDE.md
   // "Reject vanity metrics". RPV is the only number that connects every
-  // other metric to revenue.
+  // other metric to revenue. Each card is a toggle button that adds or
+  // removes its metric series on the TrendChart below.
   return (
     <section class="statnive-section">
       <h2 class="statnive-h2">Overview</h2>
 
       <div data-testid="kpi-primary" class="statnive-kpi-grid-primary">
-        <div class="statnive-card" data-kpi="visitors">
-          <div class="statnive-card-head">
-            <div class="statnive-label">Visitors</div>
-            <DeltaPill deltaPct={withDelta.visitors_delta_pct} />
-          </div>
-          <div class="statnive-num-primary">{fmtInt(d.visitors)}</div>
-        </div>
-        <div class="statnive-card" data-kpi="conversion">
-          <div class="statnive-card-head">
-            <div class="statnive-label">Conversion</div>
-            <DeltaPill deltaPct={withDelta.conversion_delta_pct} />
-          </div>
-          <div class="statnive-num-primary">{fmtPct(conversionPct(d))}</div>
-        </div>
-        <div class="statnive-card" data-kpi="revenue">
-          <div class="statnive-card-head">
-            <div class="statnive-label">Revenue</div>
-            <DeltaPill deltaPct={withDelta.revenue_delta_pct} />
-          </div>
-          <div class="statnive-num-primary">{fmtMoney(d.revenue, activeSiteSignal.value?.currency ?? 'EUR')}</div>
-        </div>
-        <div class="statnive-card" data-kpi="rpv">
-          <div class="statnive-card-head">
-            <div class="statnive-label">RPV</div>
-            <DeltaPill deltaPct={withDelta.rpv_delta_pct} />
-          </div>
-          <div class="statnive-num-primary">{fmtRpv(d.rpv, activeSiteSignal.value?.currency ?? 'EUR')}</div>
-        </div>
+        <KpiCard id="visitors"   label="Visitors"   value={fmtInt(d.visitors)}             tier="primary" deltaPct={withDelta.visitors_delta_pct}   selected={selected} />
+        <KpiCard id="conversion" label="Conversion" value={fmtPct(conversionPct(d))}        tier="primary" deltaPct={withDelta.conversion_delta_pct} selected={selected} />
+        <KpiCard id="revenue"    label="Revenue"    value={fmtMoney(d.revenue, currency)}   tier="primary" deltaPct={withDelta.revenue_delta_pct}    selected={selected} />
+        <KpiCard id="rpv"        label="RPV"        value={fmtRpv(d.rpv, currency)}         tier="primary" deltaPct={withDelta.rpv_delta_pct}        selected={selected} />
       </div>
 
       {/* Secondary tier — pageviews + goals, de-emphasized. CLAUDE.md
           explicitly bans leading with pageviews (vanity metric). */}
       <div data-testid="kpi-secondary" class="statnive-kpi-grid-secondary">
-        <div class="statnive-card" data-kpi="pageviews">
-          <div class="statnive-label">Pageviews</div>
-          <div class="statnive-num-secondary">{fmtInt(d.pageviews)}</div>
-        </div>
-        <div class="statnive-card" data-kpi="goals">
-          <div class="statnive-label">Goals</div>
-          <div class="statnive-num-secondary">{fmtInt(d.goals)}</div>
-        </div>
+        <KpiCard id="pageviews" label="Pageviews" value={fmtInt(d.pageviews)} tier="secondary" selected={selected} />
+        <KpiCard id="goals"     label="Goals"     value={fmtInt(d.goals)}     tier="secondary" selected={selected} />
       </div>
 
       <TrendChart />

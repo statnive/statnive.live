@@ -1,0 +1,40 @@
+/*
+ * uPlot cursor + axis overrides — light paper, no glassmorphism. Scoped
+ * under #statnive-app so they never leak to other surfaces. Layered on
+ * top of uplot/dist/uPlot.min.css. The Overview multi-metric tooltip is
+ * a sibling Preact component (ChartTooltip), not the uPlot built-in
+ * legend; the .u-legend rules below hide that built-in when present.
+ */
+
+#statnive-app .u-legend {
+  display: none;
+}
+
+/* Vertical guide line at the cursor x — hairline in rule-soft, matches
+   the "tonal shift only" hover rule from DESIGN.md. */
+#statnive-app .u-cursor-x {
+  border-right: 1px solid var(--rule-soft) !important;
+}
+
+/* Hide the uPlot horizontal cursor line — the multi-metric chart only
+   uses the vertical guide. */
+#statnive-app .u-cursor-y {
+  display: none;
+}
+
+/* Fade-in on chart mount / re-render. The Chart wrapper destroys and
+   re-creates uPlot when data or options change (e.g. toggling a metric
+   adds/removes a series); the canvas paints synchronously, but the
+   animation softens the swap so it doesn't feel like a hard cut. */
+#statnive-app .statnive-chart .uplot {
+  animation: statnive-chart-fade-in 180ms ease-out;
+}
+
+@keyframes statnive-chart-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #statnive-app .statnive-chart .uplot { animation: none; }
+}

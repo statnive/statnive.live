@@ -401,7 +401,9 @@ func (s *clickhouseStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, e
 		SELECT
 			toDate(hour) AS day,
 			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
-			toUInt64(sum(pageviews))            AS pageviews
+			toUInt64(sum(pageviews))            AS pageviews,
+			toUInt64(sum(goals))                AS goals,
+			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.hourly_visitors %s
 		GROUP BY day
 		ORDER BY day WITH FILL FROM toDate(?) TO toDate(?) STEP INTERVAL 1 DAY
@@ -416,7 +418,7 @@ func (s *clickhouseStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, e
 
 	for rows.Next() {
 		var p DailyPoint
-		if err := rows.Scan(&p.Day, &p.Visitors, &p.Pageviews); err != nil {
+		if err := rows.Scan(&p.Day, &p.Visitors, &p.Pageviews, &p.Goals, &p.Revenue); err != nil {
 			return nil, fmt.Errorf("trend scan: %w", err)
 		}
 

@@ -73,16 +73,18 @@ type CampaignRow struct {
 	RPV         float64 `json:"rpv"`
 }
 
-// DailyPoint is one day of the all-traffic trend that feeds the uPlot
-// visitors chart on Overview (and the Realtime panel's 24h sparkline).
-// Distinct from SEORow because the trend here is not organic-filtered —
-// callers want the total daily visitor/pageview count across all channels.
-// Day is the bucket boundary in the site's IRST zone; the API layer
-// converts from UTC at render time.
+// DailyPoint is one day of the all-traffic trend. Distinct from SEORow
+// because this series is not organic-filtered. Day is the bucket
+// boundary in the site's IRST zone; the API layer converts from UTC at
+// render time. Conversion and RPV are derived per-day from these raw
+// counts in the SPA so they share the divide-by-zero rule with the
+// headline KPI tiles.
 type DailyPoint struct {
 	Day       time.Time `json:"day"`
 	Visitors  uint64    `json:"visitors"`
 	Pageviews uint64    `json:"pageviews"`
+	Goals     uint64    `json:"goals"`
+	Revenue   uint64    `json:"revenue"`
 }
 
 // RealtimeResult is the active-visitors widget. Backed by hourly_visitors

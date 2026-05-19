@@ -282,11 +282,70 @@ func TestDashboardHTTP_TrendShape(t *testing.T) {
 	}
 
 	for i, r := range rows {
-		for _, key := range []string{"day", "visitors", "pageviews"} {
+		for _, key := range []string{"day", "visitors", "pageviews", "goals", "revenue"} {
 			if _, ok := r[key]; !ok {
 				t.Errorf("row[%d] missing %q: %v", i, key, r)
 			}
 		}
+	}
+}
+
+// TestDashboardHTTP_TrendGoalsRevenue pins per-day goals + revenue on
+// the Trend response so the SPA can derive Conversion and RPV per-day
+// without a second API call.
+func TestDashboardHTTP_TrendGoalsRevenue(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv, store := newDashboardTestServer(t, ctx, "")
+
+	now := time.Now().UTC().Truncate(24 * time.Hour)
+
+	// Two events on the same day: one with a goal worth 1000, one with
+	// a goal worth 500. Trend must roll the same-day rows up to
+	// goals=2 / revenue=1500.
+	storagetest.WriteEvents(t, ctx, store.Conn(), []storagetest.SeedEvent{
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/checkout", Channel: "Direct", IsGoal: true, Revenue: 1000, VisitorHash: [16]byte{0x1}},
+		{SiteID: dashboardSiteA, Time: now.Add(time.Hour), Pathname: "/checkout", Channel: "Direct", IsGoal: true, Revenue: 500, VisitorHash: [16]byte{0x2}},
+	})
+
+	url := fmt.Sprintf("%s/api/stats/trend?site=%d&from=%s&to=%s",
+		srv.URL, dashboardSiteA,
+		now.Format("2006-01-02"),
+		now.Add(24*time.Hour).Format("2006-01-02"))
+
+	resp := getJSON(t, url, "")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var rows []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	var seeded map[string]any
+
+	for _, r := range rows {
+		goals, _ := r["goals"].(float64)
+		if goals > 0 {
+			seeded = r
+
+			break
+		}
+	}
+
+	if seeded == nil {
+		t.Fatalf("no row with goals > 0 — seeded events did not propagate to the rollup: %v", rows)
+	}
+
+	if goals, _ := seeded["goals"].(float64); int(goals) != 2 {
+		t.Errorf("goals = %v, want 2 (one per goal-flagged event)", goals)
+	}
+
+	if revenue, _ := seeded["revenue"].(float64); int(revenue) != 1500 {
+		t.Errorf("revenue = %v, want 1500 (1000+500)", revenue)
 	}
 }
 

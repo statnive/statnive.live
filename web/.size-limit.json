@@ -1,8 +1,8 @@
 [
   {
-    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login (Phase 5e)",
+    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login + multi-metric chart wiring (Overview clickable KPI cards + per-metric format / currency thread). Bumped 16→17 KB.",
     "path": "../internal/dashboard/spa/dist/assets/index-*.js",
-    "limit": "16 KB",
+    "limit": "17 KB",
     "gzip": true
   },
   {

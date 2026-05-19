@@ -60,6 +60,8 @@ export interface DailyPoint {
   day: string;
   visitors: number;
   pageviews: number;
+  goals: number;
+  revenue: number;
 }
 
 export interface RealtimeResponse {

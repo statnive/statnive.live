@@ -42,13 +42,39 @@
   /* Admin accent — amber underline when Admin tab is active. */
   --amber:     #C47A0E;
 
-  /* Chart series — visitors (navy) + revenue (green) lead, remaining
-     3 cover Campaigns / Pages / Sources comparative rows. */
-  --chart-visitors: #0A2540;
-  --chart-revenue:  #00A693;
-  --chart-ochre:    #B87B1A;
-  --chart-plum:     #5F3B6E;
-  --chart-rust:     #A84628;
+  /* Chart series.
+     - visitors + revenue are brand-locked at their existing hex values.
+     - The remaining four metric-named tokens are tuned to OKLCH
+       L≈0.55-0.62 / C 0.13-0.18 so every line carries similar visual
+       weight on the multi-metric Overview chart and every pair stays
+       distinguishable (no two adjacent hues, no two in the same family).
+     - Legacy ochre/plum/rust tokens are retained at their original hex
+       so Sources / Pages / Campaigns dual-bar charts don't visually
+       drift — they read from these names, not the metric-named ones. */
+  --chart-visitors:  #0A2540;
+  --chart-revenue:   #00A693;
+  --chart-ochre:     #B87B1A;   /* legacy, dual-bar use */
+  --chart-plum:      #5F3B6E;   /* legacy, dual-bar use */
+  --chart-rust:      #A84628;   /* legacy, dual-bar use */
+  /* The four non-brand-locked metric colors are spread across the hue
+     wheel AND the lightness axis so every pair is distinguishable on
+     a quick scan. Two anchor positions are fixed (visitors=navy,
+     revenue=teal); the remaining four occupy the long arc between
+     them at roughly equal intervals, each at a distinct lightness:
+       - pageviews L 0.70 H 118 → light yellow-green
+       - conversion L 0.50 H 307 → mid magenta-purple
+       - rpv L 0.72 H 61 → bright gold
+       - goals L 0.55 H 4 → deep red
+     visitors stays the darkest line so the default-active metric
+     keeps its primary-identity heft. */
+  --chart-pageviews:  oklch(0.70 0.15 118);   /* light yellow-green */
+  --chart-conversion: oklch(0.50 0.18 307);   /* mid magenta-purple */
+  --chart-rpv:        oklch(0.72 0.14 61);    /* bright gold */
+  --chart-goals:      oklch(0.55 0.20 4);     /* deep red */
+  /* Wash beneath the visitors line, single-active state only. ~13%
+     alpha over the brand teal. Token keeps the alpha out of TSX
+     ("no hand-rolled hex in components"). */
+  --chart-visitors-fill-wash: rgba(0, 166, 147, 0.13);
 
   /* Channel palette — chips + source-table chip colors. Mirrors the
      17-step channel mapper in internal/enrich/channel.go. */

@@ -7,7 +7,7 @@
 // without a DOM (vitest with early test setup); prod always reads the
 // live CSS var so swapping tokens.css propagates to canvas too.
 
-interface BrandTokens {
+export interface BrandTokens {
   green: string;
   greenDark: string;
   greenLight: string;
@@ -20,6 +20,11 @@ interface BrandTokens {
   ruleHair: string;
   chartVisitors: string;
   chartRevenue: string;
+  chartPageviews: string;
+  chartConversion: string;
+  chartRpv: string;
+  chartGoals: string;
+  chartVisitorsFillWash: string;
 }
 
 const FALLBACK: BrandTokens = {
@@ -35,6 +40,11 @@ const FALLBACK: BrandTokens = {
   ruleHair: 'var(--rule-hair)',
   chartVisitors: 'var(--chart-visitors)',
   chartRevenue: 'var(--chart-revenue)',
+  chartPageviews: 'var(--chart-pageviews)',
+  chartConversion: 'var(--chart-conversion)',
+  chartRpv: 'var(--chart-rpv)',
+  chartGoals: 'var(--chart-goals)',
+  chartVisitorsFillWash: 'var(--chart-visitors-fill-wash)',
 };
 
 function readVar(name: string, fallback: string): string {
@@ -60,5 +70,10 @@ export function readBrandTokens(): BrandTokens {
     ruleHair: readVar('--rule-hair', FALLBACK.ruleHair),
     chartVisitors: readVar('--chart-visitors', FALLBACK.chartVisitors),
     chartRevenue: readVar('--chart-revenue', FALLBACK.chartRevenue),
+    chartPageviews: readVar('--chart-pageviews', FALLBACK.chartPageviews),
+    chartConversion: readVar('--chart-conversion', FALLBACK.chartConversion),
+    chartRpv: readVar('--chart-rpv', FALLBACK.chartRpv),
+    chartGoals: readVar('--chart-goals', FALLBACK.chartGoals),
+    chartVisitorsFillWash: readVar('--chart-visitors-fill-wash', FALLBACK.chartVisitorsFillWash),
   };
 }
