@@ -87,15 +87,27 @@ pre-rendered.
 ## Minute 5 — Paste the snippet + visit
 
 Copy the `<script>…</script>` block shown in the Sites table (triple-
-click the `<pre>` to select, `Cmd+C` / `Ctrl+C`). It looks like this:
+click the `<pre>` to select, `Cmd+C` / `Ctrl+C`). For a localhost
+quickstart it looks like this:
 
 ```html
-<script src="http://127.0.0.1:8080/tracker.js" async defer></script>
+<script src="http://127.0.0.1:8080/tracker.js"
+        data-statnive-endpoint="http://127.0.0.1:8080/api/event"
+        async defer></script>
 ```
 
 Paste into the `<head>` of any HTML file served by the hostname you
 registered, then open that page in a browser. The tracker POSTs its
 first event to `/api/event` within a few hundred milliseconds.
+
+> **Cross-origin SaaS deploys**: the same admin "Show snippet" button
+> emits the right shape for your production host
+> (`https://app.statnive.live/tracker.js` plus the matching
+> `data-statnive-endpoint`). The `data-statnive-endpoint` attribute is
+> the priority-1 source in the tracker's endpoint-resolution chain —
+> always paste both. See
+> [`docs/consent-banner-integration.md`](consent-banner-integration.md#the-tracker)
+> for the three documented script-tag forms.
 
 Back in the dashboard, switch to **Overview** and wait up to 10 seconds
 for the realtime visitor count to tick. Your first event has arrived.
