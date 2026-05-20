@@ -102,17 +102,17 @@ test.describe('admin UI — Configure modal allowed-origins editor', () => {
     // Click "+ Add another" twice to make room for two entries.
     const addBtn = modal.getByRole('button', { name: /Add another/i });
     await addBtn.click();
-    await modal.getByLabel('allowed origin 1').fill(HOST_A1);
+    await modal.getByLabel('allowed origin 1', { exact: true }).fill(HOST_A1);
     await addBtn.click();
-    await modal.getByLabel('allowed origin 2').fill(HOST_A2);
+    await modal.getByLabel('allowed origin 2', { exact: true }).fill(HOST_A2);
 
     await modal.getByRole('button', { name: /^Save/ }).click();
     await expect(modal).toBeHidden({ timeout: 5000 });
 
     // Reload, re-open the modal, verify both inputs carry the persisted hosts.
     const reopened = await openConfigureModal(page, HOST_A);
-    await expect(reopened.getByLabel('allowed origin 1')).toHaveValue(HOST_A1);
-    await expect(reopened.getByLabel('allowed origin 2')).toHaveValue(HOST_A2);
+    await expect(reopened.getByLabel('allowed origin 1', { exact: true })).toHaveValue(HOST_A1);
+    await expect(reopened.getByLabel('allowed origin 2', { exact: true })).toHaveValue(HOST_A2);
 
     await ctx.close();
   });
@@ -135,7 +135,7 @@ test.describe('admin UI — Configure modal allowed-origins editor', () => {
     // The input strips the `https://` chrome prefix; typing `http://...`
     // produces `https://http://...` after withScheme(), which the
     // validator rejects.
-    await modal.getByLabel('allowed origin 1').fill('http://insecure.example');
+    await modal.getByLabel('allowed origin 1', { exact: true }).fill('http://insecure.example');
 
     // Save is disabled while any field is invalid; clicking it is a no-op.
     const saveBtn = modal.getByRole('button', { name: /^Save/ });
@@ -158,7 +158,7 @@ test.describe('admin UI — Configure modal allowed-origins editor', () => {
 
     const modal = await openConfigureModal(page, HOST_B);
     await modal.getByRole('button', { name: /Add another/i }).click();
-    await modal.getByLabel('allowed origin 1').fill(HOST_B_BARE);
+    await modal.getByLabel('allowed origin 1', { exact: true }).fill(HOST_B_BARE);
     await modal.getByRole('button', { name: /^Save/ }).click();
 
     // 409 surfaces as the translated sentence at the top of the modal;
