@@ -49,6 +49,10 @@ export interface AdminSite {
   // minor-unit math. Default 'EUR' on the server (migration 007).
   currency: string;
   created_at: number;
+  // Per-site CORS allowlist (Stage-4-A, migration 017). HTTPS-only,
+  // RFC 6454 origin tuple, max 10 entries, globally unique. Empty
+  // array on sites that haven't opted into cross-origin SaaS.
+  allowed_origins?: string[];
   // Per-site privacy + bot-tracking policy (PR D2 — migration 006).
   // Defaults: respect_dnt=false, respect_gpc=false, track_bots=true.
   // Operators with EU visitors flip respect_dnt + respect_gpc to true.
@@ -80,6 +84,11 @@ export interface SitePolicyPatch {
   jurisdiction?: Jurisdiction;
   consent_mode?: ConsentMode;
   event_allowlist?: string[];
+  // Stage-4-A — per-site CORS allowlist. Each entry is an RFC 6454
+  // origin tuple (scheme + host + optional port, no path / query /
+  // fragment). Server validates HTTPS-only, max 10, cross-site
+  // collision returns 409. Omitted = leave as-is; [] = clear list.
+  allowed_origins?: string[];
 }
 
 // Jurisdiction mirrors internal/sites/sites.go validJurisdictions —

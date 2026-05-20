@@ -563,7 +563,7 @@ function SitesTab() {
                 <PolicyCell site={s} field="respect_gpc" label="respect Sec-GPC" onPatch={onPatchPolicy} />
                 <PolicyCell site={s} field="respect_dnt" label="respect DNT"     onPatch={onPatchPolicy} />
                 <PolicyCell site={s} field="track_bots"  label="track bots"      onPatch={onPatchPolicy} />
-                <ComplianceCell site={s} onPatch={onPatchPolicy} />
+                <ComplianceCell site={s} onPatch={onPatchPolicy} onClientError={setErr} />
                 <td><TrackerSnippet /></td>
                 <td>
                   <button type="button" onClick={() => void onToggleEnabled(s)}>
@@ -754,12 +754,26 @@ function JurisdictionNoticeBanner() {
 // updates to the derived default (sites.DerivedConsentMode mirror) so
 // the right combination lands in one PATCH. Hybrid is never auto-
 // applied — the operator picks it from the consent_mode dropdown.
+// httpsOriginPattern is a UX-grade client check: catches the typical
+// operator typos (missing scheme, http://, trailing slash, path).
+// The server (sites.NormalizeOrigin + Validate) is the authority —
+// this regex is only for instant feedback on blur. RFC 6454 origin
+// tuple shape: scheme + host + optional explicit port.
+const httpsOriginPattern = /^https:\/\/[a-z0-9.-]+(?::\d+)?$/i;
+
+const MAX_ALLOWED_ORIGINS = 10;
+
 function ComplianceCell({
   site,
   onPatch,
+  onClientError,
 }: {
   site: AdminSite;
   onPatch: (siteID: number, patch: SitePolicyPatch) => void | Promise<void>;
+  // Reports client-side validation failures (e.g. invalid origin shape,
+  // over the per-site cap) to the panel-level error banner. Server-side
+  // 409 collision is surfaced separately via onPatch's await chain.
+  onClientError?: (message: string) => void;
 }) {
   // The server backfills migrated rows with OTHER-NON-EU + permissive;
   // empty strings only show up if the binary is at Stage 3 but the
@@ -768,6 +782,7 @@ function ComplianceCell({
   const currentJ: Jurisdiction = (site.jurisdiction ?? 'OTHER-NON-EU') as Jurisdiction;
   const currentM: ConsentMode = (site.consent_mode ?? 'permissive') as ConsentMode;
   const currentList = site.event_allowlist ?? [];
+  const currentOrigins = site.allowed_origins ?? [];
 
   function onChangeJurisdiction(next: Jurisdiction) {
     // Flipping jurisdiction implies a sensible consent_mode default;
@@ -788,6 +803,49 @@ function ComplianceCell({
     // list (no enforcement). Validate hits the server.
     const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
     void onPatch(site.site_id, { event_allowlist: parts });
+  }
+
+  function onChangeOrigins(raw: string) {
+    // Newline-separated free-text → trimmed array. Empty input → empty
+    // list (clears the allowlist; cross-origin requests will fail
+    // until at least one origin is re-added).
+    const list = raw
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (list.length > MAX_ALLOWED_ORIGINS) {
+      onClientError?.(
+        `${site.hostname}: max ${MAX_ALLOWED_ORIGINS} allowed_origins, got ${list.length}`,
+      );
+
+      return;
+    }
+
+    const bad = list.find((o) => !httpsOriginPattern.test(o));
+    if (bad !== undefined) {
+      onClientError?.(
+        `${site.hostname}: invalid origin ${bad} (must start with https://, no path)`,
+      );
+
+      return;
+    }
+
+    // No-op blur (operator tabbed away without changing the list) — skip
+    // the PATCH so we don't trigger an OriginIndex rebuild or accidentally
+    // collide on a self-PATCH that admin uniqueness might reject.
+    if (
+      list.length === currentOrigins.length &&
+      list.every((o, i) => o === currentOrigins[i])
+    ) {
+      onClientError?.('');
+
+      return;
+    }
+
+    // Clear any prior client error before sending.
+    onClientError?.('');
+    void onPatch(site.site_id, { allowed_origins: list });
   }
 
   const showAllowlist = currentM === 'consent-free' || currentM === 'hybrid';
@@ -821,6 +879,18 @@ function ComplianceCell({
           onBlur={(e) => onChangeAllowlist((e.target as HTMLInputElement).value)}
         />
       ) : null}
+      <textarea
+        rows={Math.min(MAX_ALLOWED_ORIGINS, Math.max(3, currentOrigins.length))}
+        aria-label={`allowed origins for ${site.hostname}`}
+        placeholder={'https://www.example.com\nhttps://example.com\nhttps://staging.example.com:8443'}
+        value={currentOrigins.join('\n')}
+        onBlur={(e) => onChangeOrigins((e.target as HTMLTextAreaElement).value)}
+      />
+      <small>
+        Paste each origin on its own line. Example: <code>https://www.your-site.com</code>.
+        HTTPS only. Max {MAX_ALLOWED_ORIGINS} entries. No trailing slash or path.
+        The same origin cannot be registered to two sites (409 Conflict).
+      </small>
     </td>
   );
 }

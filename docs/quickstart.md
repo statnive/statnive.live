@@ -125,5 +125,11 @@ for the realtime visitor count to tick. Your first event has arrived.
   backup + restore, TLS rotation, and the air-gap verification gate.
 - [`docs/luks.md`](luks.md) walks through optional disk-encryption for
   shared-tenant VPS deployments.
+- [`docs/consent-banner-integration.md`](consent-banner-integration.md)
+  shows the three operator-banner patterns (Accept+Dismiss for German
+  B2B, Accept+Reject+Dismiss for full operator control, Accept+Reject
+  for CNIL-strict) and the reusable JS snippet that wires any subset
+  of `#consent_accept` / `#consent_reject` / `#consent_dismiss` to the
+  cross-origin consent endpoints.
 - [`deploy/systemd/README.md`](../deploy/systemd/README.md) has the
   hardened systemd unit + install recipe.
