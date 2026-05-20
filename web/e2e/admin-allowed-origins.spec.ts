@@ -58,14 +58,15 @@ test.describe('admin UI — allowed_origins textarea (Stage 4-D)', () => {
   });
 
   test('paste two origins, blur, reload → persisted', async ({ page }) => {
-    // Login via the /api/login form (cookies persist for the SPA).
-    await page.goto(`${BASE}/app/`);
-    await page.getByLabel(/email/i).fill(ADMIN_EMAIL);
-    await page.getByLabel(/password/i).fill(ADMIN_PASSWORD);
-    await page.getByRole('button', { name: /sign in|log in|login/i }).click();
-    await page.waitForURL(/\/app\//, { timeout: 5000 });
+    // Pattern from dashboard-authz.spec.ts: drive /api/login via the
+    // BrowserContext so the session cookie lands on `page`, then navigate
+    // to /app/ already authenticated. Avoids inventing UI form selectors.
+    const login = await page.request.post('/api/login', {
+      data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(login.status(), 'admin login').toBe(200);
 
-    // Navigate to Admin → Sites.
     await page.goto(`${BASE}/app/#admin`);
     await expect(page.getByTestId('admin-sites-table')).toBeVisible({ timeout: 5000 });
 
@@ -90,11 +91,11 @@ test.describe('admin UI — allowed_origins textarea (Stage 4-D)', () => {
   });
 
   test('http:// origin rejected client-side (no PATCH)', async ({ page }) => {
-    await page.goto(`${BASE}/app/`);
-    await page.getByLabel(/email/i).fill(ADMIN_EMAIL);
-    await page.getByLabel(/password/i).fill(ADMIN_PASSWORD);
-    await page.getByRole('button', { name: /sign in|log in|login/i }).click();
-    await page.waitForURL(/\/app\//, { timeout: 5000 });
+    const login = await page.request.post('/api/login', {
+      data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(login.status(), 'admin login').toBe(200);
 
     await page.goto(`${BASE}/app/#admin`);
     await expect(page.getByTestId('admin-sites-table')).toBeVisible({ timeout: 5000 });
@@ -128,11 +129,11 @@ test.describe('admin UI — allowed_origins textarea (Stage 4-D)', () => {
     const seed = await patchSiteOrigins(SITE_A, [ORIGIN_B]);
     expect(seed.status(), 'seed SITE_A').toBe(200);
 
-    await page.goto(`${BASE}/app/`);
-    await page.getByLabel(/email/i).fill(ADMIN_EMAIL);
-    await page.getByLabel(/password/i).fill(ADMIN_PASSWORD);
-    await page.getByRole('button', { name: /sign in|log in|login/i }).click();
-    await page.waitForURL(/\/app\//, { timeout: 5000 });
+    const login = await page.request.post('/api/login', {
+      data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(login.status(), 'admin login').toBe(200);
 
     await page.goto(`${BASE}/app/#admin`);
     await expect(page.getByTestId('admin-sites-table')).toBeVisible({ timeout: 5000 });
