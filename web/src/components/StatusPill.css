@@ -1,0 +1,47 @@
+/* StatusPill — reusable Sites/Users/Goals row indicator.
+ * Scoped to #statnive-app to prevent admin-chrome bleed (project
+ * convention; see tokens.css header + AppShell.css).
+ * All colors via var(--*), all font-size via --text-* tokens. */
+
+#statnive-app .statnive-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  /* Extra left inset so the dot sits inside the straight section of the pill,
+     not on top of the rounded-left curve (which otherwise reads as a halo
+     around the dot). */
+  padding: 3px var(--s-2) 3px var(--s-3);
+  border-radius: 999px;
+  background: var(--rule-hair);
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: var(--text-meta);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+#statnive-app .statnive-status-pill-dot {
+  display: inline-block;
+  /* 6px dot (was s-2 = 8px) reads as a single confident mark inside the
+     pill rather than a near-edge concentric circle. */
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+/* `on` = Live / Active — solid teal dot. */
+#statnive-app .statnive-status-pill.is-on .statnive-status-pill-dot {
+  background: var(--green);
+}
+
+/* `off` = Paused / Disabled — hollow ring on rule-soft stroke. */
+#statnive-app .statnive-status-pill.is-off .statnive-status-pill-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--rule-soft);
+}
+
+#statnive-app .statnive-status-pill-label {
+  letter-spacing: 0.01em;
+}
