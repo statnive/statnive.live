@@ -130,17 +130,78 @@ external dependencies, no framework.
 </script>
 ```
 
+## The tracker
+
+The consent helpers (`statniveLive.acceptConsent` /
+`statniveLive.withdrawConsent`) live on the tracker bundle, so the
+tracker `<script>` must load before the banner script tries to use
+them. Three forms operators see in the wild — only **A** is
+recommended for cross-origin SaaS:
+
+### A — canonical (cross-origin SaaS, recommended)
+
+```html
+<script src="https://app.statnive.live/tracker.js"
+        data-statnive-endpoint="https://app.statnive.live/api/event"
+        async defer></script>
+```
+
+`data-statnive-endpoint` is the priority-1 source in `tracker.js`'s
+endpoint-resolution chain. Explicit, future-proof against bundler
+quirks that might null out `document.currentScript`. This is exactly
+what the admin UI's "Show snippet" button emits for your deployment
+— per-deployment origin baked in. **Use this.**
+
+### B — implicit-endpoint (still works)
+
+```html
+<script src="https://app.statnive.live/tracker.js" async defer></script>
+```
+
+The tracker derives `/api/event` by stripping `/tracker.js` from
+`src`. Works, but relies on the priority-2 fallback. If a future
+refactor tightens that path, you silently break. **Avoid for
+production cross-origin.**
+
+### C — relative `src` (self-hosted only)
+
+```html
+<script src="/tracker.js" async defer></script>
+```
+
+Only works when statnive.live runs same-origin as your site (e.g.
+self-hosted on `track.your-site.com`). On a cross-origin embed the
+priority-3 fallback resolves `/api/event` against the **operator's**
+domain → 404. Don't use this for SaaS.
+
+### Optional `data-statnive-honour-gpc="1"`
+
+Add this attribute to opt into client-side `Sec-GPC: 1` short-circuit:
+
+```html
+<script src="https://app.statnive.live/tracker.js"
+        data-statnive-endpoint="https://app.statnive.live/api/event"
+        data-statnive-honour-gpc="1"
+        async defer></script>
+```
+
+When the browser sets `navigator.globalPrivacyControl === true` AND
+the page has this attribute, the tracker initialises to a no-op
+shell — zero network calls. Useful when your jurisdictional posture
+says "honour GPC even without a banner click". Default off because
+~5–10% of EU traffic (Brave, Firefox-Strict) sends GPC by default;
+leaving them in the anonymous pre-consent baseline is the operator's
+preferred posture per CLAUDE.md Privacy Rule 6.
+
 ## The HTML (your existing banner)
 
 Use whatever markup + styles your site already has. The wiring above
-only cares about three things:
+only cares about two things:
 
 1. The banner container's `id` is `consent_banner` (so the snippet can
    hide it after a click).
 2. Buttons have `id="consent_accept"`, `id="consent_reject"`, or
    `id="consent_dismiss"`. Pick the subset matching your pattern.
-3. The tracker `<script src="https://app.statnive.live/tracker.js">` is
-   loaded on every page (`acceptConsent` lives on `window.statniveLive`).
 
 ### Pattern A example (televika.com)
 
