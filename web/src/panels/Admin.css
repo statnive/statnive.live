@@ -1,16 +1,111 @@
+/*
+ * Admin panel — Sites / Users / Goals sub-tabs.
+ *
+ * Brand discipline:
+ *  - Every color reference goes through tokens.css (`make brand-grep`
+ *    rejects hand-rolled hex). Alpha-tinted backgrounds use `rgb(... / N%)`
+ *    where the channels come from the brand palette (navy / amber /
+ *    error / green).
+ *  - Every `font-size` routes through the `--text-*` tokens defined in
+ *    tokens.css (`web/src/__tests__/css-tokens-only.test.ts` enforces).
+ *  - Absolute ban on side-stripe borders (`border-left` / `border-right`
+ *    >1px as a colored accent). Alert callouts use background tint at
+ *    ~8% opacity + 1px full border at ~22% opacity + leading glyph
+ *    (`▪` red / `▴` amber / `▸` teal).
+ *  - Every rule is scoped to `#statnive-app` to prevent admin-region
+ *    bleed (same convention as the WordPress plugin's globals.css).
+ */
+
+/* ---------- Admin shell ---------- */
+
 #statnive-app .statnive-admin {
   display: flex;
   flex-direction: column;
   gap: var(--s-4);
 }
 
+/* Inner-tab container rhythm. The Sites / Users / Goals tab bodies stack
+ * cards (notice → tracker install → add-form → table) and they were
+ * previously laid out in native block flow with no gap, which made every
+ * boundary read as a single dense slab. Bumping to a 32px flex gap gives
+ * each card its own breathing room without the centered-stack monotony
+ * of identical 24px gaps everywhere on the page. The padding-bottom puts
+ * deliberate runway between the last card (typically the table) and the
+ * sovereignty-stamp footer beneath it — the page should end on its own
+ * terms, not on the footer's. */
+#statnive-app .statnive-admin-sites,
+#statnive-app .statnive-admin-users,
+#statnive-app .statnive-admin-goals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding-bottom: var(--s-6);
+}
+
+/* Page-identity callout — "MANAGING <hostname> [site_id]".
+ * The Amber-Means-Admin Rule earns its rent here: a small amber dot
+ * + mono UPPERCASE label + display hostname + mono site_id chip,
+ * read top-down before the operator reads the sub-tabs. */
+#statnive-app .statnive-admin-context {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  background: var(--paper-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  color: var(--ink);
+}
+
+#statnive-app .statnive-admin-context::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--amber);
+  flex: 0 0 auto;
+}
+
+#statnive-app .statnive-admin-context .statnive-admin-context-label {
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+
+#statnive-app .statnive-admin-context .statnive-admin-context-host {
+  font-family: var(--display);
+  font-size: var(--text-body);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+#statnive-app .statnive-admin-context .statnive-admin-context-id {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--s-2);
+  background: var(--rule-hair);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-num);
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+}
+
+/* ---------- Sub-tabs ---------- */
+
 #statnive-app .statnive-admin-tabs {
   display: flex;
   gap: 0;
   border-bottom: 1px solid var(--rule-soft);
-  /* Amber bottom line under Admin sub-tabs so it reads distinct from
-     the main operator nav above. */
-  border-bottom-color: var(--rule-soft);
   position: relative;
 }
 
@@ -31,7 +126,7 @@
   background: transparent;
   color: var(--ink-2);
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 500;
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -50,6 +145,8 @@
   border-bottom-color: var(--amber);
 }
 
+/* ---------- Add-X form (Sites / Users / Goals) ---------- */
+
 #statnive-app .statnive-admin-new {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -65,7 +162,8 @@
   margin: 0;
   font-family: var(--display);
   font-weight: 500;
-  font-size: 16px;
+  font-size: var(--text-title);
+  letter-spacing: -0.01em;
   color: var(--ink);
 }
 
@@ -82,9 +180,10 @@
 }
 
 #statnive-app .statnive-admin-new input,
-#statnive-app .statnive-admin-new select {
+#statnive-app .statnive-admin-new select,
+#statnive-app .statnive-admin-new textarea {
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--text-body);
   text-transform: none;
   letter-spacing: normal;
   padding: var(--s-2) var(--s-2);
@@ -94,31 +193,64 @@
   background: var(--paper-2);
 }
 
+#statnive-app .statnive-admin-new input:hover,
+#statnive-app .statnive-admin-new select:hover,
+#statnive-app .statnive-admin-new textarea:hover {
+  border-color: var(--ink-2);
+}
+
 #statnive-app .statnive-admin-new input:focus-visible,
-#statnive-app .statnive-admin-new select:focus-visible {
+#statnive-app .statnive-admin-new select:focus-visible,
+#statnive-app .statnive-admin-new textarea:focus-visible {
   outline: 2px solid var(--green);
   outline-offset: 1px;
   border-color: transparent;
 }
 
+/* Chevron for native <select> — inline SVG in ink-2, 12px, right
+ * padded by var(--s-2). Reserves space so the chevron never overlaps
+ * the longest option text. */
+#statnive-app .statnive-admin-new select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: var(--s-5);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%2312304F' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='3,4.5 6,7.5 9,4.5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right var(--s-2) center;
+  background-size: 12px 12px;
+}
+
+/* Per-field hint / error helpers sit INSIDE each <label> in the
+ * Add-site / New-user / New-goal forms. The styling rule lives with
+ * `.statnive-admin-modal-helper` further down (shared across the
+ * in-page forms and the Configure modal) so a single reset breaks the
+ * mono-uppercase cascade from the parent <label>. */
+
+/* Primary CTA — Persian Teal per DESIGN.md §5. Spans the full grid row
+ * so it doesn't float in whatever auto-flow cell came next after the
+ * variable-height field hints, and right-justifies to the established
+ * bottom-right convention for primary submit actions. */
 #statnive-app .statnive-admin-new button {
-  align-self: end;
-  padding: var(--s-2) var(--s-4);
+  grid-column: 1 / -1;
+  justify-self: end;
+  padding: var(--s-2) var(--s-5);
   border: none;
   border-radius: 4px;
-  background: var(--ink);
+  background: var(--green);
   color: var(--paper-2);
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 500;
   cursor: pointer;
   text-transform: none;
   letter-spacing: normal;
+  transition: background 120ms ease;
 }
 
 #statnive-app .statnive-admin-new button:hover:not([disabled]),
 #statnive-app .statnive-admin-new button:focus-visible:not([disabled]) {
-  background: var(--ink-2);
+  background: var(--green-dk);
   outline: none;
 }
 
@@ -127,11 +259,13 @@
   cursor: not-allowed;
 }
 
+/* ---------- Tables ---------- */
+
 #statnive-app .statnive-admin-table {
   width: 100%;
   border-collapse: collapse;
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--text-body);
   background: var(--paper-2);
   border: 1px solid var(--rule-soft);
   border-radius: 8px;
@@ -165,6 +299,9 @@
   background: var(--rule-hair);
 }
 
+/* Row affordance — hairline ghost button. NOT red-on-hover; Pause /
+ * Configure are reversible. Genuine destruction lives only on the
+ * `.statnive-admin-users button.is-destructive` rule below. */
 #statnive-app .statnive-admin-table button {
   padding: 4px var(--s-2);
   border: 1px solid var(--rule-soft);
@@ -172,28 +309,39 @@
   background: transparent;
   color: var(--ink-2);
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: var(--text-meta);
   font-weight: 500;
   cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
 }
 
 #statnive-app .statnive-admin-table button:hover,
 #statnive-app .statnive-admin-table button:focus-visible {
-  color: var(--error);
-  border-color: var(--error);
+  color: var(--ink);
+  border-color: var(--ink);
   outline: none;
 }
 
-#statnive-app .statnive-admin-error {
-  margin: 0;
-  padding: var(--s-2) var(--s-3);
-  background: rgb(176 36 58 / 8%);
-  border-left: 3px solid var(--error);
-  border-radius: 4px;
+/* Genuinely destructive row action (Users → Disable user only). Red
+ * hover is correct here because revoking dashboard access is
+ * destructive in the colloquial sense (user loses access until
+ * re-enabled). */
+#statnive-app .statnive-admin-users button.is-destructive:hover,
+#statnive-app .statnive-admin-users button.is-destructive:focus-visible {
   color: var(--error);
-  font-family: var(--sans);
-  font-size: 13px;
+  border-color: var(--error);
 }
+
+/* Numeric table cells — tabular-nums + slight bump in weight and
+ * size, per direct user feedback ("numbers, table header titles not
+ * readable"). Applies to site_id chips, plan tier, goal-value cells. */
+#statnive-app .statnive-num-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-num);
+  font-size: var(--text-num-cell);
+}
+
+/* ---------- Snippet block (tracker install card, code samples) ---------- */
 
 #statnive-app .statnive-admin-snippet {
   margin: 0;
@@ -211,52 +359,701 @@
 
 #statnive-app code {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-meta);
   color: var(--ink);
 }
 
-/* Stage-3 Compliance cell — three inline controls stacked tightly
- * inside the Sites-table cell. Width-constrained so the table can
- * still fit the other columns on a typical operator's 1280×800
- * laptop screen. */
-#statnive-app .statnive-admin-compliance {
-  vertical-align: top;
+/* ---------- Chip family ---------- */
+
+/* Per-site / per-user identifier chip — mono UPPERCASE on rule-hair
+ * pill. Matches DESIGN.md § Channel Chip pattern. */
+#statnive-app .statnive-site-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--s-2);
+  background: var(--rule-hair);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
 }
 
-#statnive-app .statnive-admin-compliance select,
-#statnive-app .statnive-admin-compliance input[type="text"] {
-  display: block;
-  width: 100%;
-  margin-bottom: var(--s-1);
-  font-family: var(--sans);
-  font-size: 12px;
+#statnive-app .statnive-site-chip em {
+  margin-left: var(--s-1);
+  font-style: italic;
+  font-weight: 400;
+  color: var(--ink-2);
 }
 
-#statnive-app .statnive-admin-compliance input[type="text"] {
+/* Hairline pill — CopyButton, GoalSnippetButton. Transparent fill,
+ * 1px rule-soft border, mono meta text, hover lifts the border to
+ * ink. NOT red-on-hover. */
+#statnive-app .statnive-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 4px var(--s-2);
+  background: transparent;
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
   font-family: var(--mono);
   font-size: var(--text-meta);
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
 }
 
-/* JurisdictionNoticeBanner — one-time prompt above the Sites table
- * asking the operator to consciously pick a jurisdiction. role=status
- * so screen readers announce it on dashboard load. */
-#statnive-app .statnive-admin-notice {
-  margin: 0 0 var(--s-3) 0;
-  padding: var(--s-2) var(--s-3);
-  background: var(--paper);
-  border-left: 3px solid var(--accent);
-  border-radius: 4px;
+#statnive-app .statnive-chip:hover,
+#statnive-app .statnive-chip:focus-visible {
+  color: var(--ink);
+  border-color: var(--ink);
+  outline: none;
+}
+
+/* ---------- Status pill ----------
+ * StatusPill.tsx + StatusPill.css own this component end-to-end. The
+ * previous duplicate ruleset here also painted a ::before dot, which
+ * combined with the component's own .statnive-status-pill-dot span
+ * rendered as two concentric dots in every table cell. Keep only a
+ * tabular-num bump for in-table use so numeric labels (counts, percent,
+ * etc.) stay vertically aligned across rows. */
+
+#statnive-app .statnive-admin-table .statnive-status-pill {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Help card (EventApiHelpCard) ---------- */
+
+#statnive-app .statnive-admin-help-card {
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  background: var(--paper-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
   font-family: var(--sans);
+  font-size: var(--text-body);
+  color: var(--ink);
 }
 
-#statnive-app .statnive-admin-notice p {
-  margin: 0 0 var(--s-2) 0;
-  font-size: 13px;
+#statnive-app .statnive-admin-help-card > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  list-style: none;
+}
+
+#statnive-app .statnive-admin-help-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+#statnive-app .statnive-admin-help-card > summary::before {
+  content: '?';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--rule-hair);
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+  flex: 0 0 auto;
+}
+
+#statnive-app .statnive-admin-help-card[open] > summary {
+  margin-bottom: var(--s-2);
+}
+
+#statnive-app .statnive-admin-help-card p {
+  margin: var(--s-2) 0;
+  font-family: var(--sans);
+  font-size: var(--text-body);
   line-height: 1.5;
   color: var(--ink);
 }
 
-#statnive-app .statnive-admin-notice button {
+#statnive-app .statnive-admin-help-card code {
+  padding: 1px 4px;
+  background: var(--paper);
+  border: 1px solid var(--rule-hair);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: var(--text-meta);
+  color: var(--ink);
+}
+
+/* ---------- Alert family (notice / error / info) ----------
+ * Background tint at ~8% opacity + 1px full border at ~22% opacity +
+ * leading glyph. NO side-stripe — that pattern is absolutely banned
+ * per impeccable. The leading glyph carries the role even when color
+ * is unavailable (WCAG-2.2-AA "color is never the only carrier"). */
+
+#statnive-app .statnive-admin-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid transparent;
+  border-radius: 4px;
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: var(--text-body);
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+#statnive-app .statnive-admin-alert .statnive-admin-alert-glyph {
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  line-height: 1.2;
+  flex: 0 0 auto;
+}
+
+#statnive-app .statnive-admin-alert .statnive-admin-alert-label {
+  display: block;
+  margin-bottom: var(--s-1);
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+
+#statnive-app .statnive-admin-alert .statnive-admin-alert-body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+#statnive-app .statnive-admin-alert.is-notice {
+  background: rgb(196 122 14 / 8%);
+  border-color: rgb(196 122 14 / 22%);
+}
+
+#statnive-app .statnive-admin-alert.is-notice .statnive-admin-alert-glyph {
+  color: var(--amber);
+}
+
+#statnive-app .statnive-admin-alert.is-error {
+  background: rgb(176 36 58 / 8%);
+  border-color: rgb(176 36 58 / 22%);
+}
+
+#statnive-app .statnive-admin-alert.is-error .statnive-admin-alert-glyph {
+  color: var(--error);
+}
+
+#statnive-app .statnive-admin-alert.is-info {
+  background: rgb(0 166 147 / 8%);
+  border-color: rgb(0 166 147 / 22%);
+}
+
+#statnive-app .statnive-admin-alert.is-info .statnive-admin-alert-glyph {
+  color: var(--green-dk);
+}
+
+/* ---------- Field validation state ----------
+ * `.is-invalid` applies to the field wrapper (label) or directly to
+ * the input. Red error border + an error sentence below. Used by
+ * every form on the panel via lib/field.ts. */
+
+#statnive-app .statnive-admin-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+#statnive-app .statnive-admin-field .statnive-admin-field-hint {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  font-weight: 400;
+  line-height: 1.45;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--ink-2);
+  max-width: 65ch;
+}
+
+#statnive-app .statnive-admin-field .statnive-admin-field-error {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-1);
+  margin: 0;
+  font-family: var(--sans);
+  font-size: var(--text-meta);
+  line-height: 1.4;
+  color: var(--error);
+}
+
+#statnive-app .statnive-admin-field .statnive-admin-field-error-label {
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--error);
+}
+
+#statnive-app .statnive-admin-field input.is-invalid,
+#statnive-app .statnive-admin-field select.is-invalid,
+#statnive-app .statnive-admin-field textarea.is-invalid,
+#statnive-app .statnive-admin-new input.is-invalid,
+#statnive-app .statnive-admin-new select.is-invalid,
+#statnive-app .statnive-admin-new textarea.is-invalid,
+#statnive-app .statnive-admin-modal input.is-invalid,
+#statnive-app .statnive-admin-modal select.is-invalid,
+#statnive-app .statnive-admin-modal textarea.is-invalid {
+  border-color: var(--error);
+  background: rgb(176 36 58 / 4%);
+}
+
+#statnive-app .statnive-admin-field input.is-invalid:focus-visible,
+#statnive-app .statnive-admin-field select.is-invalid:focus-visible,
+#statnive-app .statnive-admin-field textarea.is-invalid:focus-visible,
+#statnive-app .statnive-admin-new input.is-invalid:focus-visible,
+#statnive-app .statnive-admin-new select.is-invalid:focus-visible,
+#statnive-app .statnive-admin-new textarea.is-invalid:focus-visible,
+#statnive-app .statnive-admin-modal input.is-invalid:focus-visible,
+#statnive-app .statnive-admin-modal select.is-invalid:focus-visible,
+#statnive-app .statnive-admin-modal textarea.is-invalid:focus-visible {
+  outline-color: var(--error);
+  border-color: transparent;
+}
+
+/* ---------- URL input with `https://` prefix chrome ----------
+ * Used by the allowed_origins editor in the Configure modal. The
+ * prefix is non-editable; visually glued to the input's left edge.
+ * Hairline border wraps both prefix and input so they read as one
+ * affordance. Per-row delete sits to the right. */
+
+#statnive-app .statnive-input-group {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  background: var(--paper-2);
+  overflow: hidden;
+}
+
+#statnive-app .statnive-input-group:hover {
+  border-color: var(--ink-2);
+}
+
+#statnive-app .statnive-input-group:focus-within {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+#statnive-app .statnive-input-group.is-invalid {
+  border-color: var(--error);
+  background: rgb(176 36 58 / 4%);
+}
+
+#statnive-app .statnive-input-prefix {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--s-2);
+  background: var(--paper);
+  border-right: 1px solid var(--rule-hair);
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  color: var(--ink-2);
+  user-select: none;
+  flex: 0 0 auto;
+}
+
+#statnive-app .statnive-input-group input {
+  flex: 1 1 auto;
+  border: none;
+  background: transparent;
+  padding: var(--s-2);
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  color: var(--ink);
+  min-width: 0;
+}
+
+#statnive-app .statnive-input-group input:focus-visible {
+  outline: none;
+}
+
+#statnive-app .statnive-input-group .statnive-input-remove {
+  flex: 0 0 auto;
+  width: var(--s-5);
+  border: none;
+  border-left: 1px solid var(--rule-hair);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+#statnive-app .statnive-input-group .statnive-input-remove:hover,
+#statnive-app .statnive-input-group .statnive-input-remove:focus-visible {
+  color: var(--error);
+  background: rgb(176 36 58 / 8%);
+  outline: none;
+}
+
+/* ---------- Modal — per-site Configure ---------- */
+
+#statnive-app .statnive-admin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-3);
+  /* Brand-coherent backdrop — navy at low alpha, NOT pure black. */
+  background: rgb(10 37 64 / 32%);
+  animation: statnive-admin-modal-fade 120ms ease-out;
+}
+
+@keyframes statnive-admin-modal-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #statnive-app .statnive-admin-modal-backdrop {
+    animation: none;
+  }
+}
+
+#statnive-app .statnive-admin-modal {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100vh - var(--s-6));
+  overflow-y: auto;
+  padding: var(--s-5) var(--s-5);
+  background: var(--paper-2);
+  border-radius: 12px;
+  /* Two-layer shadow — the brand's only standing shadow exception
+   * (DESIGN.md §4): allowed when the surface floats over non-paper. */
+  box-shadow:
+    0 1px 2px rgb(10 37 64 / 18%),
+    0 12px 48px rgb(10 37 64 / 28%);
+  font-family: var(--sans);
+  color: var(--ink);
+}
+
+@media (max-width: 520px) {
+  #statnive-app .statnive-admin-modal {
+    max-width: 100%;
+    border-radius: 8px;
+    padding: var(--s-4) var(--s-4);
+  }
+}
+
+#statnive-app .statnive-admin-modal-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin-bottom: var(--s-4);
+}
+
+#statnive-app .statnive-admin-modal-header .statnive-admin-modal-eyebrow {
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+
+#statnive-app .statnive-admin-modal h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: var(--text-title);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+#statnive-app .statnive-admin-modal-close {
+  position: absolute;
+  top: var(--s-3);
+  right: var(--s-3);
+  width: var(--s-5);
+  height: var(--s-5);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+#statnive-app .statnive-admin-modal-close:hover,
+#statnive-app .statnive-admin-modal-close:focus-visible {
+  color: var(--ink);
+  background: var(--rule-hair);
+  border-color: var(--rule-soft);
+  outline: none;
+}
+
+/* Section heads inside the modal AND inside the New-user / New-goal /
+ * Add-site forms. A 1px top rule plus an ink (not ink-2) label gives
+ * each section a clear break and stronger visual weight than the field
+ * labels beneath. The generous top margin + padding pair the rule with
+ * real whitespace so sections breathe rather than crowd. The
+ * :first-of-type override removes the rule on the very first section so
+ * the modal doesn't open with a stray top border. */
+#statnive-app .statnive-admin-modal-section {
+  margin: var(--s-6) 0 var(--s-3);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--rule-hair);
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+}
+
+#statnive-app .statnive-admin-modal-section:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* Helper sentence under any form field — modal AND the in-page forms
+ * (New site / New user / New goal). Both contexts wrap the helper in a
+ * <label> whose own rule is mono / uppercase / letter-spaced; without
+ * the explicit reset below the helper inherits and renders as
+ * "THE EMAIL THIS USER SIGNS IN WITH." instead of "The email…". */
+#statnive-app .statnive-admin-modal-helper,
+#statnive-app .statnive-admin-new label .statnive-admin-modal-helper {
+  margin: var(--s-1) 0 0;
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  font-weight: 400;
+  line-height: 1.45;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+
+/* Error variant: same shape as the helper, alert color, leading dot. */
+#statnive-app .statnive-admin-modal-helper[role="alert"],
+#statnive-app .statnive-admin-new label .statnive-admin-modal-helper[role="alert"] {
+  color: var(--error);
+  font-weight: 500;
+}
+
+/* Identity block — read-only "what site is this" data lives in a
+ * compact definition list at the top of the modal, NOT in five fake
+ * disabled <input> rows. The list collapses ~5 × 80px of editable
+ * affordance into ~5 × 24px of inline values, freeing the eye for the
+ * editable Locale / Privacy / Compliance sections below. */
+#statnive-app .statnive-admin-modal-ident {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: var(--s-4);
+  row-gap: var(--s-2);
+  margin: 0 0 var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  background: var(--paper);
+  border: 1px solid var(--rule-hair);
+  border-radius: 8px;
+}
+
+#statnive-app .statnive-admin-modal-ident dt {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  line-height: 1.5;
+  align-self: center;
+}
+
+#statnive-app .statnive-admin-modal-ident dd {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.5;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-variant-numeric: tabular-nums;
+}
+
+#statnive-app .statnive-admin-modal-ident dd code {
+  font-family: var(--mono);
+  font-size: var(--text-meta);
+  color: var(--ink-2);
+}
+
+#statnive-app .statnive-admin-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin-bottom: var(--s-4);
+}
+
+/* The very last field in a section sheds its bottom margin so the next
+ * section's top rule + margin own the boundary — avoids double-spacing
+ * (24px margin + 48px section margin = 72px gap) which made the seams
+ * read uneven from one section to the next. */
+#statnive-app .statnive-admin-modal-field:has(+ .statnive-admin-modal-section),
+#statnive-app .statnive-admin-modal-field:last-child {
+  margin-bottom: 0;
+}
+
+#statnive-app .statnive-admin-modal-field > label {
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+
+#statnive-app .statnive-admin-modal-field-checkbox {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
+
+#statnive-app .statnive-admin-modal-field-checkbox > label {
+  flex: 1 1 auto;
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+#statnive-app .statnive-admin-modal input[type="text"],
+#statnive-app .statnive-admin-modal input[type="number"],
+#statnive-app .statnive-admin-modal input[type="email"],
+#statnive-app .statnive-admin-modal select,
+#statnive-app .statnive-admin-modal textarea {
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  padding: var(--s-2) var(--s-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  background: var(--paper-2);
+  color: var(--ink);
+  transition: border-color 120ms ease;
+}
+
+#statnive-app .statnive-admin-modal input[type="text"]:hover,
+#statnive-app .statnive-admin-modal input[type="number"]:hover,
+#statnive-app .statnive-admin-modal input[type="email"]:hover,
+#statnive-app .statnive-admin-modal select:hover,
+#statnive-app .statnive-admin-modal textarea:hover {
+  border-color: var(--ink-2);
+}
+
+#statnive-app .statnive-admin-modal input[type="text"]:focus-visible,
+#statnive-app .statnive-admin-modal input[type="number"]:focus-visible,
+#statnive-app .statnive-admin-modal input[type="email"]:focus-visible,
+#statnive-app .statnive-admin-modal select:focus-visible,
+#statnive-app .statnive-admin-modal textarea:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+/* Modal-scoped <select> chevron — same SVG as the add-X form. */
+#statnive-app .statnive-admin-modal select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: var(--s-5);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%2312304F' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='3,4.5 6,7.5 9,4.5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right var(--s-2) center;
+  background-size: 12px 12px;
+}
+
+#statnive-app .statnive-admin-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+
+/* Primary button — teal CTA. */
+#statnive-app .statnive-admin-modal-footer button.is-primary {
+  padding: var(--s-2) var(--s-4);
+  border: none;
+  border-radius: 4px;
+  background: var(--green);
+  color: var(--paper-2);
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+#statnive-app .statnive-admin-modal-footer button.is-primary:hover:not([disabled]),
+#statnive-app .statnive-admin-modal-footer button.is-primary:focus-visible:not([disabled]) {
+  background: var(--green-dk);
+  outline: none;
+}
+
+#statnive-app .statnive-admin-modal-footer button.is-primary[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Ghost button — Cancel, dismissive actions. */
+#statnive-app .statnive-admin-modal-footer button.is-ghost {
+  padding: 4px var(--s-3);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+#statnive-app .statnive-admin-modal-footer button.is-ghost:hover,
+#statnive-app .statnive-admin-modal-footer button.is-ghost:focus-visible {
+  color: var(--ink);
+  border-color: var(--rule-soft);
+  outline: none;
 }

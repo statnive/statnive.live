@@ -184,6 +184,42 @@ export interface TimezoneOption {
   offset: string;
 }
 
+// HttpError preserves the response shape (status + parsed code) for
+// panel-level callers that translate HTTP failures to plain-language
+// sentences. Extends Error so legacy `catch (e) { setErr(e.message) }`
+// paths keep working unchanged.
+export class HttpError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly serverMessage: string;
+  readonly path: string;
+  readonly method: string;
+
+  constructor(method: string, path: string, status: number, body: string) {
+    let code = '';
+    let serverMessage = '';
+    try {
+      const parsed = JSON.parse(body) as {
+        code?: unknown;
+        error?: unknown;
+        message?: unknown;
+      };
+      if (typeof parsed.code === 'string') code = parsed.code;
+      if (typeof parsed.error === 'string') serverMessage = parsed.error;
+      else if (typeof parsed.message === 'string') serverMessage = parsed.message;
+    } catch {
+      if (body) serverMessage = body;
+    }
+    super(serverMessage || `${method} ${path}: HTTP ${status}`);
+    this.name = 'HttpError';
+    this.status = status;
+    this.code = code;
+    this.serverMessage = serverMessage;
+    this.path = path;
+    this.method = method;
+  }
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -216,14 +252,7 @@ async function request<T>(
   const text = await res.text();
 
   if (!res.ok) {
-    let msg = `${method} ${path}: HTTP ${res.status}`;
-    try {
-      const parsed = JSON.parse(text) as { error?: string };
-      if (parsed.error) msg = parsed.error;
-    } catch {
-      if (text) msg = text;
-    }
-    throw new Error(msg);
+    throw new HttpError(method, path, res.status, text);
   }
 
   return text ? (JSON.parse(text) as T) : (undefined as T);
