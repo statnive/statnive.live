@@ -29,6 +29,21 @@ type SourceRow struct {
 	RPV          float64 `json:"rpv"`
 }
 
+// SourceChannelRow is one row of the per-channel rollup that powers the
+// Sources panel's vertical grouped-bar chart and the channel header rows
+// in the grouped table. Same shape as SourceRow minus ReferrerName.
+// Visitors MUST come from a server-side uniqCombined64Merge — summing
+// per-referrer visitor counts over-counts because of HLL union
+// sub-additivity when visitors overlap across referrers.
+type SourceChannelRow struct {
+	Channel  string  `json:"channel"`
+	Views    uint64  `json:"views"`
+	Visitors uint64  `json:"visitors"`
+	Goals    uint64  `json:"goals"`
+	Revenue  uint64  `json:"revenue"`
+	RPV      float64 `json:"rpv"`
+}
+
 // PageRow is one row of the Pages table — pathname grouped.
 type PageRow struct {
 	Pathname string  `json:"pathname"`

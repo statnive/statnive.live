@@ -406,6 +406,13 @@ func TestDashboardHTTP_TrendGapFilling(t *testing.T) {
 	}
 }
 
+// sourcesEnvelope mirrors dashboard.sourcesResponse so tests can decode
+// /api/stats/sources without depending on the private handler type.
+type sourcesEnvelope struct {
+	Rows      []map[string]any `json:"rows"`
+	ByChannel []map[string]any `json:"by_channel"`
+}
+
 func TestDashboardHTTP_SourcesChannelFilter(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -415,7 +422,8 @@ func TestDashboardHTTP_SourcesChannelFilter(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Hour)
 
 	// Seed events on two channels for the same site. Channel filter
-	// must narrow the Sources result set to the requested channel only.
+	// must narrow both halves of the Sources envelope (per-referrer
+	// rows and the per-channel rollup) to the requested channel only.
 	storagetest.WriteEvents(t, ctx, store.Conn(), []storagetest.SeedEvent{
 		{SiteID: dashboardSiteA, Time: now, Pathname: "/a", Referrer: "(direct)", ReferrerName: "(direct)", Channel: "Direct", VisitorHash: [16]byte{1}},
 		{SiteID: dashboardSiteA, Time: now, Pathname: "/b", Referrer: "https://google.com/", ReferrerName: "google", Channel: "Organic Search", VisitorHash: [16]byte{2}},
@@ -428,19 +436,104 @@ func TestDashboardHTTP_SourcesChannelFilter(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
 	}
 
-	var rows []map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+	var env sourcesEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if len(rows) == 0 {
+	if len(env.Rows) == 0 {
 		t.Fatalf("channel=Direct returned zero rows; expected at least the direct row")
 	}
 
-	for _, r := range rows {
+	for _, r := range env.Rows {
 		if ch, _ := r["channel"].(string); ch != "Direct" {
-			t.Errorf("channel filter leaked row with channel=%q: %v", ch, r)
+			t.Errorf("rows: channel filter leaked row with channel=%q: %v", ch, r)
 		}
+	}
+
+	if len(env.ByChannel) != 1 {
+		t.Fatalf("channel=Direct returned %d by_channel rows; expected 1", len(env.ByChannel))
+	}
+
+	if ch, _ := env.ByChannel[0]["channel"].(string); ch != "Direct" {
+		t.Errorf("by_channel filter leaked row with channel=%q", ch)
+	}
+}
+
+func TestDashboardHTTP_SourcesByChannel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv, store := newDashboardTestServer(t, ctx, "")
+
+	now := time.Now().UTC().Truncate(time.Hour)
+
+	// Seed events across three channels. The Organic Search channel
+	// has two referrers (google, bing) with overlapping visitor hashes
+	// so the per-channel HLL union is strictly smaller than the naive
+	// sum of per-referrer visitor counts.
+	storagetest.WriteEvents(t, ctx, store.Conn(), []storagetest.SeedEvent{
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/x", Referrer: "(direct)", ReferrerName: "(direct)", Channel: "Direct", VisitorHash: [16]byte{1}, Revenue: 100},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/x", Referrer: "https://google.com/", ReferrerName: "google", Channel: "Organic Search", VisitorHash: [16]byte{2}, Revenue: 50},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/y", Referrer: "https://google.com/", ReferrerName: "google", Channel: "Organic Search", VisitorHash: [16]byte{3}},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/z", Referrer: "https://bing.com/", ReferrerName: "bing", Channel: "Organic Search", VisitorHash: [16]byte{3}, Revenue: 25},
+		{SiteID: dashboardSiteA, Time: now, Pathname: "/q", Referrer: "https://twitter.com/", ReferrerName: "twitter", Channel: "Social", VisitorHash: [16]byte{4}},
+	})
+
+	url := fmt.Sprintf("%s/api/stats/sources?site=%d", srv.URL, dashboardSiteA)
+	resp := getJSON(t, url, "")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var env sourcesEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(env.ByChannel) != 3 {
+		t.Fatalf("expected 3 by_channel rows (Direct, Organic Search, Social); got %d: %v", len(env.ByChannel), env.ByChannel)
+	}
+
+	// by_channel is ORDER BY revenue DESC, views DESC. Direct has the
+	// highest revenue (100); Organic Search next (50+25=75); Social
+	// last (0). Confirm the ordering invariant.
+	expectedOrder := []string{"Direct", "Organic Search", "Social"}
+	for i, want := range expectedOrder {
+		got, _ := env.ByChannel[i]["channel"].(string)
+		if got != want {
+			t.Errorf("by_channel[%d].channel = %q; want %q", i, got, want)
+		}
+	}
+
+	// HLL union sub-additivity check. Organic Search has visitors with
+	// hashes {2, 3} from google and {3} from bing — union = 2, naive
+	// sum = 3. The rollup must return 2.
+	var organicChannelVisitors uint64
+	for _, r := range env.ByChannel {
+		if r["channel"] == "Organic Search" {
+			if v, ok := r["visitors"].(float64); ok {
+				organicChannelVisitors = uint64(v)
+			}
+			break
+		}
+	}
+	var organicReferrerSum uint64
+	for _, r := range env.Rows {
+		if r["channel"] == "Organic Search" {
+			if v, ok := r["visitors"].(float64); ok {
+				organicReferrerSum += uint64(v)
+			}
+		}
+	}
+
+	if organicChannelVisitors == 0 {
+		t.Fatalf("by_channel Organic Search visitors = 0; expected non-zero")
+	}
+	if organicChannelVisitors > organicReferrerSum {
+		t.Errorf("by_channel visitors (%d) must be <= naive per-referrer sum (%d) — HLL union is sub-additive",
+			organicChannelVisitors, organicReferrerSum)
 	}
 }
 

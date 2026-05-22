@@ -7,7 +7,7 @@ import { filtersSignal } from '../state/filters';
 import { siteSignal, activeSiteSignal } from '../state/site';
 import { LazyChart } from '../components/LazyChart';
 import { fmtInt, fmtMoney } from '../lib/fmt';
-import { toVisitorSeries, visitorLineChartOptions } from '../lib/chart';
+import { applyReducedMotion, readEChartsTheme, visitorLineOption } from '../lib/chart';
 import './panels.css';
 
 export default function SEO() {
@@ -43,11 +43,12 @@ export default function SEO() {
     filtersSignal.value.path,
   ]);
 
-  const chartData = useMemo(() => {
-    return data.value ? toVisitorSeries(data.value as SEORow[]) : null;
-  }, [data.value]);
-
-  const chartOptions = useMemo(() => visitorLineChartOptions(), []);
+  const theme = useMemo(() => readEChartsTheme(), []);
+  const option = useMemo(() => {
+    return data.value && data.value.length > 0
+      ? applyReducedMotion(visitorLineOption(data.value as SEORow[], theme))
+      : null;
+  }, [data.value, theme]);
 
   if (err.value) {
     return (
@@ -82,7 +83,7 @@ export default function SEO() {
   return (
     <section class="statnive-section" data-testid="panel-seo">
       <h2 class="statnive-h2">SEO</h2>
-      {chartData ? <LazyChart data={chartData} options={chartOptions} height={240} /> : null}
+      {option ? <LazyChart option={option} height={240} /> : null}
       <table class="statnive-table" style={{ marginTop: 'var(--s-3)' }}>
         <thead>
           <tr>

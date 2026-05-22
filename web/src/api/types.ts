@@ -25,6 +25,28 @@ export interface SourceRow {
   rpv: number;
 }
 
+// SourceChannelRow mirrors internal/storage.SourceChannelRow — the
+// per-channel rollup of daily_sources used by the Sources panel's
+// vertical grouped-bar chart and the channel header rows in the grouped
+// table. visitors is a HLL union from the server; never derive it
+// client-side by summing SourceRow.visitors.
+export interface SourceChannelRow {
+  channel: string;
+  views: number;
+  visitors: number;
+  goals: number;
+  revenue: number;
+  rpv: number;
+}
+
+// SourcesResponse is the envelope /api/stats/sources returns: the
+// per-referrer rows and the per-channel rollup, both honoring the same
+// filter. The handler computes them in parallel via errgroup.
+export interface SourcesResponse {
+  rows: SourceRow[];
+  by_channel: SourceChannelRow[];
+}
+
 export interface PageRow {
   pathname: string;
   views: number;

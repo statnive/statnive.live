@@ -3,9 +3,10 @@ import { render, waitFor, cleanup } from '@testing-library/preact';
 import type { ChartProps } from '../components/Chart';
 
 // Mock LazyChart BEFORE importing TrendChart so the test asserts the
-// props uPlot would receive, not uPlot's render (which needs canvas +
-// matchMedia, neither in jsdom). The mock collects every props payload
-// each render so the test can inspect series shape + refetch count.
+// ECharts option payload, not the canvas render (which needs canvas +
+// matchMedia + ResizeObserver, none of which jsdom provides). The mock
+// collects every props payload each render so the test can inspect
+// the series shape + refetch count.
 const lazyChartCalls: ChartProps[] = [];
 vi.mock('../components/LazyChart', () => ({
   LazyChart: (props: ChartProps) => {
@@ -18,6 +19,19 @@ import { TrendChart } from '../panels/TrendChart';
 import { updateFilters } from '../state/filters';
 import { siteSignal } from '../state/site';
 import { replaceHashParams } from '../state/hash';
+
+interface CapturedSeries {
+  name?: string;
+  data?: unknown[];
+  areaStyle?: unknown;
+  yAxisIndex?: number;
+}
+
+function capturedSeries(call: ChartProps | undefined): CapturedSeries[] {
+  if (!call) return [];
+  const opt = call.option as { series?: CapturedSeries[] };
+  return opt.series ?? [];
+}
 
 describe('TrendChart', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -49,19 +63,17 @@ describe('TrendChart', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('renders a single-series chart when only visitors is selected (default)', async () => {
+  it('renders a single-series chart with the visitors area-fill wash when only visitors is selected', async () => {
     render(<TrendChart />);
 
     await waitFor(() => {
       expect(lazyChartCalls.length).toBeGreaterThan(0);
     });
 
-    const last = lazyChartCalls[lazyChartCalls.length - 1];
-    // AlignedData layout: [xs, ys_for_visitors] = 2 entries.
-    expect(last?.data.length).toBe(2);
-    // uPlot series: index 0 is the x-axis placeholder, then one per metric.
-    expect(last?.options.series?.length).toBe(2);
-    expect(last?.options.series?.[1]?.label).toBe('Visitors');
+    const series = capturedSeries(lazyChartCalls[lazyChartCalls.length - 1]);
+    expect(series).toHaveLength(1);
+    expect(series[0].name).toBe('Visitors');
+    expect(series[0].areaStyle).toBeDefined();
   });
 
   it('renders multi-series when metrics filter has visitors + revenue', async () => {
@@ -73,16 +85,28 @@ describe('TrendChart', () => {
       expect(lazyChartCalls.length).toBeGreaterThan(0);
     });
 
-    const last = lazyChartCalls[lazyChartCalls.length - 1];
-    // [xs, ys_visitors, ys_revenue] = 3 entries.
-    expect(last?.data.length).toBe(3);
-    // x-axis + 2 metric series = 3 series.
-    expect(last?.options.series?.length).toBe(3);
-    expect(last?.options.series?.[1]?.label).toBe('Visitors');
-    expect(last?.options.series?.[2]?.label).toBe('Revenue');
+    const series = capturedSeries(lazyChartCalls[lazyChartCalls.length - 1]);
+    expect(series).toHaveLength(2);
+    expect(series[0].name).toBe('Visitors');
+    expect(series[1].name).toBe('Revenue');
     // Visitors fill wash is dropped when a second metric is on (DESIGN.md
     // ≤10% Persian Teal budget).
-    expect(last?.options.series?.[1]?.fill).toBeFalsy();
+    expect(series[0].areaStyle).toBeUndefined();
+  });
+
+  it('each metric series carries its own yAxisIndex (independent scales)', async () => {
+    updateFilters({ metrics: 'visitors,revenue,rpv' });
+    render(<TrendChart />);
+
+    await waitFor(() => {
+      expect(lazyChartCalls.length).toBeGreaterThan(0);
+    });
+
+    const series = capturedSeries(lazyChartCalls[lazyChartCalls.length - 1]);
+    expect(series).toHaveLength(3);
+    expect(series[0].yAxisIndex).toBe(0);
+    expect(series[1].yAxisIndex).toBe(1);
+    expect(series[2].yAxisIndex).toBe(2);
   });
 
   it('derives conversion = goals/visitors per day client-side', async () => {
@@ -94,11 +118,11 @@ describe('TrendChart', () => {
       expect(lazyChartCalls.length).toBeGreaterThan(0);
     });
 
-    const last = lazyChartCalls[lazyChartCalls.length - 1];
+    const series = capturedSeries(lazyChartCalls[lazyChartCalls.length - 1]);
+    const data = series[0].data as Array<[string, number]>;
     // Fixture: day 0 = 5/100*100 = 5.0; day 1 = 6/120*100 = 5.0
-    const ys = last?.data[1] as readonly number[] | undefined;
-    expect(ys?.[0]).toBeCloseTo(5, 5);
-    expect(ys?.[1]).toBeCloseTo(5, 5);
+    expect(data[0][1]).toBeCloseTo(5, 5);
+    expect(data[1][1]).toBeCloseTo(5, 5);
   });
 
   it('refetches /api/stats/trend when siteSignal changes (regression guard)', async () => {
@@ -147,8 +171,20 @@ describe('TrendChart', () => {
 
     // But the chart did re-render with multi-series props.
     await waitFor(() => {
-      const last = lazyChartCalls[lazyChartCalls.length - 1];
-      expect(last?.options.series?.length).toBe(3);
+      const series = capturedSeries(lazyChartCalls[lazyChartCalls.length - 1]);
+      expect(series).toHaveLength(2);
     });
+  });
+
+  it('exposes aria.show for AriaComponent', async () => {
+    render(<TrendChart />);
+
+    await waitFor(() => {
+      expect(lazyChartCalls.length).toBeGreaterThan(0);
+    });
+
+    const last = lazyChartCalls[lazyChartCalls.length - 1];
+    const opt = last.option as { aria?: { show?: boolean } };
+    expect(opt.aria?.show).toBe(true);
   });
 });

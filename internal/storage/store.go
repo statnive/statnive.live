@@ -21,6 +21,7 @@ import (
 type Store interface {
 	Overview(ctx context.Context, f *Filter) (*OverviewResult, error)
 	Sources(ctx context.Context, f *Filter) ([]SourceRow, error)
+	SourcesByChannel(ctx context.Context, f *Filter) ([]SourceChannelRow, error)
 	Pages(ctx context.Context, f *Filter) ([]PageRow, error)
 	SEO(ctx context.Context, f *Filter) ([]SEORow, error)
 	Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, error)

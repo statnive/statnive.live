@@ -203,6 +203,59 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 	return out, rows.Err()
 }
 
+// SourcesByChannel reads daily_sources, GROUP BY channel only. Powers the
+// per-channel grouped-bar chart and the channel header rows in the
+// grouped Sources table. Sort order matches Sources (revenue DESC, views
+// DESC) so the chart and table align row-by-row.
+//
+// Visitors come from a server-side uniqCombined64Merge across the HLL
+// states — never a client-side sum of per-referrer visitor counts (HLL
+// union is sub-additive when visitors overlap across referrers).
+//
+// daily_sources is ORDER BY (site_id, day, channel, referrer_name, ...);
+// this query's GROUP BY channel hits a 3-column index prefix and uses
+// stream aggregation, making it faster than the per-referrer Sources
+// query above. No LIMIT — channel cardinality is bounded (~8 in v1).
+func (s *clickhouseStore) SourcesByChannel(ctx context.Context, f *Filter) ([]SourceChannelRow, error) {
+	if err := f.Validate(); err != nil {
+		return nil, err
+	}
+
+	where, args := whereTimeAndTenant(f, "day")
+	where, args = applyFilters(f, where, args, dailySourcesCols)
+
+	rows, err := s.conn.Query(ctx, fmt.Sprintf(`
+		SELECT
+			channel,
+			toUInt64(sum(views))                AS views,
+			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
+			toUInt64(sum(goals))                AS goals,
+			toUInt64(sum(revenue))              AS revenue
+		FROM statnive.daily_sources %s
+		GROUP BY channel
+		ORDER BY revenue DESC, views DESC
+	`, where), args...)
+	if err != nil {
+		return nil, fmt.Errorf("sources_by_channel query: %w", err)
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	out := []SourceChannelRow{}
+
+	for rows.Next() {
+		var r SourceChannelRow
+		if err := rows.Scan(&r.Channel, &r.Views, &r.Visitors, &r.Goals, &r.Revenue); err != nil {
+			return nil, fmt.Errorf("sources_by_channel scan: %w", err)
+		}
+
+		r.RPV = rpv(r.Revenue, r.Visitors)
+		out = append(out, r)
+	}
+
+	return out, rows.Err()
+}
+
 // Pages reads daily_pages, GROUP BY pathname. Pages + Campaigns share
 // SELECT shape but target different rollup tables with different column
 // typing; extracting a helper would erase the rollup/column coupling the
