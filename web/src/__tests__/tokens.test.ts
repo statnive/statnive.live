@@ -56,6 +56,18 @@ const EXPECTED: Expected[] = [
   { name: '--ch-referral', value: '#8B7355' },
   { name: '--ch-ai', value: '#0A2540' },
   { name: '--ch-paid', value: '#8A5508' },
+  // Pie/donut slice palette — lighter OKLCH set distinct from the
+  // --ch-* chip palette. Each channel maps deterministically to one
+  // of these via CHANNEL_PIE_TOKEN in lib/chart.ts.
+  { name: '--pie-teal', value: 'oklch(0.72 0.12 168)' },
+  { name: '--pie-slate', value: 'oklch(0.58 0.06 245)' },
+  { name: '--pie-sky', value: 'oklch(0.66 0.13 232)' },
+  { name: '--pie-peach', value: 'oklch(0.76 0.13 60)' },
+  { name: '--pie-mauve', value: 'oklch(0.70 0.10 340)' },
+  { name: '--pie-violet', value: 'oklch(0.62 0.13 290)' },
+  { name: '--pie-olive', value: 'oklch(0.65 0.10 110)' },
+  { name: '--pie-crimson', value: 'oklch(0.62 0.18 25)' },
+  { name: '--pie-track', value: 'oklch(0.95 0.005 80)' },
 ];
 
 function escapeRegex(s: string): string {

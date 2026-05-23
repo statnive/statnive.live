@@ -12,13 +12,22 @@ const AXIS_FONT = "11px 'JetBrains Mono', ui-monospace, monospace";
 // Read once per chart mount via readEChartsTheme(); resolved colors
 // pass by value into the option object so the brand-grep gate stays
 // satisfied (no inline hex in source — only var(--…) reads).
+//
+// `channels` holds the chip-style --ch-* hues for tags/badges; `pies`
+// holds the lighter --pie-* hues used on canvas donuts + the campaign
+// rank list. The split keeps high-contrast chip backgrounds (10% alpha
+// of a saturated hex) from being forced through pie-saturation tuning.
 export interface EChartsTheme extends BrandTokens {
   channels: Record<string, string>;
+  pies: Record<string, string>;
+  piesFallback: string[];
+  pieTrack: string;
 }
 
-// Channel taxonomy mirror of internal/enrich/channel.go. UI labels
-// "Social Media" and "Organic Social" both resolve to the backend
-// "Social" hue. Unknown channels fall back to --ink-2.
+// CHANNEL_TOKEN drives chip color via --ch-*. Channel taxonomy mirrors
+// internal/enrich/channel.go; the FilterPanel UI label "Social Media"
+// and the backend "Organic Social" both resolve to the same --ch-social
+// hue. Unknown channels fall back to --ink-2.
 const CHANNEL_TOKEN: Record<string, string> = {
   Direct: '--ch-direct',
   'Organic Search': '--ch-search',
@@ -33,6 +42,38 @@ const CHANNEL_TOKEN: Record<string, string> = {
   'Organic Video': '--ch-search',
 };
 
+// CHANNEL_PIE_TOKEN maps the same channel taxonomy onto the lighter
+// --pie-* slice palette. Deterministic and stable across charts so
+// "Organic Search" reads the same hue whether it appears in the Sources
+// views donut, the Sources revenue donut, the Campaigns donut, or the
+// Top Campaigns rank list. The list is also the ordering used to assign
+// a slot to an unrecognised channel (falls through to the next free
+// --pie-* hue rather than ink-2 grey).
+const CHANNEL_PIE_TOKEN: Record<string, string> = {
+  'Organic Search': '--pie-teal',
+  Direct: '--pie-slate',
+  'Organic Social': '--pie-sky',
+  Social: '--pie-sky',
+  'Social Media': '--pie-sky',
+  Email: '--pie-peach',
+  AI: '--pie-mauve',
+  Paid: '--pie-violet',
+  Referral: '--pie-olive',
+  Video: '--pie-crimson',
+  'Organic Video': '--pie-crimson',
+};
+
+const PIE_PALETTE_FALLBACK = [
+  '--pie-teal',
+  '--pie-slate',
+  '--pie-sky',
+  '--pie-peach',
+  '--pie-mauve',
+  '--pie-violet',
+  '--pie-olive',
+  '--pie-crimson',
+];
+
 // readEChartsTheme reads brand tokens + channel hues from the live
 // :root scope so every option-builder can hand resolved colors to
 // ECharts. ECharts does not understand CSS var() strings inside its
@@ -42,21 +83,46 @@ const CHANNEL_TOKEN: Record<string, string> = {
 export function readEChartsTheme(): EChartsTheme {
   const tokens = readBrandTokens();
   const channels: Record<string, string> = {};
+  const pies: Record<string, string> = {};
+  const piesFallback: string[] = [];
+  let pieTrack = 'var(--pie-track)';
 
   if (typeof document !== 'undefined') {
     const root = document.getElementById('statnive-app') ?? document.documentElement;
     const cs = getComputedStyle(root);
+    const read = (cssVar: string): string =>
+      cs.getPropertyValue(cssVar).trim() || `var(${cssVar})`;
+
     for (const [channel, cssVar] of Object.entries(CHANNEL_TOKEN)) {
-      const v = cs.getPropertyValue(cssVar).trim();
-      channels[channel] = v || `var(${cssVar})`;
+      channels[channel] = read(cssVar);
     }
+    for (const [channel, cssVar] of Object.entries(CHANNEL_PIE_TOKEN)) {
+      pies[channel] = read(cssVar);
+    }
+    for (const cssVar of PIE_PALETTE_FALLBACK) {
+      piesFallback.push(read(cssVar));
+    }
+    pieTrack = read('--pie-track');
   } else {
     for (const [channel, cssVar] of Object.entries(CHANNEL_TOKEN)) {
       channels[channel] = `var(${cssVar})`;
     }
+    for (const [channel, cssVar] of Object.entries(CHANNEL_PIE_TOKEN)) {
+      pies[channel] = `var(${cssVar})`;
+    }
+    for (const cssVar of PIE_PALETTE_FALLBACK) {
+      piesFallback.push(`var(${cssVar})`);
+    }
   }
 
-  return { ...tokens, channels };
+  return { ...tokens, channels, pies, piesFallback, pieTrack };
+}
+
+// pieHueForIndex falls back to a positional --pie-* slot when a channel
+// is missing from CHANNEL_PIE_TOKEN. Reads from the theme's cached
+// fallback palette — no live getComputedStyle calls per slice.
+function pieHueForIndex(idx: number, theme: EChartsTheme): string {
+  return theme.piesFallback[idx % theme.piesFallback.length];
 }
 
 // applyReducedMotion disables ECharts animation when the user has
@@ -126,17 +192,26 @@ function tooltipBase(
   };
 }
 
-// channelHue resolves a channel name to its ECharts color, falling
-// back to --ink-2 for unknown channels.
-function channelHue(channel: string, theme: EChartsTheme): string {
-  return theme.channels[channel] ?? theme.ink2;
+// pieHueForChannel resolves a channel name to a slice color from the
+// --pie-* palette. Channels missing from CHANNEL_PIE_TOKEN fall back
+// to a positional --pie-* slot based on their data-array index so an
+// unrecognised channel never renders as ink-2 grey.
+export function pieHueForChannel(
+  channel: string,
+  idx: number,
+  theme: EChartsTheme,
+): string {
+  return theme.pies[channel] ?? pieHueForIndex(idx, theme);
 }
 
-// pieOption is the shared pie-chart shell used by viewsPieOption,
-// revenuePieOption, and campaignsPieOption. Each caller produces the
-// `data` array (with per-slice color) + a tooltip formatter + an aria
-// description; the rest of the option (radius, center, label visibility,
-// emphasis state, legend) is identical across all three.
+// pieOption is the shared donut shell used by viewsPieOption,
+// revenuePieOption, and campaignsPieOption. Donut form (radius
+// ['55%', '85%']) leaves a generous center hole so an HTML overlay
+// can render the metric label + total inside the chart. Each caller
+// produces the `data` array (with per-slice color) + a tooltip
+// formatter + an aria description.
+export const PIE_RADIUS: [string, string] = ['55%', '85%'];
+
 interface PieData {
   name: string;
   value: number;
@@ -153,12 +228,17 @@ function pieOption(
     series: [
       {
         type: 'pie',
-        radius: '70%',
+        radius: PIE_RADIUS,
         center: ['50%', '50%'],
         data,
         label: { show: false },
         labelLine: { show: false },
-        emphasis: { scale: false, itemStyle: { borderWidth: 1, borderColor: theme.ink } },
+        emphasis: {
+          scale: true,
+          scaleSize: 4,
+          itemStyle: { borderWidth: 2, borderColor: theme.ink },
+        },
+        itemStyle: { borderWidth: 2, borderColor: theme.paper2 },
       },
     ],
     legend: { show: false },
@@ -264,10 +344,10 @@ type PieParams = { name: string; value: number; percent: number };
 export function viewsPieOption(by_channel: SourceChannelRow[], theme: EChartsTheme): EChartsCoreOption {
   const data: PieData[] = by_channel
     .filter((r) => r.views > 0)
-    .map((r) => ({
+    .map((r, i) => ({
       name: r.channel,
       value: r.views,
-      itemStyle: { color: channelHue(r.channel, theme) },
+      itemStyle: { color: pieHueForChannel(r.channel, i, theme) },
     }));
   return pieOption(
     theme,
@@ -276,7 +356,7 @@ export function viewsPieOption(by_channel: SourceChannelRow[], theme: EChartsThe
       const p = params as PieParams;
       return `${p.name}: ${fmtInt(p.value)} (${p.percent.toFixed(1)}%)`;
     },
-    'Views by channel pie chart',
+    'Views by channel donut chart',
   );
 }
 
@@ -288,10 +368,10 @@ export function revenuePieOption(
 ): EChartsCoreOption {
   const data: PieData[] = by_channel
     .filter((r) => r.revenue > 0)
-    .map((r) => ({
+    .map((r, i) => ({
       name: r.channel,
       value: r.revenue,
-      itemStyle: { color: channelHue(r.channel, theme) },
+      itemStyle: { color: pieHueForChannel(r.channel, i, theme) },
     }));
   return pieOption(
     theme,
@@ -300,7 +380,7 @@ export function revenuePieOption(
       const p = params as PieParams;
       return `${p.name}: ${fmtMoney(p.value, currency)} (${p.percent.toFixed(1)}%)`;
     },
-    'Revenue by channel pie chart',
+    'Revenue by channel donut chart',
   );
 }
 
@@ -320,10 +400,10 @@ export function campaignsPieOption(
   }
   const data: PieData[] = Array.from(byChannel.entries())
     .filter(([, v]) => v > 0)
-    .map(([channel, value]) => ({
+    .map(([channel, value], i) => ({
       name: channel,
       value,
-      itemStyle: { color: channelHue(channel, theme) },
+      itemStyle: { color: pieHueForChannel(channel, i, theme) },
     }));
   return pieOption(
     theme,
@@ -336,43 +416,42 @@ export function campaignsPieOption(
   );
 }
 
-// topCampaignsBarOption builds the horizontal bar chart for top-8
-// campaigns by revenue. Per-bar color comes from the campaign's
-// channel hue.
-export function topCampaignsBarOption(
+// topCampaignsRanked sorts campaigns by revenue and projects them to a
+// shape the CampaignCharts rank list can render directly. Each row
+// carries its rank, label, value, percent-of-max, and the resolved hue
+// from the --pie-* palette so the bar fill matches the channel pie above.
+export interface RankedCampaign {
+  rank: number;
+  label: string;
+  value: number;
+  pctOfMax: number;
+  color: string;
+}
+
+export function topCampaignsRanked(
   rows: CampaignRow[],
   theme: EChartsTheme,
-  currency: string,
   limit = 8,
-): EChartsCoreOption {
+): RankedCampaign[] {
   const sorted = [...rows].sort((a, b) => b.revenue - a.revenue).slice(0, limit);
-  const labels = sorted.map((r) => r.utm_campaign || '(none)');
-  const values = sorted.map((r) => ({
+  const max = sorted.length > 0 ? sorted[0].revenue : 0;
+  return sorted.map((r, i) => ({
+    rank: i + 1,
+    label: campaignLabel(r),
     value: r.revenue,
-    itemStyle: { color: channelHue(r.channel, theme) },
+    pctOfMax: max > 0 ? (r.revenue / max) * 100 : 0,
+    color: pieHueForChannel(r.channel, i, theme),
   }));
+}
 
-  return {
-    grid: { left: 140, right: 24, top: 8, bottom: 24 },
-    xAxis: { type: 'value', ...axisStyle(theme), splitLine: splitLineStyle(theme) },
-    yAxis: {
-      type: 'category',
-      data: labels,
-      inverse: true,
-      ...axisStyle(theme),
-      axisLabel: { ...axisStyle(theme).axisLabel, width: 130, overflow: 'truncate' },
-    },
-    series: [
-      {
-        type: 'bar',
-        data: values,
-        barCategoryGap: '40%',
-      },
-    ],
-    tooltip: tooltipBase(theme, (params) => {
-      const p = params as { name: string; value: number };
-      return `${p.name}: ${fmtMoney(p.value, currency)}`;
-    }),
-    aria: { show: true, label: { description: 'Top campaigns by revenue' } },
-  };
+// campaignLabel composes the rank-list label from utm_campaign /
+// utm_source / utm_medium so operators can disambiguate two campaigns
+// that share a name. Missing parts are skipped — never rendered as '·'
+// or empty parens.
+function campaignLabel(r: CampaignRow): string {
+  const parts = [r.utm_campaign, r.utm_source, r.utm_medium]
+    .map((p) => (p ?? '').trim())
+    .filter((p) => p.length > 0);
+  if (parts.length === 0) return '(none)';
+  return parts.join(' · ');
 }

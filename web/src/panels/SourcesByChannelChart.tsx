@@ -4,39 +4,51 @@ import { fmtInt, fmtMoney, fmtRpv } from '../lib/fmt';
 import { LazyChart } from '../components/LazyChart';
 import {
   applyReducedMotion,
-  revenuePieOption,
+  pieHueForChannel,
   readEChartsTheme,
+  revenuePieOption,
   viewsPieOption,
+  type EChartsTheme,
 } from '../lib/chart';
+import { PieSummaryList, type PieSummaryRow } from './PieSummaryList';
 
-// SourcesByChannelChart renders two ECharts pie charts (views by
-// channel, revenue by channel) above the Sources table. Each slice is
-// tinted in its channel hue via theme.channels[r.channel]; a shared
-// legend underneath shows the per-channel chip plus share% on each
-// metric. Pie (radius: '70%'), not donut; totals live in the eyebrow
-// line above each chart.
+// SourcesByChannelChart renders two cards side-by-side. Each card
+// contains:
+//   - A donut chart on the left (radius ['55%','85%']; bigger than
+//     the prior pie, with a generous center hole so the metric label
+//     + total can live inside the donut).
+//   - A summary panel on the right inside the same card: a TOP
+//     CHANNELS / <METRIC> table where each row is a colored swatch +
+//     channel name + horizontal bar + share% + raw value.
 //
-// The two pies answer two different questions:
-//   - VIEWS:   where is traffic coming from?
-//   - REVENUE: which channel actually earns?
-// Mismatched proportions across the pies are the RPV story
-// (CLAUDE.md Product Philosophy item 1): a channel with a fat VIEWS
-// slice and a thin REVENUE slice is converting poorly.
+// Per-slice hue comes from the lighter --pie-* palette (not the
+// --ch-* chip palette) and is consistent across both donuts and the
+// Campaigns panel — operators learn the channel-color pairing once.
 
 export interface SourcesByChannelChartProps {
   by_channel: SourceChannelRow[];
   currency: string;
 }
 
-function pctLabel(value: number, total: number): string {
-  if (total <= 0) return '0%';
-  const p = (value / total) * 100;
-  if (p === 0) return '0%';
-  if (p < 1) return '<1%';
-  return Math.round(p) + '%';
-}
+const DONUT_HEIGHT = 240;
 
-const PIE_HEIGHT = 160;
+function summary(
+  by_channel: SourceChannelRow[],
+  total: number,
+  pick: (r: SourceChannelRow) => number,
+  theme: EChartsTheme,
+): PieSummaryRow[] {
+  if (total <= 0) return [];
+  return by_channel
+    .map((r, i) => ({
+      channel: r.channel,
+      value: pick(r),
+      pct: (pick(r) / total) * 100,
+      color: pieHueForChannel(r.channel, i, theme),
+    }))
+    .filter((row) => row.value > 0)
+    .sort((a, b) => b.value - a.value);
+}
 
 export function SourcesByChannelChart({ by_channel, currency }: SourcesByChannelChartProps) {
   const theme = useMemo(() => readEChartsTheme(), []);
@@ -50,6 +62,15 @@ export function SourcesByChannelChart({ by_channel, currency }: SourcesByChannel
     }
     return { views, revenue };
   }, [by_channel]);
+
+  const viewsRows = useMemo(
+    () => summary(by_channel, totals.views, (r) => r.views, theme),
+    [by_channel, totals.views, theme],
+  );
+  const revenueRows = useMemo(
+    () => summary(by_channel, totals.revenue, (r) => r.revenue, theme),
+    [by_channel, totals.revenue, theme],
+  );
 
   const viewsOption = useMemo(
     () => applyReducedMotion(viewsPieOption(by_channel, theme)),
@@ -78,44 +99,28 @@ export function SourcesByChannelChart({ by_channel, currency }: SourcesByChannel
       <figcaption id="sources-pies-cap" class="statnive-sr-only">
         Share of views and revenue by channel. Precise values in the table below.
       </figcaption>
-      <div class="statnive-channel-pies-row">
-        <div class="statnive-pie" data-testid="views-pie">
-          <p class="statnive-eyebrow">
-            VIEWS · {totals.views > 0 ? fmtInt(totals.views) : 'No views'}
-          </p>
-          {totals.views > 0 ? (
-            <div aria-hidden="true">
-              <LazyChart option={viewsOption} height={PIE_HEIGHT} />
-            </div>
-          ) : null}
-        </div>
-        <div class="statnive-pie" data-testid="revenue-pie">
-          <p class="statnive-eyebrow">
-            REVENUE · {totals.revenue > 0 ? fmtMoney(totals.revenue, currency) : 'No revenue'}
-          </p>
-          {totals.revenue > 0 ? (
-            <div aria-hidden="true">
-              <LazyChart option={revenueOption} height={PIE_HEIGHT} />
-            </div>
-          ) : null}
-        </div>
+      <div class="statnive-pies-grid">
+        <PieCard
+          label="VIEWS"
+          summaryMetricLabel="VIEWS"
+          totalDisplay={totals.views > 0 ? fmtInt(totals.views) : 'No views'}
+          showChart={totals.views > 0}
+          option={viewsOption}
+          rows={viewsRows}
+          formatValue={(v) => fmtInt(v)}
+          testId="views-pie"
+        />
+        <PieCard
+          label="REVENUE"
+          summaryMetricLabel="REVENUE"
+          totalDisplay={totals.revenue > 0 ? fmtMoney(totals.revenue, currency) : 'No revenue'}
+          showChart={totals.revenue > 0}
+          option={revenueOption}
+          rows={revenueRows}
+          formatValue={(v) => fmtMoney(v, currency)}
+          testId="revenue-pie"
+        />
       </div>
-      <ul class="statnive-channel-legend">
-        {by_channel.map((r) => (
-          <li class="statnive-channel-legend-row" data-channel={r.channel} key={r.channel}>
-            <span class="statnive-channel-legend-dot" aria-hidden="true" />
-            <span class="statnive-channel-legend-name">{r.channel || '·'}</span>
-            <span class="statnive-channel-legend-metric">
-              <span class="statnive-channel-legend-axis">VIEWS</span>
-              <span class="statnive-channel-legend-pct">{pctLabel(r.views, totals.views)}</span>
-            </span>
-            <span class="statnive-channel-legend-metric">
-              <span class="statnive-channel-legend-axis">REVENUE</span>
-              <span class="statnive-channel-legend-pct">{pctLabel(r.revenue, totals.revenue)}</span>
-            </span>
-          </li>
-        ))}
-      </ul>
       <table class="statnive-sr-only">
         <caption>Per-channel visitors, revenue, and RPV</caption>
         <thead>
@@ -138,5 +143,52 @@ export function SourcesByChannelChart({ by_channel, currency }: SourcesByChannel
         </tbody>
       </table>
     </figure>
+  );
+}
+
+interface PieCardProps {
+  label: string;
+  summaryMetricLabel: string;
+  totalDisplay: string;
+  showChart: boolean;
+  option: ReturnType<typeof viewsPieOption>;
+  rows: PieSummaryRow[];
+  formatValue: (v: number) => string;
+  testId: string;
+}
+
+function PieCard({
+  label,
+  summaryMetricLabel,
+  totalDisplay,
+  showChart,
+  option,
+  rows,
+  formatValue,
+  testId,
+}: PieCardProps) {
+  return (
+    <article class="statnive-pie-card" data-testid={testId}>
+      <div class="statnive-pie-chart-wrap">
+        {showChart ? (
+          <div aria-hidden="true" class="statnive-pie-chart-canvas">
+            <LazyChart option={option} height={DONUT_HEIGHT} />
+          </div>
+        ) : (
+          <div class="statnive-pie-chart-empty" aria-hidden="true" />
+        )}
+        <div class="statnive-pie-center" aria-hidden="true">
+          <span class="statnive-pie-center-label">{label}</span>
+          <span class="statnive-pie-center-value" data-fit>{totalDisplay}</span>
+        </div>
+      </div>
+      <div class="statnive-pie-summary">
+        <header class="statnive-pie-summary-head">
+          <span>TOP CHANNELS</span>
+          <span>{summaryMetricLabel}</span>
+        </header>
+        <PieSummaryList rows={rows} formatValue={formatValue} />
+      </div>
+    </article>
   );
 }

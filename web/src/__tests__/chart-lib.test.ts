@@ -4,9 +4,10 @@ import {
   buildMetricSpecs,
   campaignsPieOption,
   metricsLineOption,
-  revenuePieOption,
-  topCampaignsBarOption,
+  PIE_RADIUS,
   readEChartsTheme,
+  revenuePieOption,
+  topCampaignsRanked,
   viewsPieOption,
 } from '../lib/chart';
 import type { SourceChannelRow, DailyPoint, SEORow, CampaignRow } from '../api/types';
@@ -184,9 +185,9 @@ describe('metricsLineOption (Overview multi-metric)', () => {
 });
 
 describe('viewsPieOption (Sources panel views pie)', () => {
-  it('uses radius "70%" for a FULL pie, not a donut', () => {
-    const opt = viewsPieOption(SAMPLE_CHANNELS, THEME) as { series: { radius: string }[] };
-    expect(opt.series[0].radius).toBe('70%');
+  it('uses donut radius ["55%","85%"] — generous center hole for the metric label overlay', () => {
+    const opt = viewsPieOption(SAMPLE_CHANNELS, THEME) as { series: { radius: [string, string] }[] };
+    expect(opt.series[0].radius).toEqual(PIE_RADIUS);
   });
 
   it('produces type "pie"', () => {
@@ -206,12 +207,12 @@ describe('viewsPieOption (Sources panel views pie)', () => {
     expect(opt.series[0].data[0].name).toBe('Direct');
   });
 
-  it('applies per-slice channel hue via itemStyle.color', () => {
+  it('applies per-slice hue from the --pie-* palette (not --ch-*)', () => {
     const opt = viewsPieOption(SAMPLE_CHANNELS, THEME) as {
       series: { data: { name: string; itemStyle: { color: string } }[] }[];
     };
     for (const entry of opt.series[0].data) {
-      expect(entry.itemStyle.color).toBe(THEME.channels[entry.name]);
+      expect(entry.itemStyle.color).toBe(THEME.pies[entry.name]);
     }
   });
 
@@ -227,9 +228,11 @@ describe('viewsPieOption (Sources panel views pie)', () => {
 });
 
 describe('revenuePieOption (Sources panel revenue pie)', () => {
-  it('uses radius "70%" — same pie contract', () => {
-    const opt = revenuePieOption(SAMPLE_CHANNELS, THEME, 'EUR') as { series: { radius: string }[] };
-    expect(opt.series[0].radius).toBe('70%');
+  it('uses donut radius (PIE_RADIUS constant) — same donut contract as views', () => {
+    const opt = revenuePieOption(SAMPLE_CHANNELS, THEME, 'EUR') as {
+      series: { radius: [string, string] }[];
+    };
+    expect(opt.series[0].radius).toEqual(PIE_RADIUS);
   });
 
   it('skips channels with zero revenue', () => {
@@ -257,11 +260,11 @@ describe('campaignsPieOption (Campaigns panel pie)', () => {
     expect(byName.get('Email')).toBe(200);
   });
 
-  it('uses radius "70%" — pie, not donut', () => {
+  it('uses donut radius — pie shell shared with Sources', () => {
     const opt = campaignsPieOption(SAMPLE_CAMPAIGNS, THEME, revenueOf, fmt) as {
-      series: { radius: string }[];
+      series: { radius: [string, string] }[];
     };
-    expect(opt.series[0].radius).toBe('70%');
+    expect(opt.series[0].radius).toEqual(PIE_RADIUS);
   });
 
   it('honors a visitors fallback when called with a visitors selector', () => {
@@ -278,19 +281,33 @@ describe('campaignsPieOption (Campaigns panel pie)', () => {
   });
 });
 
-describe('topCampaignsBarOption (Campaigns panel top-N bar)', () => {
-  it('produces a bar series with horizontal layout (category yAxis)', () => {
-    const opt = topCampaignsBarOption(SAMPLE_CAMPAIGNS, THEME, 'EUR') as {
-      series: { type: string }[];
-      xAxis: { type: string };
-      yAxis: { type: string; data: string[] };
-    };
-    expect(opt.series[0].type).toBe('bar');
-    expect(opt.xAxis.type).toBe('value');
-    expect(opt.yAxis.type).toBe('category');
+describe('topCampaignsRanked (Campaigns panel rank list)', () => {
+  it('sorts by revenue desc and projects to a flat ranked-row shape', () => {
+    const ranked = topCampaignsRanked(SAMPLE_CAMPAIGNS, THEME);
+    expect(ranked).toHaveLength(3);
+    // Labels combine utm_campaign · utm_source · utm_medium so two
+    // campaigns with the same name (different source/medium) are
+    // disambiguated in the rank list.
+    expect(ranked.map((r) => r.label)).toEqual([
+      'spring-sale · google · cpc',
+      'summer-promo · facebook · cpc',
+      'newsletter-may · newsletter · email',
+    ]);
+    expect(ranked.map((r) => r.rank)).toEqual([1, 2, 3]);
+    expect(ranked[0].value).toBe(1500);
   });
 
-  it('truncates to the top N (default 8) when input exceeds it', () => {
+  it('drops empty utm_* parts when composing the label', () => {
+    const sparse: CampaignRow[] = [
+      { utm_campaign: 'name-only', utm_source: '', utm_medium: '', utm_content: '', utm_term: '', channel: 'Direct', views: 1, visitors: 1, goals: 0, revenue: 10, rpv: 10 },
+      { utm_campaign: '', utm_source: 'src-only', utm_medium: '', utm_content: '', utm_term: '', channel: 'Direct', views: 1, visitors: 1, goals: 0, revenue: 5, rpv: 5 },
+      { utm_campaign: '', utm_source: '', utm_medium: '', utm_content: '', utm_term: '', channel: 'Direct', views: 1, visitors: 1, goals: 0, revenue: 1, rpv: 1 },
+    ];
+    const ranked = topCampaignsRanked(sparse, THEME);
+    expect(ranked.map((r) => r.label)).toEqual(['name-only', 'src-only', '(none)']);
+  });
+
+  it('caps to the top-N (default 8) when input exceeds it', () => {
     const many: CampaignRow[] = Array.from({ length: 12 }, (_, i) => ({
       utm_campaign: 'c-' + i,
       utm_source: 'x',
@@ -304,28 +321,28 @@ describe('topCampaignsBarOption (Campaigns panel top-N bar)', () => {
       revenue: 1000 - i * 10,
       rpv: 1,
     }));
-    const opt = topCampaignsBarOption(many, THEME, 'EUR', 8) as {
-      yAxis: { data: string[] };
-      series: { data: unknown[] }[];
-    };
-    expect(opt.yAxis.data).toHaveLength(8);
-    expect(opt.series[0].data).toHaveLength(8);
-    // The top entry by revenue is c-0 (1000); confirm ordering.
-    expect(opt.yAxis.data[0]).toBe('c-0');
+    const ranked = topCampaignsRanked(many, THEME, 8);
+    expect(ranked).toHaveLength(8);
+    expect(ranked[0].label).toBe('c-0 · x · y');
+    expect(ranked[0].rank).toBe(1);
+    expect(ranked[7].rank).toBe(8);
   });
 
-  it('applies per-bar channel hue via itemStyle.color', () => {
-    const opt = topCampaignsBarOption(SAMPLE_CAMPAIGNS, THEME, 'EUR') as {
-      series: { data: { itemStyle: { color: string } }[] }[];
-      yAxis: { data: string[] };
-    };
-    const names = opt.yAxis.data;
-    const expected = names.map((n) => {
-      const row = SAMPLE_CAMPAIGNS.find((c) => c.utm_campaign === n);
-      return row ? THEME.channels[row.channel] : undefined;
-    });
-    opt.series[0].data.forEach((d, i) => {
-      expect(d.itemStyle.color).toBe(expected[i]);
-    });
+  it('assigns per-row color from the --pie-* palette', () => {
+    const ranked = topCampaignsRanked(SAMPLE_CAMPAIGNS, THEME);
+    for (const r of ranked) {
+      expect(r.color).toBeTruthy();
+    }
+  });
+
+  it('reports pctOfMax with the top entry at 100', () => {
+    const ranked = topCampaignsRanked(SAMPLE_CAMPAIGNS, THEME);
+    expect(ranked[0].pctOfMax).toBe(100);
+    // Second entry is 250 / 1500 ≈ 16.7%
+    expect(ranked[1].pctOfMax).toBeCloseTo((250 / 1500) * 100, 5);
+  });
+
+  it('returns [] for empty input', () => {
+    expect(topCampaignsRanked([], THEME)).toEqual([]);
   });
 });

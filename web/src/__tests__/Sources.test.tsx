@@ -146,7 +146,7 @@ describe('Sources panel', () => {
     });
   });
 
-  it('both pies use radius "70%" (full pie, no donut hole)', async () => {
+  it('both donuts use the shared PIE_RADIUS (donut, generous center hole)', async () => {
     mockResponse(SAMPLE_ROWS, SAMPLE_BY_CHANNEL);
     render(<Sources />);
 
@@ -156,9 +156,9 @@ describe('Sources panel', () => {
 
     // First two LazyChart calls are the views + revenue pies.
     for (const call of lazyChartCalls.slice(0, 2)) {
-      const opt = call.option as { series: { radius: string; type: string }[] };
+      const opt = call.option as { series: { radius: [string, string]; type: string }[] };
       expect(opt.series[0].type).toBe('pie');
-      expect(opt.series[0].radius).toBe('70%');
+      expect(opt.series[0].radius).toEqual(['55%', '85%']);
     }
   });
 
@@ -196,6 +196,41 @@ describe('Sources panel', () => {
         expect(slice.itemStyle.color).toBeTruthy();
       }
     }
+  });
+
+  it('summary header carries the dynamic metric label (VIEWS / REVENUE), not the static SHARE', async () => {
+    mockResponse(SAMPLE_ROWS, SAMPLE_BY_CHANNEL);
+    render(<Sources />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('panel-sources')).toBeTruthy();
+    });
+
+    const viewsHead = screen.getByTestId('views-pie').querySelector('.statnive-pie-summary-head');
+    const revenueHead = screen.getByTestId('revenue-pie').querySelector('.statnive-pie-summary-head');
+    expect(viewsHead?.textContent).toContain('TOP CHANNELS');
+    expect(viewsHead?.textContent).toContain('VIEWS');
+    expect(viewsHead?.textContent).not.toContain('SHARE');
+    expect(revenueHead?.textContent).toContain('REVENUE');
+    expect(revenueHead?.textContent).not.toContain('SHARE');
+  });
+
+  it('summary rows render percentage followed by the raw value in parentheses', async () => {
+    mockResponse(SAMPLE_ROWS, SAMPLE_BY_CHANNEL);
+    render(<Sources />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('panel-sources')).toBeTruthy();
+    });
+
+    // Total views = 800; Organic Search = 600 → 75% (600). Direct = 200 → 25% (200).
+    const viewsRows = screen
+      .getByTestId('views-pie')
+      .querySelectorAll<HTMLElement>('.statnive-pie-summary-pct');
+    expect(viewsRows.length).toBeGreaterThan(0);
+    const firstViewsRow = viewsRows[0].textContent || '';
+    expect(firstViewsRow).toMatch(/%/);
+    expect(firstViewsRow).toMatch(/\(.+\)/);
   });
 
   it('DualBar is untouched (regression guard against accidental migration)', async () => {

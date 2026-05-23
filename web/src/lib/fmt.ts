@@ -1,6 +1,15 @@
 export const fmtInt = (n: number): string => n.toLocaleString('en-US');
 export const fmtPct = (n: number): string => n.toFixed(2) + '%';
 
+// fmtSharePct renders a "share of total" percentage in the rounded form
+// used by the pie summary panels. Single source of truth so Sources +
+// Campaigns can't drift on the <1% threshold.
+export const fmtSharePct = (p: number): string => {
+  if (p === 0) return '0%';
+  if (p < 1) return '<1%';
+  return Math.round(p) + '%';
+};
+
 // moneyFormatters memoizes Intl.NumberFormat per (currency, fractionDigits).
 // Each instance is ~3 KB and triggers ICU table lookup; allocating one per
 // row in a 100-row Sources table on every signal-driven render is

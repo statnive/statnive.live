@@ -50,19 +50,21 @@ describe('CampaignCharts (pie + horizontal bar)', () => {
     expect(lazyChartCalls.length).toBe(0);
   });
 
-  it('mounts both pie and bar charts when data is present', () => {
+  it('mounts the pie chart and the rank list when data is present', () => {
     render(<CampaignCharts tree={SAMPLE_TREE} rows={SAMPLE_ROWS} currency="EUR" />);
     expect(screen.getByTestId('campaign-chart-pie')).toBeTruthy();
-    expect(screen.getByTestId('campaign-chart-hbar')).toBeTruthy();
-    expect(lazyChartCalls.length).toBe(2);
+    expect(screen.getByTestId('campaign-chart-rank')).toBeTruthy();
+    // Only the pie is an ECharts mount; the rank list is pure CSS.
+    expect(lazyChartCalls.length).toBe(1);
   });
 
-  it('pie uses radius "70%" (no donut hole)', () => {
+  it('pie uses the donut radius (["55%","85%"]) — center hole for the label overlay', () => {
     render(<CampaignCharts tree={SAMPLE_TREE} rows={SAMPLE_ROWS} currency="EUR" />);
-    // First LazyChart call is the pie (render order: pie first, bar second)
-    const pie = lazyChartCalls[0].option as { series: { type: string; radius: string }[] };
+    // Only ONE LazyChart call now — the channel pie. The top-N rank
+    // list is pure CSS, not an ECharts mount.
+    const pie = lazyChartCalls[0].option as { series: { type: string; radius: [string, string] }[] };
     expect(pie.series[0].type).toBe('pie');
-    expect(pie.series[0].radius).toBe('70%');
+    expect(pie.series[0].radius).toEqual(['55%', '85%']);
   });
 
   it('pie aggregates revenue by channel', () => {
@@ -76,7 +78,7 @@ describe('CampaignCharts (pie + horizontal bar)', () => {
     expect(byName.get('Email')).toBe(200);
   });
 
-  it('bar chart truncates to top N=8 campaigns by revenue', () => {
+  it('rank list truncates to top 8 rows with rank prefixes and bar fills', () => {
     const many: CampaignRow[] = Array.from({ length: 12 }, (_, i) => ({
       utm_campaign: 'c-' + i,
       utm_source: 'x',
@@ -102,14 +104,29 @@ describe('CampaignCharts (pie + horizontal bar)', () => {
       rpv: r.rpv,
       children: [],
     }));
-    render(<CampaignCharts tree={manyTree} rows={many} currency="EUR" />);
+    const { container } = render(
+      <CampaignCharts tree={manyTree} rows={many} currency="EUR" />,
+    );
 
-    const bar = lazyChartCalls[1].option as {
-      series: { data: unknown[] }[];
-      yAxis: { data: string[] };
-    };
-    expect(bar.yAxis.data).toHaveLength(8);
-    expect(bar.series[0].data).toHaveLength(8);
+    const rows = container.querySelectorAll('.statnive-rank-list-row');
+    expect(rows.length).toBe(8);
+
+    const ranks = Array.from(
+      container.querySelectorAll<HTMLElement>('.statnive-rank-list-rank'),
+    ).map((el) => el.textContent);
+    expect(ranks).toEqual(['01', '02', '03', '04', '05', '06', '07', '08']);
+
+    const labels = Array.from(
+      container.querySelectorAll<HTMLElement>('.statnive-rank-list-label'),
+    ).map((el) => el.textContent);
+    // Composite label: utm_campaign · utm_source · utm_medium.
+    expect(labels[0]).toBe('c-0 · x · y');
+
+    // Top row's bar fill must hit 100% (it IS the max).
+    const firstFill = container.querySelector<HTMLElement>(
+      '.statnive-rank-list-row:first-child .statnive-rank-list-fill',
+    );
+    expect(firstFill?.style.width).toBe('100%');
   });
 
   it('falls back to visitors when total revenue is zero', () => {
@@ -120,6 +137,39 @@ describe('CampaignCharts (pie + horizontal bar)', () => {
     // Eyebrow text should reflect VISITORS, not REVENUE.
     const pieContainer = screen.getByTestId('campaign-chart-pie');
     expect(pieContainer.textContent).toContain('VISITORS');
+  });
+
+  it('summary header carries dynamic REVENUE / VISITORS label (not SHARE)', () => {
+    render(<CampaignCharts tree={SAMPLE_TREE} rows={SAMPLE_ROWS} currency="EUR" />);
+    const head = screen
+      .getByTestId('campaign-chart-pie')
+      .querySelector('.statnive-pie-summary-head');
+    expect(head?.textContent).toContain('TOP CHANNELS');
+    // SAMPLE_ROWS carries non-zero revenue → header is REVENUE
+    expect(head?.textContent).toContain('REVENUE');
+    expect(head?.textContent).not.toContain('SHARE');
+  });
+
+  it('summary rows append the raw value in parentheses next to the percentage', () => {
+    render(<CampaignCharts tree={SAMPLE_TREE} rows={SAMPLE_ROWS} currency="EUR" />);
+    const pct = screen
+      .getByTestId('campaign-chart-pie')
+      .querySelector<HTMLElement>('.statnive-pie-summary-pct');
+    const text = pct?.textContent || '';
+    expect(text).toMatch(/%/);
+    expect(text).toMatch(/\(.+\)/);
+  });
+
+  it('rank list ships an sr-only mirror table for assistive tech', () => {
+    const { container } = render(
+      <CampaignCharts tree={SAMPLE_TREE} rows={SAMPLE_ROWS} currency="EUR" />,
+    );
+    const mirror = container.querySelector(
+      '[data-testid="campaign-chart-rank"] table.statnive-sr-only',
+    );
+    expect(mirror).toBeTruthy();
+    const bodyRows = mirror!.querySelectorAll('tbody tr');
+    expect(bodyRows.length).toBeGreaterThan(0);
   });
 
   it('every chart option exposes aria.show', () => {
