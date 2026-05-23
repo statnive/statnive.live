@@ -1,158 +1,155 @@
 #statnive-app .statnive-campaign-charts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--s-3);
+  grid-template-columns: 1fr;
+  gap: var(--s-4);
   margin: var(--s-3) 0 var(--s-4);
 }
 
-#statnive-app .statnive-campaign-chart {
-  padding: var(--s-3);
+/* "Best campaigns" rank list. Pure HTML + CSS — colorful editorial
+   bars with rank numbers, swatches, labels, and revenue values. */
+
+#statnive-app .statnive-rank-list {
+  background: var(--paper-2);
   border: 1px solid var(--rule-soft);
   border-radius: 12px;
-  background: var(--paper-2);
-  min-height: 280px;
-  display: flex;
-  flex-direction: column;
+  padding: var(--s-4);
 }
 
-#statnive-app .statnive-campaign-chart-h {
+#statnive-app .statnive-rank-list-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  align-items: end;
+  column-gap: var(--s-3);
+  margin-bottom: var(--s-4);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+#statnive-app .statnive-rank-list-head .statnive-eyebrow {
+  grid-column: 1 / 2;
+  grid-row: 1 / 2;
+  margin: 0;
+}
+
+#statnive-app .statnive-rank-list-title {
+  grid-column: 1 / 2;
+  grid-row: 2 / 3;
+  margin: 0;
+  font-family: var(--serif);
+  font-size: var(--text-headline);
+  font-weight: 400;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+#statnive-app .statnive-rank-list-total {
+  grid-column: 2 / 3;
+  grid-row: 1 / 3;
+  align-self: end;
+  margin: 0;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#statnive-app .statnive-rank-list-total-label {
   font-family: var(--mono);
   font-size: var(--text-label-sm);
   font-weight: 500;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.10em;
   text-transform: uppercase;
   color: var(--ink-2);
-  margin: 0 0 var(--s-3);
 }
 
-/* ── Donut ── */
-
-#statnive-app .statnive-donut-wrap {
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: var(--s-3);
-  align-items: center;
-  flex: 1;
-}
-
-#statnive-app .statnive-donut {
-  width: 140px;
-  height: 140px;
-}
-
-#statnive-app .statnive-donut-ground {
-  stroke: var(--rule-hair);
-}
-
-#statnive-app .statnive-donut-total {
+#statnive-app .statnive-rank-list-total-value {
   font-family: var(--display);
-  font-size: 4px;
+  font-size: 22px;
   font-weight: 500;
-  fill: var(--ink);
-  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
-#statnive-app .statnive-donut-caption {
-  font-family: var(--mono);
-  /* SVG viewBox 0 0 36 36 rendered at 140×140 → scale 3.89× — 2.6
-     viewBox-units ≈ 10.1 rendered px (matches --text-label-sm). 2px was
-     ~7.8 rendered px and read as illegible on 13-inch laptops. */
-  font-size: 2.6px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  fill: var(--ink-2);
-}
-
-#statnive-app .statnive-donut-legend {
+#statnive-app .statnive-rank-list-rows {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--s-1);
+  gap: var(--s-3);
 }
 
-#statnive-app .statnive-donut-legend li {
+#statnive-app .statnive-rank-list-row {
   display: grid;
-  grid-template-columns: 10px 1fr auto;
+  grid-template-columns: 28px 10px 140px 1fr 80px;
   align-items: center;
-  gap: var(--s-2);
-  font-family: var(--sans);
-  font-size: 12px;
-  color: var(--ink);
+  gap: var(--s-3);
 }
 
-#statnive-app .statnive-donut-swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-}
-
-#statnive-app .statnive-donut-legend-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#statnive-app .statnive-donut-legend-pct {
+#statnive-app .statnive-rank-list-rank {
   font-family: var(--mono);
   font-size: var(--text-meta);
+  font-weight: 500;
   color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Horizontal bar list ── */
-
-#statnive-app .statnive-hbar-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-  flex: 1;
-}
-
-#statnive-app .statnive-hbar-row {
-  display: grid;
-  /* Widened label column (1fr → 1.4fr) so long template-coded campaign
-     IDs like "TLVK-WTraffic-S-CompetitorsBrands-EP-July25-2021-MD"
-     don't cut mid-token. Title attribute still provides a hover
-     tooltip for full text. */
-  grid-template-columns: 1.4fr 1.4fr auto;
-  align-items: center;
-  gap: var(--s-2);
-  font-size: var(--text-meta);
-  color: var(--ink);
-}
-
-#statnive-app .statnive-hbar-label {
-  font-family: var(--sans);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#statnive-app .statnive-hbar-track {
-  height: 8px;
-  background: var(--rule-hair);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-#statnive-app .statnive-hbar-fill {
-  display: block;
-  height: 100%;
-  background: var(--chart-revenue);
-  border-radius: 4px;
-}
-
-#statnive-app .statnive-hbar-value {
-  font-family: var(--mono);
-  font-size: var(--text-meta);
-  color: var(--ink);
+  opacity: 0.55;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+#statnive-app .statnive-rank-list-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+#statnive-app .statnive-rank-list-label {
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#statnive-app .statnive-rank-list-bar {
+  display: block;
+  height: 14px;
+  background: var(--pie-track);
+  border-radius: 7px;
+  overflow: hidden;
   min-width: 60px;
 }
 
+#statnive-app .statnive-rank-list-fill {
+  display: block;
+  height: 100%;
+  border-radius: 7px;
+  transition: width 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#statnive-app .statnive-rank-list-value {
+  font-family: var(--mono);
+  font-size: var(--text-meta);
+  font-weight: 500;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  #statnive-app .statnive-rank-list-row {
+    grid-template-columns: 24px 10px 1fr auto;
+  }
+  #statnive-app .statnive-rank-list-bar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #statnive-app .statnive-rank-list-fill {
+    transition: none;
+  }
+}

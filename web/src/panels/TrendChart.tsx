@@ -6,27 +6,30 @@ import { rangeSignal } from '../state/range';
 import { siteSignal, activeSiteSignal } from '../state/site';
 import { filtersSignal, selectedMetrics } from '../state/filters';
 import { LazyChart } from '../components/LazyChart';
-import { buildMetricSpecs, toMetricSeries, metricsLineChartOptions } from '../lib/chart';
-import { readBrandTokens } from '../state/tokens';
+import {
+  applyReducedMotion,
+  buildMetricSpecs,
+  metricsLineOption,
+  readEChartsTheme,
+} from '../lib/chart';
 
-// Renders one uPlot series per metric in selectedMetrics(filtersSignal).
-// LazyChart dynamic-imports uPlot so Overview's first paint doesn't
-// carry the chart cost.
+// Renders one ECharts line series per metric in selectedMetrics().
+// LazyChart dynamic-imports ECharts so Overview's first paint stays
+// free of the chart bundle.
 export function TrendChart() {
   const data = useSignal<DailyPoint[] | null>(null);
   const err = useSignal<string | null>(null);
 
   // Bind signals to locals in render so Preact-signals subscribes the
-  // component — a read inside the useEffect deps-array literal alone
+  // component; a read inside the useEffect deps-array literal alone
   // does not register a subscription, so the effect would never re-fire
   // on a site / filter change.
   const siteId = siteSignal.value;
   const range = rangeSignal.value;
   const filters = filtersSignal.value;
 
-  // `metrics` is deliberately excluded — toggling a card is a
-  // render-time projection over the same server response, not a refetch
-  // trigger.
+  // `metrics` is deliberately excluded; toggling a card is a render-time
+  // projection over the same server response, not a refetch trigger.
   useEffect(() => {
     err.value = null;
     const ac = new AbortController();
@@ -58,28 +61,19 @@ export function TrendChart() {
 
   const metrics = selectedMetrics(filters);
   const currency = activeSiteSignal.value?.currency ?? 'EUR';
-  const tokens = useMemo(() => readBrandTokens(), []);
-  const specs = useMemo(() => buildMetricSpecs(tokens, currency), [tokens, currency]);
-  const chartData = useMemo(
-    () => (data.value ? toMetricSeries(data.value, metrics, specs) : null),
-    [data.value, filters.metrics, specs],
-  );
-  const chartOptions = useMemo(
-    () => metricsLineChartOptions(metrics, specs, tokens),
-    [filters.metrics, specs, tokens],
+  const theme = useMemo(() => readEChartsTheme(), []);
+  const specs = useMemo(() => buildMetricSpecs(theme, currency), [theme, currency]);
+  const option = useMemo(
+    () => (data.value ? applyReducedMotion(metricsLineOption(data.value, metrics, specs, theme)) : null),
+    [data.value, filters.metrics, specs, theme],
   );
 
   if (err.value) return null;
-  if (!chartData) return null;
+  if (!option) return null;
 
   return (
     <div data-testid="overview-trend" style={{ marginTop: 'var(--s-3)' }}>
-      <LazyChart
-        data={chartData}
-        options={chartOptions}
-        height={180}
-        tooltip={{ data: data.value, metrics, specs }}
-      />
+      <LazyChart option={option} height={180} />
     </div>
   );
 }

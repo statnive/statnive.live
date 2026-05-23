@@ -1,20 +1,20 @@
 [
   {
-    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login + multi-metric chart wiring (Overview clickable KPI cards + per-metric format / currency thread). Bumped 16→17 KB.",
+    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login + multi-metric chart wiring + ECharts theme reader (token resolution at mount). Bumped 17→18 KB after the ECharts migration: lib/chart.ts grew with useEChartsTheme + applyReducedMotion + per-channel hue map (~150 B gz). LazyChart pattern keeps ECharts itself out of the initial bundle.",
     "path": "../internal/dashboard/spa/dist/assets/index-*.js",
-    "limit": "17 KB",
+    "limit": "18 KB",
     "gzip": true
   },
   {
-    "name": "uPlot chart chunk (gz) — loads on first chart mount only",
+    "name": "ECharts chart chunk (gz) — LineChart + BarChart + PieChart + Grid/Tooltip/Legend/Aria/Title + CanvasRenderer. Bumped 25→200 KB during the uPlot→ECharts migration: ECharts' tree-shakeable custom build still ships the ZRender renderer + shared coords/animation/util core, which lands at ~190 KB gz regardless of which chart types you import (research #74 scenario C — verdict: 'reject on bundle grounds' — explicitly overridden by user choice to standardize on one library).",
     "path": "../internal/dashboard/spa/dist/assets/Chart-*.js",
-    "limit": "25 KB",
+    "limit": "200 KB",
     "gzip": true
   },
   {
-    "name": "lazy panel chunks (gz) — Sources/Pages/SEO/Campaigns/Realtime/Admin + TrendChart/DualBar/CampaignCharts. Bumped 13→19 KB when Admin gained the Configure modal, lib/field validators, lib/errorMessage, StatusPill + CopyButton components, and the SitesTab/UsersTab/GoalsTab split (per-site config + per-field hints + per-field validation).",
+    "name": "lazy panel chunks (gz) — Sources/Pages/SEO/Campaigns/Realtime/Admin + TrendChart/DualBar/CampaignCharts. ECharts migration kept this at 20 KB: custom-SVG donut math + horizontal-bar SVG code removed (~3 KB gz savings), ECharts option-builder helpers in lib/chart.ts moved to the initial chunk (~1 KB), net wash.",
     "path": "../internal/dashboard/spa/dist/assets/{Sources,Pages,SEO,Campaigns,Realtime,Admin,TrendChart,DualBar,LazyChart,CampaignCharts}-*.js",
-    "limit": "19 KB",
+    "limit": "20 KB",
     "gzip": true
   },
   {
@@ -24,9 +24,9 @@
     "gzip": true
   },
   {
-    "name": "per-panel CSS chunks (gz) — Admin + panels + Chart + Campaigns (donut + tree strip CSS bundled into Campaigns-*.css via rollup chunk inlining). Bumped 5→7 KB when Admin.css gained the Configure modal subsystem (backdrop + container + section heads + definition list), the brand alert family (.statnive-admin-alert.is-{notice,error,info}), input-group chrome for allowed_origins, status-pill bridge, and the field-validation .is-invalid state.",
+    "name": "per-panel CSS chunks (gz) — Admin + panels + Chart + Campaigns. ECharts migration shrunk this back toward 6 KB: donut SVG positioning + hbar styles + uPlot cursor overrides all deleted. DualBar CSS unchanged (DualBar kept as pure CSS, not migrated).",
     "path": "../internal/dashboard/spa/dist/assets/{Admin,panels,Chart,Campaigns}-*.css",
-    "limit": "7 KB",
+    "limit": "8 KB",
     "gzip": true
   }
 ]

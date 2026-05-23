@@ -22,13 +22,14 @@ import (
 // was rejected at the choke point" — proves the 403 fired BEFORE any
 // ClickHouse query.
 type countingStore struct {
-	overview  atomic.Int32
-	sources   atomic.Int32
-	pages     atomic.Int32
-	seo       atomic.Int32
-	trend     atomic.Int32
-	campaigns atomic.Int32
-	realtime  atomic.Int32
+	overview         atomic.Int32
+	sources          atomic.Int32
+	sourcesByChannel atomic.Int32
+	pages            atomic.Int32
+	seo              atomic.Int32
+	trend            atomic.Int32
+	campaigns        atomic.Int32
+	realtime         atomic.Int32
 }
 
 func (c *countingStore) Overview(_ context.Context, _ *storage.Filter) (*storage.OverviewResult, error) {
@@ -39,6 +40,12 @@ func (c *countingStore) Overview(_ context.Context, _ *storage.Filter) (*storage
 
 func (c *countingStore) Sources(_ context.Context, _ *storage.Filter) ([]storage.SourceRow, error) {
 	c.sources.Add(1)
+
+	return nil, nil
+}
+
+func (c *countingStore) SourcesByChannel(_ context.Context, _ *storage.Filter) ([]storage.SourceChannelRow, error) {
+	c.sourcesByChannel.Add(1)
 
 	return nil, nil
 }

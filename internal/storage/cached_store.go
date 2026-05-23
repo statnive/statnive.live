@@ -82,6 +82,15 @@ func (c *CachedStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, erro
 	return wrapFiltered(c, "sources", f, func() ([]SourceRow, error) { return c.inner.Sources(ctx, f) })
 }
 
+// SourcesByChannel caches the per-channel rollup under ResolveTTL rules.
+// Cache namespace differs from "sources" so the two cache buckets do not
+// collide; the underlying TTL ladder applies unchanged.
+func (c *CachedStore) SourcesByChannel(ctx context.Context, f *Filter) ([]SourceChannelRow, error) {
+	return wrapFiltered(c, "sources_by_channel", f, func() ([]SourceChannelRow, error) {
+		return c.inner.SourcesByChannel(ctx, f)
+	})
+}
+
 // Pages caches the top-pages rollup under ResolveTTL rules.
 func (c *CachedStore) Pages(ctx context.Context, f *Filter) ([]PageRow, error) {
 	return wrapFiltered(c, "pages", f, func() ([]PageRow, error) { return c.inner.Pages(ctx, f) })

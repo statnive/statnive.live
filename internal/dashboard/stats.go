@@ -5,10 +5,22 @@ import (
 	"log/slog"
 	"net/http"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
 )
+
+// sourcesResponse is the envelope returned by /api/stats/sources. The
+// dashboard's Sources panel renders the per-channel grouped-bar chart
+// from ByChannel and the per-referrer table from Rows; both honor the
+// same filter. Two store calls run in parallel via errgroup to halve
+// cold-cache wall-clock latency.
+type sourcesResponse struct {
+	Rows      []storage.SourceRow        `json:"rows"`
+	ByChannel []storage.SourceChannelRow `json:"by_channel"`
+}
 
 // SiteLister is the subset of *sites.Registry the dashboard consumes.
 // Kept as an interface so tests can wire a stub without spinning up a
@@ -82,14 +94,33 @@ func sourcesHandler(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		result, err := deps.Store.Sources(r.Context(), f)
-		if err != nil {
+		g, gctx := errgroup.WithContext(r.Context())
+
+		var (
+			rows []storage.SourceRow
+			byCh []storage.SourceChannelRow
+		)
+
+		g.Go(func() error {
+			out, gerr := deps.Store.Sources(gctx, f)
+			rows = out
+
+			return gerr
+		})
+		g.Go(func() error {
+			out, gerr := deps.Store.SourcesByChannel(gctx, f)
+			byCh = out
+
+			return gerr
+		})
+
+		if err := g.Wait(); err != nil {
 			writeError(w, r, deps, endpoint, err)
 
 			return
 		}
 
-		writeOK(w, r, deps, endpoint, result)
+		writeOK(w, r, deps, endpoint, sourcesResponse{Rows: rows, ByChannel: byCh})
 	}
 }
 

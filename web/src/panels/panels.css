@@ -126,39 +126,51 @@
   border: 1px solid transparent;
 }
 
+/* Chip hues mirror the --pie-* palette so a channel reads the same
+   color in the chip, the donut slice, and the summary swatch. Text
+   color is the same hue mixed toward --ink to keep AA contrast on the
+   14% tinted background. */
 #statnive-app .statnive-channel-chip[data-channel='Direct'] {
-  color: var(--ch-direct);
-  background: rgb(0 166 147 / 10%);
+  color: color-mix(in oklab, var(--pie-slate) 70%, var(--ink));
+  background: color-mix(in oklab, var(--pie-slate) 14%, transparent);
 }
 
 #statnive-app .statnive-channel-chip[data-channel='Organic Search'] {
-  color: var(--ch-search);
-  background: rgb(26 115 232 / 10%);
+  color: color-mix(in oklab, var(--pie-teal) 60%, var(--ink));
+  background: color-mix(in oklab, var(--pie-teal) 14%, transparent);
 }
 
+#statnive-app .statnive-channel-chip[data-channel='Social'],
+#statnive-app .statnive-channel-chip[data-channel='Organic Social'],
 #statnive-app .statnive-channel-chip[data-channel='Social Media'] {
-  color: var(--ch-social);
-  background: rgb(26 26 26 / 10%);
+  color: color-mix(in oklab, var(--pie-sky) 65%, var(--ink));
+  background: color-mix(in oklab, var(--pie-sky) 14%, transparent);
 }
 
 #statnive-app .statnive-channel-chip[data-channel='Email'] {
-  color: var(--ch-email);
-  background: rgb(122 74 110 / 10%);
+  color: color-mix(in oklab, var(--pie-peach) 55%, var(--ink));
+  background: color-mix(in oklab, var(--pie-peach) 18%, transparent);
 }
 
 #statnive-app .statnive-channel-chip[data-channel='Referral'] {
-  color: var(--ch-referral);
-  background: rgb(139 115 85 / 10%);
+  color: color-mix(in oklab, var(--pie-olive) 60%, var(--ink));
+  background: color-mix(in oklab, var(--pie-olive) 16%, transparent);
 }
 
 #statnive-app .statnive-channel-chip[data-channel='AI'] {
-  color: var(--ch-ai);
-  background: rgb(10 37 64 / 10%);
+  color: color-mix(in oklab, var(--pie-mauve) 60%, var(--ink));
+  background: color-mix(in oklab, var(--pie-mauve) 16%, transparent);
 }
 
 #statnive-app .statnive-channel-chip[data-channel='Paid'] {
-  color: var(--ch-paid);
-  background: rgb(138 85 8 / 10%);
+  color: color-mix(in oklab, var(--pie-violet) 60%, var(--ink));
+  background: color-mix(in oklab, var(--pie-violet) 16%, transparent);
+}
+
+#statnive-app .statnive-channel-chip[data-channel='Video'],
+#statnive-app .statnive-channel-chip[data-channel='Organic Video'] {
+  color: color-mix(in oklab, var(--pie-crimson) 60%, var(--ink));
+  background: color-mix(in oklab, var(--pie-crimson) 14%, transparent);
 }
 
 #statnive-app .statnive-empty {
@@ -166,6 +178,289 @@
   font-size: 13px;
   color: var(--ink-2);
   padding: var(--s-4) 0;
+}
+
+#statnive-app .statnive-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Sources / Campaigns: donut card with summary-on-right ── */
+
+#statnive-app .statnive-channel-pies {
+  margin: 0 0 var(--s-4);
+  padding: 0 0 var(--s-4);
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+#statnive-app .statnive-pies-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+}
+
+/* Card. Shared by both Sources donut cards AND the Campaigns donut card
+   so they read as the same component family. */
+#statnive-app .statnive-pie-card {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: var(--s-4);
+  align-items: center;
+  padding: var(--s-4);
+  background: var(--paper-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 12px;
+}
+
+/* Donut + center label overlay. Position-relative parent so the
+   absolutely-positioned overlay tracks the canvas. */
+#statnive-app .statnive-pie-chart-wrap {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  margin: 0 auto;
+  /* Establish a size-query container so the center value font-size can
+     scale with the donut diameter via cqi (no JS measure-and-shrink). */
+  container-type: inline-size;
+}
+
+#statnive-app .statnive-pie-chart-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+#statnive-app .statnive-pie-chart-canvas .statnive-chart {
+  width: 100%;
+}
+
+#statnive-app .statnive-pie-chart-empty {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 24px solid var(--rule-hair);
+  box-sizing: border-box;
+}
+
+#statnive-app .statnive-pie-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  pointer-events: none;
+  /* The donut inner radius is 55% of the canvas. Constrain the overlay
+     to that inner circle so long currency strings like €381,100 wrap or
+     scale instead of overflowing onto the slice ring. */
+  padding: 0 12%;
+  text-align: center;
+}
+
+#statnive-app .statnive-pie-center-label {
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+#statnive-app .statnive-pie-center-value {
+  font-family: var(--display);
+  /* Scales with the donut diameter via cqi (the wrap is the size-query
+     container). At 240px wrap, 11cqi ≈ 26px — a string like €381,100
+     fits the ~132px inner donut hole at this size. */
+  font-size: clamp(18px, 11cqi, 30px);
+  font-weight: 500;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+  max-width: 100%;
+  word-break: break-word;
+}
+
+/* Summary panel (right side of the card). Top row is a sub-header
+   "TOP CHANNELS / SHARE" laid out as two columns. Then a list of
+   per-channel rows: swatch + name + bar + share%. */
+#statnive-app .statnive-pie-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+#statnive-app .statnive-pie-summary-head {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  opacity: 0.85;
+  padding: 0 0 var(--s-1);
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+#statnive-app .statnive-pie-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#statnive-app .statnive-pie-summary-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) 64px auto;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+#statnive-app .statnive-pie-summary-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+#statnive-app .statnive-pie-summary-name {
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#statnive-app .statnive-pie-summary-bar {
+  display: block;
+  height: 4px;
+  background: var(--pie-track);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+#statnive-app .statnive-pie-summary-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#statnive-app .statnive-pie-summary-pct {
+  font-family: var(--mono);
+  font-size: var(--text-meta);
+  font-weight: 500;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Raw value next to the percentage — "(5,000)" or "($3,000)". Renders
+   in ink-2 so the percentage stays the dominant figure. */
+#statnive-app .statnive-pie-summary-raw {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+@media (max-width: 720px) {
+  #statnive-app .statnive-pie-card {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #statnive-app .statnive-pie-summary-fill {
+    transition: none;
+  }
+}
+
+#statnive-app .statnive-channel-chip-lg {
+  font-size: var(--text-label-sm);
+  padding: 3px 9px;
+}
+
+#statnive-app .statnive-channel-chevron-col {
+  width: 24px;
+  padding-right: 0;
+  padding-left: var(--s-3);
+}
+
+#statnive-app .statnive-sources-table {
+  /* Cancel the global hover bg on header + detail rows; we paint our
+     own surfaces below. */
+}
+
+#statnive-app .statnive-channel-row {
+  cursor: pointer;
+  background: var(--paper);
+  border-top: 1px solid var(--rule-soft);
+  font-weight: 600;
+}
+
+#statnive-app .statnive-channel-row[aria-disabled='true'] {
+  cursor: default;
+}
+
+#statnive-app .statnive-channel-row:hover {
+  background: var(--rule-hair);
+}
+
+#statnive-app .statnive-channel-row:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+}
+
+#statnive-app .statnive-channel-row[aria-expanded='true'] td {
+  border-bottom-color: transparent;
+}
+
+#statnive-app .statnive-chevron {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent currentColor;
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  color: var(--ink-2);
+}
+
+#statnive-app .statnive-channel-row[aria-expanded='true'] .statnive-chevron {
+  transform: rotate(90deg);
+}
+
+#statnive-app .statnive-channel-detail {
+  background: var(--paper-2);
+  font-weight: 400;
+}
+
+#statnive-app .statnive-channel-detail .statnive-referrer-cell {
+  padding-left: var(--s-2);
+  color: var(--ink-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #statnive-app .statnive-chevron {
+    transition: none;
+  }
 }
 
 /* ── Realtime panel ── */

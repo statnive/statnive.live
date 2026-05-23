@@ -4,12 +4,11 @@ import { useSignal } from '@preact/signals';
 import type { ChartProps } from './Chart';
 import { Loader } from './Loader';
 
-// LazyChart dynamic-imports Chart.tsx (and its uPlot dep) so uPlot
-// doesn't land in the initial bundle. Both Overview (static panel) and
-// SEO (lazy panel) use LazyChart — the shared dynamic Chart chunk is
-// fetched once, the second consumer hits the cache.
-//
-// The SPA ships ~7 KB gz of uPlot only when a chart mounts.
+// LazyChart dynamic-imports Chart.tsx (and its ECharts dep) so ECharts
+// does not land in the initial bundle. Every chart-rendering panel
+// (Overview TrendChart, SEO, Sources pies, Campaigns pie + bar) uses
+// LazyChart so the shared chart chunk is fetched once on first mount
+// and cached for every subsequent consumer.
 
 type ChartComponent = ComponentType<ChartProps>;
 
