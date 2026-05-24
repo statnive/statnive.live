@@ -64,14 +64,33 @@ test.describe('filter panel + date picker', () => {
     });
 
     await page.getByRole('button', { name: 'Custom' }).click();
-    await page.locator('#dp-from').fill('2026-01-01');
-    await page.locator('#dp-to').fill('2026-01-08');
+
+    // Drive the Cally `<calendar-range>` web component by setting its
+    // `value` property + dispatching `change` — the same wire path the
+    // attachChange ref handler in DatePicker.tsx consumes for real user
+    // clicks. Click-through on individual day cells is covered by the
+    // Vitest suite; here we only need to prove Apply round-trips the
+    // selected range into the URL → API call.
+    const cally = page.locator('calendar-range');
+    await expect(cally).toBeVisible({ timeout: 5_000 });
+    await cally.evaluate((el) => {
+      (el as HTMLElement & { value: string }).value = '2026-01-01/2026-01-08';
+      el.dispatchEvent(new Event('change'));
+    });
+
     await page.getByRole('button', { name: 'Apply' }).click();
 
     await page.waitForTimeout(500);
 
-    const custom = apiCalls.find((u) => u.includes('from=2026-01-01') && u.includes('to=2026-01-08'));
-    expect(custom, `no /api/stats/sources call with custom range; saw: ${apiCalls.join(' | ')}`).toBeDefined();
+    // The picker's half-open invariant adds a day to the inclusive end
+    // from Cally, so the URL `to` is the day AFTER the picked end date.
+    const custom = apiCalls.find(
+      (u) => u.includes('from=2026-01-01') && u.includes('to=2026-01-09'),
+    );
+    expect(
+      custom,
+      `no /api/stats/sources call with custom range; saw: ${apiCalls.join(' | ')}`,
+    ).toBeDefined();
   });
 
   test('channel chip click fires a filtered /api/stats/sources request', async ({ page }) => {
