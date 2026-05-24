@@ -135,6 +135,25 @@ describe('visitorLineOption (SEO panel)', () => {
     const opt = visitorLineOption(SAMPLE_SEO, THEME) as { aria: { show: boolean } };
     expect(opt.aria.show).toBe(true);
   });
+
+  it('emphasis darkens the line on hover instead of brightening toward white', () => {
+    const opt = visitorLineOption(SAMPLE_SEO, THEME) as {
+      series: {
+        lineStyle: { color: string };
+        emphasis: {
+          focus: string;
+          lineStyle: { color: string; width: number };
+          itemStyle: { color: string };
+        };
+      }[];
+    };
+    const s = opt.series[0];
+    expect(s.emphasis.focus).toBe('self');
+    expect(s.emphasis.lineStyle.color).toBeTruthy();
+    expect(s.emphasis.lineStyle.color).not.toBe(s.lineStyle.color);
+    expect(s.emphasis.lineStyle.width).toBe(3);
+    expect(s.emphasis.itemStyle.color).toBe(s.emphasis.lineStyle.color);
+  });
 });
 
 describe('metricsLineOption (Overview multi-metric)', () => {
@@ -182,6 +201,36 @@ describe('metricsLineOption (Overview multi-metric)', () => {
     };
     expect(opt.series[0].areaStyle).toBeUndefined();
   });
+
+  it('each series emphasis darkens its own hue and focuses the series (dims others)', () => {
+    const theme = readEChartsTheme();
+    const specs = buildMetricSpecs(theme, 'EUR');
+    const opt = metricsLineOption(SAMPLE_TREND, ['visitors', 'revenue', 'rpv'], specs, theme) as {
+      series: {
+        lineStyle: { color: string };
+        emphasis: { focus: string; lineStyle: { color: string; width: number } };
+        blur: { lineStyle: { opacity: number } };
+      }[];
+    };
+    for (const s of opt.series) {
+      expect(s.emphasis.focus).toBe('series');
+      expect(s.emphasis.lineStyle.color).toBeTruthy();
+      expect(s.emphasis.lineStyle.color).not.toBe(s.lineStyle.color);
+      expect(s.emphasis.lineStyle.width).toBe(3);
+      expect(s.blur.lineStyle.opacity).toBeLessThan(1);
+    }
+  });
+
+  it('per-series darkColor is the matching spec.darkColor (not a shared constant)', () => {
+    const theme = readEChartsTheme();
+    const specs = buildMetricSpecs(theme, 'EUR');
+    const opt = metricsLineOption(SAMPLE_TREND, ['visitors', 'revenue'], specs, theme) as {
+      series: { emphasis: { lineStyle: { color: string } } }[];
+    };
+    expect(opt.series[0].emphasis.lineStyle.color).toBe(specs.visitors.darkColor);
+    expect(opt.series[1].emphasis.lineStyle.color).toBe(specs.revenue.darkColor);
+    expect(opt.series[0].emphasis.lineStyle.color).not.toBe(opt.series[1].emphasis.lineStyle.color);
+  });
 });
 
 describe('viewsPieOption (Sources panel views pie)', () => {
@@ -225,6 +274,23 @@ describe('viewsPieOption (Sources panel views pie)', () => {
     const opt = viewsPieOption(SAMPLE_CHANNELS, THEME) as { aria: { show: boolean } };
     expect(opt.aria.show).toBe(true);
   });
+
+  it('every slice carries emphasis.itemStyle.color that differs from the resting hue (no brighten-to-white on hover)', () => {
+    const opt = viewsPieOption(SAMPLE_CHANNELS, THEME) as {
+      series: {
+        data: {
+          name: string;
+          itemStyle: { color: string };
+          emphasis: { itemStyle: { color: string } };
+        }[];
+      }[];
+    };
+    for (const entry of opt.series[0].data) {
+      expect(entry.emphasis.itemStyle.color).toBeTruthy();
+      expect(entry.emphasis.itemStyle.color).not.toBe(entry.itemStyle.color);
+      expect(entry.emphasis.itemStyle.color).toBe(THEME.piesDark[entry.name]);
+    }
+  });
 });
 
 describe('revenuePieOption (Sources panel revenue pie)', () => {
@@ -243,6 +309,30 @@ describe('revenuePieOption (Sources panel revenue pie)', () => {
     expect(opt.series[0].data).toHaveLength(1);
     expect(opt.series[0].data[0].name).toBe('Organic Search');
     expect(opt.series[0].data[0].value).toBe(500);
+  });
+
+  it('every slice ships a darkened emphasis.itemStyle.color', () => {
+    const opt = revenuePieOption(SAMPLE_CAMPAIGNS.map((c) => ({
+      channel: c.channel,
+      views: c.views,
+      visitors: c.visitors,
+      goals: c.goals,
+      revenue: c.revenue,
+      rpv: c.rpv,
+    })), THEME, 'EUR') as {
+      series: {
+        data: {
+          name: string;
+          itemStyle: { color: string };
+          emphasis: { itemStyle: { color: string } };
+        }[];
+      }[];
+    };
+    expect(opt.series[0].data.length).toBeGreaterThan(0);
+    for (const entry of opt.series[0].data) {
+      expect(entry.emphasis.itemStyle.color).toBeTruthy();
+      expect(entry.emphasis.itemStyle.color).not.toBe(entry.itemStyle.color);
+    }
   });
 });
 
@@ -278,6 +368,22 @@ describe('campaignsPieOption (Campaigns panel pie)', () => {
     expect(byName.get('Paid')).toBe(400);
     expect(byName.get('Social')).toBe(150);
     expect(byName.get('Email')).toBe(80);
+  });
+
+  it('per-channel emphasis.itemStyle.color is the matching darkened hue', () => {
+    const opt = campaignsPieOption(SAMPLE_CAMPAIGNS, THEME, revenueOf, fmt) as {
+      series: {
+        data: {
+          name: string;
+          itemStyle: { color: string };
+          emphasis: { itemStyle: { color: string } };
+        }[];
+      }[];
+    };
+    for (const entry of opt.series[0].data) {
+      expect(entry.emphasis.itemStyle.color).toBe(THEME.piesDark[entry.name]);
+      expect(entry.emphasis.itemStyle.color).not.toBe(entry.itemStyle.color);
+    }
   });
 });
 

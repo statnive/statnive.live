@@ -21,7 +21,23 @@ export interface EChartsTheme extends BrandTokens {
   channels: Record<string, string>;
   pies: Record<string, string>;
   piesFallback: string[];
+  // Darkened (22% toward --ink) variants of the pie palette, resolved
+  // through a probe so ECharts canvas gets a baked rgb()/oklch() string
+  // rather than relying on Canvas2D's color-mix() parsing.
+  piesDark: Record<string, string>;
+  piesDarkFallback: string[];
   pieTrack: string;
+  // Darkened multi-metric line colors. Same 22%-toward-ink rule; used
+  // by series-level emphasis.lineStyle.color so hover never fades to
+  // white. One entry per MetricId.
+  chartDark: {
+    visitors: string;
+    pageviews: string;
+    conversion: string;
+    revenue: string;
+    rpv: string;
+    goals: string;
+  };
 }
 
 // CHANNEL_TOKEN drives chip color via --ch-*. Channel taxonomy mirrors
@@ -80,12 +96,37 @@ const PIE_PALETTE_FALLBACK = [
 // canvas renderer, so we resolve once at mount time. Brand-grep gate
 // is satisfied because every value comes from a getPropertyValue read.
 // Not a hook — named `read*` to avoid the React `use*` lint contract.
+// DARKEN_TOWARD_INK_PCT controls hover-state contrast against the
+// resting hue. 22% pulls each color toward --ink without flipping the
+// hue. Matches WCAG 1.4.11 non-text-contrast (≥3:1) against every
+// resting --pie-* token at the OKLCH lightness it ships at.
+const DARKEN_TOWARD_INK_PCT = 22;
+
+const CHART_METRIC_TOKEN: Record<keyof EChartsTheme['chartDark'], string> = {
+  visitors: '--chart-visitors',
+  pageviews: '--chart-pageviews',
+  conversion: '--chart-conversion',
+  revenue: '--chart-revenue',
+  rpv: '--chart-rpv',
+  goals: '--chart-goals',
+};
+
 export function readEChartsTheme(): EChartsTheme {
   const tokens = readBrandTokens();
   const channels: Record<string, string> = {};
   const pies: Record<string, string> = {};
   const piesFallback: string[] = [];
+  const piesDark: Record<string, string> = {};
+  const piesDarkFallback: string[] = [];
   let pieTrack = 'var(--pie-track)';
+  const chartDark: EChartsTheme['chartDark'] = {
+    visitors: '',
+    pageviews: '',
+    conversion: '',
+    revenue: '',
+    rpv: '',
+    goals: '',
+  };
 
   if (typeof document !== 'undefined') {
     const root = document.getElementById('statnive-app') ?? document.documentElement;
@@ -103,19 +144,63 @@ export function readEChartsTheme(): EChartsTheme {
       piesFallback.push(read(cssVar));
     }
     pieTrack = read('--pie-track');
+
+    // Resolve color-mix() through a probe so ECharts canvas always sees
+    // a real rgb()/oklch() string. Canvas2D fillStyle's own color-mix
+    // support is patchy (broken on Safari ≤16.3). One probe per theme
+    // read amortises across every chart in this mount.
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;';
+    root.appendChild(probe);
+    try {
+      const resolveDark = (cssVar: string): string => {
+        probe.style.color = `color-mix(in oklab, var(${cssVar}) ${100 - DARKEN_TOWARD_INK_PCT}%, var(--ink))`;
+        const v = getComputedStyle(probe).color;
+        return v && v !== 'rgba(0, 0, 0, 0)' ? v : read(cssVar);
+      };
+      for (const [channel, cssVar] of Object.entries(CHANNEL_PIE_TOKEN)) {
+        piesDark[channel] = resolveDark(cssVar);
+      }
+      for (const cssVar of PIE_PALETTE_FALLBACK) {
+        piesDarkFallback.push(resolveDark(cssVar));
+      }
+      for (const key of Object.keys(CHART_METRIC_TOKEN) as Array<keyof typeof CHART_METRIC_TOKEN>) {
+        chartDark[key] = resolveDark(CHART_METRIC_TOKEN[key]);
+      }
+    } finally {
+      root.removeChild(probe);
+    }
   } else {
+    const darkMix = (cssVar: string): string =>
+      `color-mix(in oklab, var(${cssVar}) ${100 - DARKEN_TOWARD_INK_PCT}%, var(--ink))`;
     for (const [channel, cssVar] of Object.entries(CHANNEL_TOKEN)) {
       channels[channel] = `var(${cssVar})`;
     }
     for (const [channel, cssVar] of Object.entries(CHANNEL_PIE_TOKEN)) {
       pies[channel] = `var(${cssVar})`;
+      // jsdom path — distinguishable from the resting hue so the
+      // emphasis-color test can assert dark !== base without paint.
+      piesDark[channel] = darkMix(cssVar);
     }
     for (const cssVar of PIE_PALETTE_FALLBACK) {
       piesFallback.push(`var(${cssVar})`);
+      piesDarkFallback.push(darkMix(cssVar));
+    }
+    for (const key of Object.keys(CHART_METRIC_TOKEN) as Array<keyof typeof CHART_METRIC_TOKEN>) {
+      chartDark[key] = darkMix(CHART_METRIC_TOKEN[key]);
     }
   }
 
-  return { ...tokens, channels, pies, piesFallback, pieTrack };
+  return {
+    ...tokens,
+    channels,
+    pies,
+    piesFallback,
+    piesDark,
+    piesDarkFallback,
+    pieTrack,
+    chartDark,
+  };
 }
 
 // pieHueForIndex falls back to a positional --pie-* slot when a channel
@@ -141,6 +226,10 @@ export function applyReducedMotion<T extends EChartsCoreOption>(option: T): T {
 export interface MetricSpec {
   label: string;
   color: string;
+  // darkColor is the hover-state color (22% toward --ink). Suppresses
+  // ECharts' default brightening so the hovered line never fades to
+  // white against the off-white paper background.
+  darkColor: string;
   value: (d: DailyPoint) => number;
   format: (n: number) => string;
 }
@@ -149,12 +238,12 @@ export type MetricSpecs = Record<MetricId, MetricSpec>;
 
 export function buildMetricSpecs(theme: EChartsTheme, currency: string): MetricSpecs {
   return {
-    visitors:   { label: 'Visitors',   color: theme.chartVisitors,   value: (d) => d.visitors, format: fmtInt },
-    pageviews:  { label: 'Pageviews',  color: theme.chartPageviews,  value: (d) => d.pageviews, format: fmtInt },
-    conversion: { label: 'Conversion', color: theme.chartConversion, value: (d) => (d.visitors > 0 ? (d.goals / d.visitors) * 100 : 0), format: fmtPct },
-    revenue:    { label: 'Revenue',    color: theme.chartRevenue,    value: (d) => d.revenue, format: (n) => fmtMoney(n, currency) },
-    rpv:        { label: 'RPV',        color: theme.chartRpv,        value: (d) => (d.visitors > 0 ? d.revenue / d.visitors : 0), format: (n) => fmtRpv(n, currency) },
-    goals:      { label: 'Goals',      color: theme.chartGoals,      value: (d) => d.goals, format: fmtInt },
+    visitors:   { label: 'Visitors',   color: theme.chartVisitors,   darkColor: theme.chartDark.visitors,   value: (d) => d.visitors, format: fmtInt },
+    pageviews:  { label: 'Pageviews',  color: theme.chartPageviews,  darkColor: theme.chartDark.pageviews,  value: (d) => d.pageviews, format: fmtInt },
+    conversion: { label: 'Conversion', color: theme.chartConversion, darkColor: theme.chartDark.conversion, value: (d) => (d.visitors > 0 ? (d.goals / d.visitors) * 100 : 0), format: fmtPct },
+    revenue:    { label: 'Revenue',    color: theme.chartRevenue,    darkColor: theme.chartDark.revenue,    value: (d) => d.revenue, format: (n) => fmtMoney(n, currency) },
+    rpv:        { label: 'RPV',        color: theme.chartRpv,        darkColor: theme.chartDark.rpv,        value: (d) => (d.visitors > 0 ? d.revenue / d.visitors : 0), format: (n) => fmtRpv(n, currency) },
+    goals:      { label: 'Goals',      color: theme.chartGoals,      darkColor: theme.chartDark.goals,      value: (d) => d.goals, format: fmtInt },
   };
 }
 
@@ -204,18 +293,31 @@ export function pieHueForChannel(
   return theme.pies[channel] ?? pieHueForIndex(idx, theme);
 }
 
+// pieHueDarkForChannel returns the same hue, darkened 22% toward --ink
+// (resolved at theme-read time). Wired into per-slice
+// emphasis.itemStyle.color to override ECharts' default brightening
+// (which fades light slices toward white).
+export function pieHueDarkForChannel(
+  channel: string,
+  idx: number,
+  theme: EChartsTheme,
+): string {
+  return theme.piesDark[channel] ?? theme.piesDarkFallback[idx % theme.piesDarkFallback.length];
+}
+
 // pieOption is the shared donut shell used by viewsPieOption,
 // revenuePieOption, and campaignsPieOption. Donut form (radius
 // ['55%', '85%']) leaves a generous center hole so an HTML overlay
 // can render the metric label + total inside the chart. Each caller
-// produces the `data` array (with per-slice color) + a tooltip
-// formatter + an aria description.
+// produces the `data` array (with per-slice color + per-slice dark
+// emphasis color) + a tooltip formatter + an aria description.
 export const PIE_RADIUS: [string, string] = ['55%', '85%'];
 
 interface PieData {
   name: string;
   value: number;
   itemStyle: { color: string };
+  emphasis: { itemStyle: { color: string } };
 }
 
 function pieOption(
@@ -233,6 +335,10 @@ function pieOption(
         data,
         label: { show: false },
         labelLine: { show: false },
+        // Per-slice emphasis.itemStyle.color (set inside each `data`
+        // entry) overrides ECharts' default brightening — the hovered
+        // slice goes darker, never toward white. Series-level emphasis
+        // still owns the scale-up + bolder ink border.
         emphasis: {
           scale: true,
           scaleSize: 4,
@@ -244,6 +350,18 @@ function pieOption(
     legend: { show: false },
     tooltip: tooltipBase(theme, tooltipFormatter, 'item'),
     aria: { show: true, label: { description: ariaDescription } },
+  };
+}
+
+// buildPieData centralises the per-slice color + dark-color projection
+// so the three pie builders stay one-liners. `name`/`value` are
+// caller-specific; everything else is theme-driven.
+function buildPieData(channel: string, value: number, idx: number, theme: EChartsTheme): PieData {
+  return {
+    name: channel,
+    value,
+    itemStyle: { color: pieHueForChannel(channel, idx, theme) },
+    emphasis: { itemStyle: { color: pieHueDarkForChannel(channel, idx, theme) } },
   };
 }
 
@@ -264,6 +382,14 @@ export function visitorLineOption(rows: SEORow[], theme: EChartsTheme): EChartsC
         itemStyle: { color: theme.chartVisitors },
         symbol: 'none',
         areaStyle: { color: theme.chartVisitorsFillWash },
+        // Single-line chart — focus 'self' suppresses ECharts' default
+        // brightening on hover; explicit darkColor takes the stroke
+        // bolder toward --ink instead of fading toward white.
+        emphasis: {
+          focus: 'self',
+          lineStyle: { color: theme.chartDark.visitors, width: 3 },
+          itemStyle: { color: theme.chartDark.visitors },
+        },
       },
     ],
     tooltip: tooltipBase(
@@ -313,6 +439,18 @@ export function metricsLineOption(
         itemStyle: { color: spec.color },
         symbol: 'none',
         areaStyle: isSingleVisitors ? { color: theme.chartVisitorsFillWash } : undefined,
+        // focus: 'series' fades the other metrics so the hovered line
+        // pops; per-series darkColor swaps the brightening default for
+        // an explicit darken toward --ink.
+        emphasis: {
+          focus: 'series',
+          lineStyle: { color: spec.darkColor, width: 3 },
+          itemStyle: { color: spec.darkColor },
+        },
+        blur: {
+          lineStyle: { opacity: 0.25 },
+          areaStyle: { opacity: 0.1 },
+        },
       };
     }),
     legend: { show: false },
@@ -344,11 +482,7 @@ type PieParams = { name: string; value: number; percent: number };
 export function viewsPieOption(by_channel: SourceChannelRow[], theme: EChartsTheme): EChartsCoreOption {
   const data: PieData[] = by_channel
     .filter((r) => r.views > 0)
-    .map((r, i) => ({
-      name: r.channel,
-      value: r.views,
-      itemStyle: { color: pieHueForChannel(r.channel, i, theme) },
-    }));
+    .map((r, i) => buildPieData(r.channel, r.views, i, theme));
   return pieOption(
     theme,
     data,
@@ -368,11 +502,7 @@ export function revenuePieOption(
 ): EChartsCoreOption {
   const data: PieData[] = by_channel
     .filter((r) => r.revenue > 0)
-    .map((r, i) => ({
-      name: r.channel,
-      value: r.revenue,
-      itemStyle: { color: pieHueForChannel(r.channel, i, theme) },
-    }));
+    .map((r, i) => buildPieData(r.channel, r.revenue, i, theme));
   return pieOption(
     theme,
     data,
@@ -400,11 +530,7 @@ export function campaignsPieOption(
   }
   const data: PieData[] = Array.from(byChannel.entries())
     .filter(([, v]) => v > 0)
-    .map(([channel, value], i) => ({
-      name: channel,
-      value,
-      itemStyle: { color: pieHueForChannel(channel, i, theme) },
-    }));
+    .map(([channel, value], i) => buildPieData(channel, value, i, theme));
   return pieOption(
     theme,
     data,

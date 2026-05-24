@@ -179,4 +179,21 @@ describe('CampaignCharts (pie + horizontal bar)', () => {
       expect(opt.aria?.show).toBe(true);
     }
   });
+
+  it('channel pie ships a darkened emphasis.itemStyle.color per slice (no white hover)', () => {
+    render(<CampaignCharts tree={SAMPLE_TREE} rows={SAMPLE_ROWS} currency="EUR" />);
+    const opt = lazyChartCalls[0].option as {
+      series: {
+        data: {
+          itemStyle: { color: string };
+          emphasis: { itemStyle: { color: string } };
+        }[];
+      }[];
+    };
+    expect(opt.series[0].data.length).toBeGreaterThan(0);
+    for (const slice of opt.series[0].data) {
+      expect(slice.emphasis.itemStyle.color).toBeTruthy();
+      expect(slice.emphasis.itemStyle.color).not.toBe(slice.itemStyle.color);
+    }
+  });
 });
