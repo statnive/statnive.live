@@ -198,6 +198,30 @@ describe('Sources panel', () => {
     }
   });
 
+  it('every pie slice carries a darkened emphasis.itemStyle.color so hover never fades to white', async () => {
+    mockResponse(SAMPLE_ROWS, SAMPLE_BY_CHANNEL);
+    render(<Sources />);
+
+    await waitFor(() => {
+      expect(lazyChartCalls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    for (const call of lazyChartCalls.slice(0, 2)) {
+      const opt = call.option as {
+        series: {
+          data: {
+            itemStyle: { color: string };
+            emphasis: { itemStyle: { color: string } };
+          }[];
+        }[];
+      };
+      for (const slice of opt.series[0].data) {
+        expect(slice.emphasis.itemStyle.color).toBeTruthy();
+        expect(slice.emphasis.itemStyle.color).not.toBe(slice.itemStyle.color);
+      }
+    }
+  });
+
   it('summary header carries the dynamic metric label (VIEWS / REVENUE), not the static SHARE', async () => {
     mockResponse(SAMPLE_ROWS, SAMPLE_BY_CHANNEL);
     render(<Sources />);

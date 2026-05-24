@@ -187,4 +187,28 @@ describe('TrendChart', () => {
     const opt = last.option as { aria?: { show?: boolean } };
     expect(opt.aria?.show).toBe(true);
   });
+
+  it('every series wears emphasis.focus=series + a darkened emphasis.lineStyle.color', async () => {
+    render(<TrendChart />);
+
+    await waitFor(() => {
+      expect(lazyChartCalls.length).toBeGreaterThan(0);
+    });
+
+    const last = lazyChartCalls[lazyChartCalls.length - 1];
+    const opt = last.option as {
+      series: {
+        lineStyle: { color: string };
+        emphasis: { focus: string; lineStyle: { color: string; width: number } };
+        blur: { lineStyle: { opacity: number } };
+      }[];
+    };
+    expect(opt.series.length).toBeGreaterThan(0);
+    for (const s of opt.series) {
+      expect(s.emphasis.focus).toBe('series');
+      expect(s.emphasis.lineStyle.color).toBeTruthy();
+      expect(s.emphasis.lineStyle.color).not.toBe(s.lineStyle.color);
+      expect(s.blur.lineStyle.opacity).toBeLessThan(1);
+    }
+  });
 });
