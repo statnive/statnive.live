@@ -139,8 +139,7 @@ export function buildCampaignTree(rows: CampaignRow[]): CampaignTreeNode[] {
 
   for (const node of top) finalize(node);
 
-  top.sort(byRevenueDesc);
-  for (const node of top) sortDeep(node);
+  walkSort(top, byRevenueDesc);
 
   return top;
 }
@@ -150,9 +149,37 @@ function byRevenueDesc(a: CampaignTreeNode, b: CampaignTreeNode): number {
   return b.views - a.views;
 }
 
-function sortDeep(node: CampaignTreeNode): void {
-  node.children.sort(byRevenueDesc);
-  for (const child of node.children) sortDeep(child);
+function walkSort(
+  nodes: CampaignTreeNode[],
+  cmp: (a: CampaignTreeNode, b: CampaignTreeNode) => number,
+): void {
+  nodes.sort(cmp);
+  for (const n of nodes) walkSort(n.children, cmp);
+}
+
+export const CAMPAIGN_SORT_KEYS = ['campaign', 'views', 'visitors', 'goals', 'revenue', 'rpv'] as const;
+export type CampaignSortKey = (typeof CAMPAIGN_SORT_KEYS)[number];
+
+const CAMPAIGN_SORT_KEY_SET: ReadonlySet<string> = new Set(CAMPAIGN_SORT_KEYS);
+
+export function isCampaignSortKey(s: string): s is CampaignSortKey {
+  return CAMPAIGN_SORT_KEY_SET.has(s);
+}
+
+// In-place tree re-sort — buildCampaignTree's revenue-desc default would
+// otherwise clobber the requested order.
+export function sortCampaignTree(
+  tree: CampaignTreeNode[],
+  key: CampaignSortKey,
+  dir: 'asc' | 'desc',
+): void {
+  const sign = dir === 'asc' ? 1 : -1;
+  walkSort(tree, (a, b) => {
+    if (key === 'campaign') return a.label.localeCompare(b.label) * sign;
+    const diff = (a[key] as number) - (b[key] as number);
+    if (diff !== 0) return diff * sign;
+    return b.revenue - a.revenue; // tiebreaker: revenue desc
+  });
 }
 
 // treeNodes returns every node in the tree (parents + leaves) so the

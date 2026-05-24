@@ -68,6 +68,19 @@ func TestFilter_Validate(t *testing.T) {
 			f:       &storage.Filter{SiteID: 1, From: now.Add(-time.Hour), To: now, Offset: -5},
 			wantErr: true,
 		},
+		{
+			name: "dir asc",
+			f:    &storage.Filter{SiteID: 1, From: now.Add(-time.Hour), To: now, Dir: "asc"},
+		},
+		{
+			name: "dir desc",
+			f:    &storage.Filter{SiteID: 1, From: now.Add(-time.Hour), To: now, Dir: "desc"},
+		},
+		{
+			name:    "dir invalid",
+			f:       &storage.Filter{SiteID: 1, From: now.Add(-time.Hour), To: now, Dir: "DESC"},
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -132,6 +145,7 @@ func TestFilter_Hash_DifferentInputsDifferent(t *testing.T) {
 		func(f *storage.Filter) { f.Limit = 25 },
 		func(f *storage.Filter) { f.Offset = 10 },
 		func(f *storage.Filter) { f.Sort = "visitors" },
+		func(f *storage.Filter) { f.Dir = "asc" },
 	}
 
 	for i, m := range mutators {

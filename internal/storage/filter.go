@@ -39,7 +39,8 @@ type Filter struct {
 	Device      string
 
 	// UI knobs.
-	Sort   string // "views" | "visitors" | "goals" | "revenue" | ""
+	Sort   string // "views" | "visitors" | "goals" | "revenue" | "rpv" | <dim col> | ""
+	Dir    string // "asc" | "desc" | "" → defaults to "desc" when Sort is set
 	Search string // case-insensitive substring across the leading dimension
 	Limit  int    // 0 → DefaultLimit
 	Offset int
@@ -87,6 +88,12 @@ func (f *Filter) Validate() error {
 		return fmt.Errorf("%w: limit and offset must be >= 0", ErrInvalidFilter)
 	}
 
+	switch f.Dir {
+	case "", "asc", "desc":
+	default:
+		return fmt.Errorf("%w: dir must be asc, desc, or empty", ErrInvalidFilter)
+	}
+
 	return nil
 }
 
@@ -123,6 +130,7 @@ func (f *Filter) Hash() string {
 	writeStr(h, "os", f.OS)
 	writeStr(h, "device", f.Device)
 	writeStr(h, "sort", f.Sort)
+	writeStr(h, "dir", f.Dir)
 	writeStr(h, "search", f.Search)
 	writeInt(h, "limit", f.EffectiveLimit())
 	writeInt(h, "offset", f.Offset)

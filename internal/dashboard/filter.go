@@ -115,6 +115,7 @@ func filterFromRequest(r *http.Request, lister SiteLister) (*storage.Filter, err
 		OS:          q.Get("os"),
 		Device:      q.Get("device"),
 		Sort:        q.Get("sort"),
+		Dir:         q.Get("dir"),
 		Search:      q.Get("search"),
 		Limit:       limit,
 		Offset:      offset,
