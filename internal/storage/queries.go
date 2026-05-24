@@ -164,6 +164,7 @@ func sortableExtending(base, extras map[string]string) map[string]string {
 	for k, v := range extras {
 		out[k] = v
 	}
+
 	return out
 }
 
@@ -196,8 +197,10 @@ func orderClause(f *Filter, allowed map[string]string, fallback string) string {
 // function calls (e.g. `if(... DESC, revenue / visitors DESC, 0) DESC`).
 func splitTopLevelCommas(s string) []string {
 	var out []string
+
 	depth, start := 0, 0
-	for i := 0; i < len(s); i++ {
+
+	for i := range len(s) {
 		switch s[i] {
 		case '(':
 			depth++
@@ -210,6 +213,7 @@ func splitTopLevelCommas(s string) []string {
 			}
 		}
 	}
+
 	return append(out, s[start:])
 }
 
