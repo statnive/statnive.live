@@ -1,8 +1,8 @@
 [
   {
-    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login + multi-metric chart wiring + ECharts theme reader (token resolution at mount). Bumped 17→18 KB after the ECharts migration: lib/chart.ts grew with useEChartsTheme + applyReducedMotion + per-channel hue map (~150 B gz). LazyChart pattern keeps ECharts itself out of the initial bundle.",
+    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login + multi-metric chart wiring + ECharts theme reader (token resolution at mount). Bumped 18→19 KB when DatePicker gained the Custom popover (mode toggle + outside-click/Escape close + From/To echo + Apply button + IRST addDayIRST helper). LazyChart + LazyCally keep ECharts and Cally out of the initial bundle.",
     "path": "../internal/dashboard/spa/dist/assets/index-*.js",
-    "limit": "18 KB",
+    "limit": "19 KB",
     "gzip": true
   },
   {
@@ -18,9 +18,15 @@
     "gzip": true
   },
   {
-    "name": "statnive-spa.css (gz) — tokens + reset + AppShell + components + @font-face rules (Phase 5e, fonts are separate WOFF2 assets)",
+    "name": "cally calendar chunk (gz) — dynamic-imported only when the Custom date-range popover opens. Cally + atomico ≈ 13 KB gz; 20 KB ceiling covers tree-shake variance and a minor-version bump (Cally still 0.9.x, pinned exact in package.json until 1.0 lands).",
+    "path": "../internal/dashboard/spa/dist/assets/cally-*.js",
+    "limit": "20 KB",
+    "gzip": true
+  },
+  {
+    "name": "statnive-spa.css (gz) — tokens + reset + AppShell + components + @font-face rules (Phase 5e, fonts are separate WOFF2 assets). Bumped 5→6 KB when DatePicker.css gained the popover shell + Cally ::part() theming + mode-toggle + From/To echo + Apply button + mobile bottom-sheet styles.",
     "path": "../internal/dashboard/spa/dist/assets/index-*.css",
-    "limit": "5 KB",
+    "limit": "6 KB",
     "gzip": true
   },
   {

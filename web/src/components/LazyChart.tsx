@@ -1,8 +1,7 @@
 import type { ComponentType } from 'preact';
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
 import type { ChartProps } from './Chart';
 import { Loader } from './Loader';
+import { makeLazyCache, useLazyImport } from '../lib/lazy';
 
 // LazyChart dynamic-imports Chart.tsx (and its ECharts dep) so ECharts
 // does not land in the initial bundle. Every chart-rendering panel
@@ -12,27 +11,10 @@ import { Loader } from './Loader';
 
 type ChartComponent = ComponentType<ChartProps>;
 
-let cached: ChartComponent | null = null;
+const cache = makeLazyCache<ChartComponent>();
 
 export function LazyChart(props: ChartProps) {
-  const comp = useSignal<ChartComponent | null>(cached);
-
-  useEffect(() => {
-    if (cached) {
-      comp.value = cached;
-      return;
-    }
-    let cancelled = false;
-    void import('./Chart').then((mod) => {
-      cached = mod.Chart;
-      if (!cancelled) comp.value = mod.Chart;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const C = comp.value;
+  const C = useLazyImport(cache, () => import('./Chart').then((m) => m.Chart));
   if (!C) return <Loader />;
   return <C {...props} />;
 }
