@@ -31,6 +31,13 @@ export default defineConfig({
         entryFileNames: 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash][extname]',
+        // Pin Cally to a deterministic `cally-[hash].js` chunk so the
+        // size-limit pattern in .size-limit.json can match it. Cally
+        // is dynamic-imported from DatePicker → LazyCally (mirrors the
+        // uPlot → LazyChart pattern; uPlot lives in Chart-[hash].js).
+        manualChunks: {
+          cally: ['cally'],
+        },
       },
     },
   },

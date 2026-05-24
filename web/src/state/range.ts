@@ -1,5 +1,4 @@
 import { signal, effect } from '@preact/signals';
-import { hashSignal, navigate } from './hash';
 import { filtersSignal, updateFilters } from './filters';
 
 // IRST midnight YYYY-MM-DD strings — same shape as the Go API's Filter.
@@ -12,6 +11,15 @@ export function daysAgoIRST(days: number): string {
   const irstMs = nowMs + (3 * 60 + 30) * 60 * 1000;
   const irstDate = new Date(irstMs - days * 24 * 60 * 60 * 1000);
   return irstDate.toISOString().slice(0, 10);
+}
+
+// Shift a YYYY-MM-DD string by `delta` days, IRST-stable. Used by the
+// custom-range popover to convert between Cally's inclusive `value` and
+// our half-open `{from, to}` invariant.
+export function addDayIRST(iso: string, delta = 1): string {
+  if (!IRST_DATE_RE.test(iso)) return iso;
+  const ms = Date.parse(iso + 'T00:00:00Z') + delta * 86400000;
+  return new Date(ms).toISOString().slice(0, 10);
 }
 
 export function isValidIrstRange(from: string, to: string): boolean {
@@ -40,12 +48,16 @@ export const rangeSignal = signal<{ from: string; to: string }>(
 );
 
 // Preset identifiers for the date picker UI.
-export type DatePreset = '7d' | '30d' | '90d' | 'custom';
+export type DatePreset = 'today' | 'yesterday' | '7d' | '30d' | '90d' | 'custom';
 
 export function presetToRange(p: DatePreset): { from: string; to: string } {
   // `to = daysAgoIRST(-1)` is tomorrow IRST — half-open upper bound
   // that INCLUDES today. See defaultRange() for the rationale.
   switch (p) {
+    case 'today':
+      return { from: daysAgoIRST(0), to: daysAgoIRST(-1) };
+    case 'yesterday':
+      return { from: daysAgoIRST(1), to: daysAgoIRST(0) };
     case '7d':
       return { from: daysAgoIRST(7), to: daysAgoIRST(-1) };
     case '30d':
@@ -76,8 +88,3 @@ effect(() => {
   }
 });
 
-// Unused import guard: `navigate` and `hashSignal` are referenced indirectly
-// via updateFilters, but TS tree-shake wouldn't drop them. Keep explicit so
-// reviewers see the state-sync chain range.ts → filters.ts → hash.ts.
-void hashSignal;
-void navigate;
