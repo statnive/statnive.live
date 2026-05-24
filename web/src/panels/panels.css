@@ -525,3 +525,81 @@
   color: var(--green);
   margin-bottom: var(--s-1);
 }
+
+/* ── Sortable column headers (SortHeader component) ──
+   Hover-tone-not-lift: tonal text shift from ink-2 to ink. No background
+   fill (would collide with row hover). No underline (reserved for Nav
+   active route). Active column adopts ink + appended ↑/↓ glyph. */
+
+#statnive-app .statnive-table th[data-sortable="true"] {
+  cursor: pointer;
+  padding: 0;            /* button absorbs padding so click hit-target = full cell */
+}
+
+#statnive-app .statnive-table th[data-sortable="true"]:hover,
+#statnive-app .statnive-table th[data-sortable="true"]:focus-within {
+  color: var(--ink);
+}
+
+#statnive-app .statnive-table th[aria-sort="ascending"],
+#statnive-app .statnive-table th[aria-sort="descending"] {
+  color: var(--ink);
+}
+
+#statnive-app .statnive-table .statnive-th-btn {
+  background: none;
+  border: 0;
+  padding: var(--s-2) var(--s-3);   /* mirrors the th padding the rule above zeroed */
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: inherit;
+  text-align: inherit;
+  width: 100%;
+  display: block;
+}
+
+#statnive-app .statnive-table .statnive-th-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;             /* inset so it doesn't overflow the th border */
+}
+
+#statnive-app .statnive-table .statnive-th-dual {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.1;
+}
+
+#statnive-app .statnive-table .statnive-th-dual .visitors-row {
+  color: var(--ink);
+}
+
+#statnive-app .statnive-table .statnive-th-dual .revenue-row {
+  color: var(--chart-revenue);
+}
+
+#statnive-app .statnive-table .statnive-sort-glyph {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.85em;
+  opacity: 0.4;             /* dim — the affordance is visible but quiet */
+  transition: opacity 80ms ease;
+}
+
+#statnive-app .statnive-table .statnive-sort-glyph.is-active {
+  opacity: 1;
+  font-weight: 700;
+}
+
+#statnive-app .statnive-table th[data-sortable="true"]:hover .statnive-sort-glyph,
+#statnive-app .statnive-table th[data-sortable="true"]:focus-within .statnive-sort-glyph {
+  opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #statnive-app .statnive-table .statnive-sort-glyph {
+    transition: none;
+  }
+}

@@ -6,6 +6,7 @@ import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
 import { siteSignal, activeSiteSignal } from '../state/site';
 import { DualBar } from './DualBar';
+import { DualSortHeader, SortHeader } from '../components/SortHeader';
 import { fmtInt, fmtRpv } from '../lib/fmt';
 import { rowMax } from '../lib/rows';
 import './panels.css';
@@ -43,6 +44,8 @@ export default function Pages() {
     filtersSignal.value.channel,
     filtersSignal.value.device,
     filtersSignal.value.country,
+    filtersSignal.value.sort,
+    filtersSignal.value.dir,
     limit.value,
   ]);
 
@@ -84,11 +87,11 @@ export default function Pages() {
       <table class="statnive-table">
         <thead>
           <tr>
-            <th scope="col">Pathname</th>
-            <th scope="col">Views</th>
-            <th scope="col">Goals</th>
-            <th scope="col">RPV</th>
-            <th scope="col">Visitors / Revenue</th>
+            <SortHeader label="Pathname" column="pathname" />
+            <SortHeader label="Views" column="views" />
+            <SortHeader label="Goals" column="goals" />
+            <SortHeader label="RPV" column="rpv" />
+            <DualSortHeader />
           </tr>
         </thead>
         <tbody>

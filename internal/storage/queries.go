@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"fmt"
+	"maps"
+	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -122,7 +124,94 @@ var (
 	hourlyVisitorsCols = map[string]bool{
 		"channel": true,
 	}
+
+	// Whitelist values MUST be bare columns or expressions valid in an
+	// outer ORDER BY against the SELECT list — no aggregates, no AS
+	// aliases. orderClause appends " DESC"/" ASC" to each top-level
+	// comma-separated term and would emit garbage SQL for `sum(x) AS y`.
+	metricsSortable = map[string]string{
+		"views":    "views",
+		"visitors": "visitors",
+		"goals":    "goals",
+		"revenue":  "revenue, visitors",
+		"rpv":      "if(visitors > 0, revenue / visitors, 0)",
+	}
+
+	pagesSortable = sortableExtending(metricsSortable, map[string]string{
+		"pathname": "pathname",
+	})
+	sourcesSortable = sortableExtending(metricsSortable, map[string]string{
+		"referrer": "referrer_name",
+		"channel":  "channel",
+	})
+	campaignsSortable = sortableExtending(metricsSortable, map[string]string{
+		"campaign": "utm_campaign",
+	})
+	// SourcesByChannel groups by channel only; no referrer_name in SELECT.
+	// A `sort=referrer` from the Sources table is ignored here (falls back
+	// to the default) — the per-referrer detail rows still pick it up via
+	// sourcesSortable.
+	sourcesByChannelSortable = sortableExtending(metricsSortable, map[string]string{
+		"channel": "channel",
+	})
 )
+
+// sortableExtending returns a copy of base with extras merged on top —
+// the canonical way to compose per-query sort whitelists from the shared
+// metricsSortable base.
+func sortableExtending(base, extras map[string]string) map[string]string {
+	out := maps.Clone(base)
+	for k, v := range extras {
+		out[k] = v
+	}
+	return out
+}
+
+// orderClause renders ORDER BY from f.Sort using the per-query whitelist;
+// compound expressions get f.Dir applied to each top-level term. Falls back
+// to the hardcoded default when f.Sort is empty or not whitelisted.
+func orderClause(f *Filter, allowed map[string]string, fallback string) string {
+	expr, ok := allowed[f.Sort]
+	if !ok {
+		return "ORDER BY " + fallback
+	}
+
+	dir := "DESC"
+	if f.Dir == "asc" {
+		dir = "ASC"
+	}
+
+	parts := splitTopLevelCommas(expr)
+	for i, p := range parts {
+		parts[i] = strings.TrimSpace(p) + " " + dir
+	}
+
+	return "ORDER BY " + strings.Join(parts, ", ")
+}
+
+// splitTopLevelCommas splits s on commas that sit at paren depth 0 only —
+// so `if(visitors > 0, revenue / visitors, 0)` stays one term, while
+// `revenue, visitors` splits into two. Required because orderClause
+// appends " DESC"/" ASC" to each term and would otherwise corrupt nested
+// function calls (e.g. `if(... DESC, revenue / visitors DESC, 0) DESC`).
+func splitTopLevelCommas(s string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				out = append(out, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, s[start:])
+}
 
 // Overview reads the headline metrics from hourly_visitors. The HLL
 // states are merged across hours via uniqMerge — this is why the
@@ -179,9 +268,9 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.daily_sources %s
 		GROUP BY referrer_name, channel
-		ORDER BY revenue DESC, views DESC
+		%s
 		LIMIT ?
-	`, where), append(args, f.EffectiveLimit())...)
+	`, where, orderClause(f, sourcesSortable, "revenue DESC, views DESC")), append(args, f.EffectiveLimit())...)
 	if err != nil {
 		return nil, fmt.Errorf("sources query: %w", err)
 	}
@@ -233,8 +322,8 @@ func (s *clickhouseStore) SourcesByChannel(ctx context.Context, f *Filter) ([]So
 			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.daily_sources %s
 		GROUP BY channel
-		ORDER BY revenue DESC, views DESC
-	`, where), args...)
+		%s
+	`, where, orderClause(f, sourcesByChannelSortable, "revenue DESC, views DESC")), args...)
 	if err != nil {
 		return nil, fmt.Errorf("sources_by_channel query: %w", err)
 	}
@@ -277,9 +366,9 @@ func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, erro
 			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.daily_pages %s
 		GROUP BY pathname
-		ORDER BY views DESC
+		%s
 		LIMIT ?
-	`, where), append(args, f.EffectiveLimit())...)
+	`, where, orderClause(f, pagesSortable, "views DESC")), append(args, f.EffectiveLimit())...)
 	if err != nil {
 		return nil, fmt.Errorf("pages query: %w", err)
 	}
@@ -393,9 +482,9 @@ func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignR
 			toUInt64(sum(revenue))              AS revenue
 		FROM statnive.daily_sources %s AND utm_campaign != ''
 		GROUP BY utm_campaign, utm_source, utm_medium, utm_content, utm_term, channel
-		ORDER BY revenue DESC, views DESC
+		%s
 		LIMIT ?
-	`, where), append(args, f.EffectiveLimit())...)
+	`, where, orderClause(f, campaignsSortable, "revenue DESC, views DESC")), append(args, f.EffectiveLimit())...)
 	if err != nil {
 		return nil, fmt.Errorf("campaigns query: %w", err)
 	}

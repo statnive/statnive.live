@@ -6,6 +6,7 @@ import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
 import { siteSignal, activeSiteSignal } from '../state/site';
 import { DualBar } from './DualBar';
+import { DualSortHeader, SortHeader } from '../components/SortHeader';
 import { SourcesByChannelChart } from './SourcesByChannelChart';
 import { fmtInt, fmtRpv } from '../lib/fmt';
 import { rowMax } from '../lib/rows';
@@ -47,6 +48,8 @@ export default function Sources() {
     filtersSignal.value.device,
     filtersSignal.value.country,
     filtersSignal.value.path,
+    filtersSignal.value.sort,
+    filtersSignal.value.dir,
   ]);
 
   if (err.value) {
@@ -138,11 +141,11 @@ function SourcesTable({ rows, byChannel, currency, expanded }: SourcesTableProps
       <thead>
         <tr>
           <th scope="col" class="statnive-channel-chevron-col" aria-hidden="true" />
-          <th scope="col">Channel</th>
-          <th scope="col">Views</th>
-          <th scope="col">Goals</th>
-          <th scope="col">RPV</th>
-          <th scope="col">Visitors / Revenue</th>
+          <SortHeader label="Channel" column="channel" />
+          <SortHeader label="Views" column="views" />
+          <SortHeader label="Goals" column="goals" />
+          <SortHeader label="RPV" column="rpv" />
+          <DualSortHeader />
         </tr>
       </thead>
       <tbody>

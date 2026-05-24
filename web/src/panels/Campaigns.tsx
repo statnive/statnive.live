@@ -3,15 +3,18 @@ import { useSignal } from '@preact/signals';
 import { apiGet } from '../api/client';
 import type { CampaignRow } from '../api/types';
 import { rangeSignal } from '../state/range';
-import { filtersSignal } from '../state/filters';
+import { dirOf, filtersSignal } from '../state/filters';
 import { siteSignal, activeSiteSignal } from '../state/site';
 import {
   allPathKeys,
   buildCampaignTree,
+  isCampaignSortKey,
+  sortCampaignTree,
   treeNodes,
   type CampaignTreeNode,
 } from '../lib/campaignTree';
 import { DualBar } from './DualBar';
+import { DualSortHeader, SortHeader } from '../components/SortHeader';
 import { CampaignCharts } from './CampaignCharts';
 import { fmtInt, fmtRpv } from '../lib/fmt';
 import { rowMax } from '../lib/rows';
@@ -61,10 +64,21 @@ export default function Campaigns() {
     filtersSignal.value.channel,
     filtersSignal.value.device,
     filtersSignal.value.country,
+    filtersSignal.value.sort,
+    filtersSignal.value.dir,
   ]);
 
   const rows = data.value;
-  const tree = useMemo(() => (rows ? buildCampaignTree(rows) : []), [rows]);
+  const tree = useMemo(() => {
+    if (!rows) return [];
+    const built = buildCampaignTree(rows);
+    const f = filtersSignal.value;
+    if (isCampaignSortKey(f.sort)) {
+      sortCampaignTree(built, f.sort, dirOf(f));
+    }
+    return built;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, filtersSignal.value.sort, filtersSignal.value.dir]);
   const currency = activeSiteSignal.value?.currency ?? 'EUR';
   const allNodes = useMemo(() => treeNodes(tree), [tree]);
   const maxVisitors = rowMax(allNodes, (n) => n.visitors);
@@ -142,12 +156,12 @@ export default function Campaigns() {
       <table class="statnive-table statnive-tree-table">
         <thead>
           <tr>
-            <th scope="col">Campaign · Source · Medium · Content</th>
-            <th scope="col">Views</th>
-            <th scope="col" title={VISITORS_TOOLTIP}>Visitors *</th>
-            <th scope="col">Goals</th>
-            <th scope="col">RPV</th>
-            <th scope="col">Visitors / Revenue</th>
+            <SortHeader label="Campaign · Source · Medium · Content" column="campaign" />
+            <SortHeader label="Views" column="views" />
+            <SortHeader label="Visitors *" column="visitors" />
+            <SortHeader label="Goals" column="goals" />
+            <SortHeader label="RPV" column="rpv" />
+            <DualSortHeader />
           </tr>
         </thead>
         <tbody>{tree.flatMap((node) => renderNode(node, 0, ctx))}</tbody>

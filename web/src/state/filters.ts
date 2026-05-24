@@ -16,6 +16,8 @@ export interface Filters {
   from: string;       // IRST YYYY-MM-DD
   to: string;         // IRST YYYY-MM-DD
   metrics: string;    // comma-separated MetricId list — Overview chart series; '' = default (visitors only)
+  sort: string;       // panel-specific sort key (backend whitelist per query); '' = backend default
+  dir: string;        // 'asc' | 'desc' | '' (only meaningful when sort is set)
 }
 
 export const EMPTY_FILTERS: Filters = {
@@ -26,6 +28,8 @@ export const EMPTY_FILTERS: Filters = {
   from: '',
   to: '',
   metrics: '',
+  sort: '',
+  dir: '',
 };
 
 const KEYS: Array<keyof Filters> = [
@@ -36,6 +40,8 @@ const KEYS: Array<keyof Filters> = [
   'from',
   'to',
   'metrics',
+  'sort',
+  'dir',
 ];
 
 export function filtersToQuery(f: Filters): URLSearchParams {
@@ -53,6 +59,9 @@ export function queryToFilters(p: URLSearchParams): Filters {
     const v = p.get(k);
     if (v) out[k] = v;
   }
+  // dir is meaningless without sort — drop a stray ?dir= so a shared
+  // URL never carries direction without the column it applies to.
+  if (!out.sort) out.dir = '';
   return out;
 }
 
@@ -76,6 +85,13 @@ function filtersEqual(a: Filters, b: Filters): boolean {
     if (a[k] !== b[k]) return false;
   }
   return true;
+}
+
+// dirOf coerces Filters.dir to the asc|desc union used by client-side
+// sort comparators. Any value other than 'asc' (including '') maps to
+// 'desc' — matches the "no sort set → backend default desc" UI contract.
+export function dirOf(f: Filters): 'asc' | 'desc' {
+  return f.dir === 'asc' ? 'asc' : 'desc';
 }
 
 // updateFilters merges next into the current filters signal and writes

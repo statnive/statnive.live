@@ -3,9 +3,10 @@ import { useSignal } from '@preact/signals';
 import { apiGet } from '../api/client';
 import type { SEORow } from '../api/types';
 import { rangeSignal } from '../state/range';
-import { filtersSignal } from '../state/filters';
+import { dirOf, filtersSignal } from '../state/filters';
 import { siteSignal, activeSiteSignal } from '../state/site';
 import { LazyChart } from '../components/LazyChart';
+import { SortHeader } from '../components/SortHeader';
 import { fmtInt, fmtMoney } from '../lib/fmt';
 import { applyReducedMotion, readEChartsTheme, visitorLineOption } from '../lib/chart';
 import './panels.css';
@@ -50,6 +51,21 @@ export default function SEO() {
       : null;
   }, [data.value, theme]);
 
+  // Sort client-side so the WITH FILL trend chart above keeps one row per day.
+  const sortedRows = useMemo(() => {
+    const rows = data.value ?? [];
+    const f = filtersSignal.value;
+    if (!f.sort) return rows;
+    const sign = dirOf(f) === 'asc' ? 1 : -1;
+    const key = f.sort as keyof SEORow;
+    return [...rows].sort((a, b) => {
+      const av = a[key];
+      const bv = b[key];
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * sign;
+      return String(av).localeCompare(String(bv)) * sign;
+    });
+  }, [data.value, filtersSignal.value.sort, filtersSignal.value.dir]);
+
   if (err.value) {
     return (
       <section class="statnive-section">
@@ -87,15 +103,15 @@ export default function SEO() {
       <table class="statnive-table" style={{ marginTop: 'var(--s-3)' }}>
         <thead>
           <tr>
-            <th scope="col">Day</th>
-            <th scope="col">Views</th>
-            <th scope="col">Visitors</th>
-            <th scope="col">Goals</th>
-            <th scope="col">Revenue</th>
+            <SortHeader label="Day" column="day" />
+            <SortHeader label="Views" column="views" />
+            <SortHeader label="Visitors" column="visitors" />
+            <SortHeader label="Goals" column="goals" />
+            <SortHeader label="Revenue" column="revenue" />
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {sortedRows.map((r) => (
             <tr key={r.day}>
               <td>{r.day.slice(0, 10)}</td>
               <td>{fmtInt(r.views)}</td>
