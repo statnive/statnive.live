@@ -1,0 +1,41 @@
+# chrony.conf — Asiatech / Iranian-DC profile.
+#
+# Pinned by Privacy Rule 2 (CLAUDE.md): the IRST-keyed identity salt
+# rotates at midnight Asia/Tehran (UTC+3:30, no DST). If wall-clock
+# drifts >60 s, BLAKE3 hashes for a given (master_secret, site_id,
+# date) diverge across days and visitor identity silently corrupts.
+#
+# Four sources per the `iranian-dc-deploy` skill (item 10). Three are
+# Iranian operator / academic NTP; the fourth is the global ir.pool
+# round-robin which resolves inside Iran during cross-border BGP cuts.
+# iburst speeds initial sync; makestep 1.0 3 lets chronyd step the
+# clock for large initial offsets only.
+#
+# Replaces the system /etc/chrony/chrony.conf during airgap-install.sh
+# --ntp-profile=asiatech. Use --ntp-profile=netcup (or omit the flag)
+# for international (Netcup / Hetzner) hosts — that path leaves the
+# distro default chrony.conf untouched.
+
+server time.asiatech.ir   iburst
+server ntp.nic.ir         iburst
+server ntp.aut.ac.ir      iburst
+pool   0.ir.pool.ntp.org  iburst maxsources 3
+
+# Step the clock if the initial offset is >1 s; only for the first 3
+# updates after boot. After that, slew gradually so monotonic timers
+# (WAL fsync deadlines, ratelimit windows) stay coherent.
+makestep 1.0 3
+
+# Sync the hardware (RTC) clock from the system clock so a reboot
+# doesn't lose the IRST alignment.
+rtcsync
+
+# Standard Debian/Ubuntu chrony paths — match the distro packaging so
+# `systemctl restart chrony` Just Works without unit overrides.
+driftfile /var/lib/chrony/chrony.drift
+logdir /var/log/chrony
+maxupdateskew 100.0
+
+# Allow chronyd to bind to a specific user (Debian default).
+# Leave commented to inherit the package's User= setting.
+# user _chrony

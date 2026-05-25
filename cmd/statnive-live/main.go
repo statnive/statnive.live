@@ -44,6 +44,7 @@ import (
 	"github.com/statnive/statnive.live/internal/ingest"
 	"github.com/statnive/statnive.live/internal/landing"
 	"github.com/statnive/statnive.live/internal/legal"
+	"github.com/statnive/statnive.live/internal/license"
 	"github.com/statnive/statnive.live/internal/metrics"
 	statnivemiddleware "github.com/statnive/statnive.live/internal/middleware"
 	"github.com/statnive/statnive.live/internal/privacy"
@@ -149,6 +150,35 @@ func run() error {
 	}
 
 	defer func() { _ = auditLog.Close() }()
+
+	// License verification (WP1). Opt-in: empty license.file is the
+	// long-standing default — boot proceeds identically to the pre-WP1
+	// binary so deploys without a license file (statnive.com / .de /
+	// fr.statnive.com on Netcup) stay byte-identical.
+	claims, lerr := license.Verify(cfg.License.File)
+	switch {
+	case errors.Is(lerr, license.ErrNoLicense):
+		logger.Info("license verification skipped (license.file empty)")
+	case lerr != nil:
+		return fmt.Errorf("license verify: %w", lerr)
+	default:
+		expIn := time.Until(time.Unix(claims.ExpiresAt, 0)).Round(time.Hour).String()
+		logger.Info("license verified",
+			"customer", claims.Customer,
+			"site_id", claims.SiteID,
+			"max_events_day", claims.MaxEventsDay,
+			"features", strings.Join(claims.Features, ","),
+			"expires_at", time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339),
+			"expires_in", expIn,
+		)
+		auditLog.Event(context.Background(), audit.EventLicenseVerified,
+			slog.String("customer", claims.Customer),
+			slog.Uint64("site_id", uint64(claims.SiteID)),
+			slog.Uint64("max_events_day", claims.MaxEventsDay),
+			slog.Time("expires_at", time.Unix(claims.ExpiresAt, 0)),
+			slog.String("expires_in", expIn),
+		)
+	}
 
 	// alertsSink is nil (no-op) when alerts.sink_path is empty — that
 	// keeps the "pure-stdout" dev posture valid. Phase 8 defaults ship
@@ -1217,6 +1247,20 @@ type appConfig struct {
 		// frontend that consume them.
 		PerSiteAdmin bool
 	}
+	License struct {
+		// File is the path to the offline Ed25519-signed JWT license
+		// token. Empty (the default for all existing deploys including
+		// statnive.com / .de / fr.statnive.com on Netcup) disables
+		// license verification entirely — boot proceeds as it did
+		// before WP1 landed. Phase 10 Iranian-DC deploys set this to
+		// e.g. /etc/statnive-live/license.jwt.
+		File string
+		// PhoneHome remains opt-out by default per CLAUDE.md
+		// anti-pattern `iran-license-verify-must-be-offline`. The
+		// flag exists in the schema so air-gap-validator can audit
+		// for accidental flips; the v1 binary ignores it.
+		PhoneHome bool
+	}
 	Privacy struct {
 		// PrivacyPage gates GET /privacy. Default on; flip to false
 		// for an instant rollback that returns 404 to all visitors.
@@ -1351,6 +1395,14 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("admin.operator_email", "")
 	v.SetDefault("features.per_site_admin", false)
 
+	// License verification (WP1 — offline Ed25519). Both default empty/
+	// false so deploys that never had a license file (statnive.com /
+	// .de / fr.statnive.com on Netcup) boot byte-identically to the
+	// pre-WP1 binary. Phase 10 Iranian-DC operators opt in by setting
+	// license.file in their YAML / STATNIVE_LICENSE_FILE.
+	v.SetDefault("license.file", "")
+	v.SetDefault("license.phone_home", false)
+
 	// Privacy routes — Stage 2 of the consent-free implementation.
 	// All three default on so a fresh deploy gets the GDPR Art. 21
 	// opt-out path without operator intervention; flip individual
@@ -1437,6 +1489,9 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 
 	cfg.Admin.OperatorEmail = strings.TrimSpace(v.GetString("admin.operator_email"))
 	cfg.Features.PerSiteAdmin = v.GetBool("features.per_site_admin")
+
+	cfg.License.File = strings.TrimSpace(v.GetString("license.file"))
+	cfg.License.PhoneHome = v.GetBool("license.phone_home")
 
 	cfg.Privacy.PrivacyPage = v.GetBool("privacy.privacy_page")
 	cfg.Privacy.PrivacyAPI = v.GetBool("privacy.privacy_api")
