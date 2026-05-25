@@ -60,6 +60,14 @@ func NewOriginIndex() *OriginIndex {
 // Slow path (NormalizeOrigin + retry) covers stray test fixtures,
 // uppercased hosts, trailing-slash artifacts; ~200 ns + 3-4 allocs
 // on miss only.
+//
+// www. equivalence fallback: if neither the literal nor the
+// canonicalised form resolves, the lookup retries once with the
+// host's "www." prefix toggled. Mirrors LookupSitePolicy so a tenant
+// who allowlists https://foo.com is also accepted from
+// https://www.foo.com (and vice versa) — matches the existing ingest
+// hostname-resolution behavior so CORS and ingest agree on www.
+// equivalence.
 func (i *OriginIndex) Lookup(origin string) (uint32, bool) {
 	if origin == "" || origin == "null" {
 		return 0, false
@@ -79,7 +87,16 @@ func (i *OriginIndex) Lookup(origin string) (uint32, bool) {
 		return 0, false
 	}
 
-	siteID, ok := (*mp)[canon]
+	if siteID, ok := (*mp)[canon]; ok {
+		return siteID, true
+	}
+
+	alt, ok := wwwBareToggleOrigin(canon)
+	if !ok {
+		return 0, false
+	}
+
+	siteID, ok := (*mp)[alt]
 
 	return siteID, ok
 }
