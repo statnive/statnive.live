@@ -140,7 +140,7 @@ func verifyToken(token string, pubKey ed25519.PublicKey, now time.Time) (*Claims
 
 	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
-		return nil, fmt.Errorf("%w: signature segment: %v", ErrMalformed, err)
+		return nil, fmt.Errorf("%w: signature segment: %w", ErrMalformed, err)
 	}
 
 	if !ed25519.Verify(pubKey, []byte(signingInput), sig) {
@@ -149,12 +149,12 @@ func verifyToken(token string, pubKey ed25519.PublicKey, now time.Time) (*Claims
 
 	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return nil, fmt.Errorf("%w: claims segment: %v", ErrMalformed, err)
+		return nil, fmt.Errorf("%w: claims segment: %w", ErrMalformed, err)
 	}
 
 	var c Claims
 	if err := json.Unmarshal(claimsBytes, &c); err != nil {
-		return nil, fmt.Errorf("%w: claims unmarshal: %v", ErrMalformed, err)
+		return nil, fmt.Errorf("%w: claims unmarshal: %w", ErrMalformed, err)
 	}
 
 	if c.ExpiresAt > 0 && now.Unix() >= c.ExpiresAt {

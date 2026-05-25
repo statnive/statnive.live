@@ -208,7 +208,7 @@ func TestVerify_PlaceholderPubKey(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "license.jwt")
 
-	if err := os.WriteFile(path, []byte("anything"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("anything"), 0o600); err != nil {
 		t.Fatalf("write tmp license: %v", err)
 	}
 
@@ -261,7 +261,7 @@ func TestVerifyFile_OversizeRejected(t *testing.T) {
 	path := filepath.Join(tmp, "huge.jwt")
 	big := bytes.Repeat([]byte("A"), maxLicenseFileBytes+1024)
 
-	if err := os.WriteFile(path, big, 0o644); err != nil {
+	if err := os.WriteFile(path, big, 0o600); err != nil {
 		t.Fatalf("write huge license: %v", err)
 	}
 
