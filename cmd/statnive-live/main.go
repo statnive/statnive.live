@@ -434,12 +434,17 @@ func run() error {
 
 	router := chi.NewRouter()
 
-	// /api/event runs the fast-reject gate BEFORE the rate limiter so
-	// prefetches + obvious-bot UAs don't burn per-IP budget. Dashboard
-	// routes share the rate limiter (so abusive polling can't drain
-	// ClickHouse) but skip fast-reject (operators don't send tracker
+	// Shared with the /api/privacy/* + /privacy mounts below; defined
+	// here so the /api/event group can use it.
+	corsMW := statnivemiddleware.CORS(originIndex.Resolver())
+
+	// corsMW MUST run before fast-reject in this group: OPTIONS
+	// preflights would otherwise 405 on fast-reject's POST-only check
+	// before they reach the route. Dashboard routes share the rate
+	// limiter but skip fast-reject (operators don't send tracker
 	// prefetches). /healthz stays unconditionally reachable for probes.
 	router.Group(func(r chi.Router) {
+		r.Use(corsMW)
 		r.Use(ingest.FastRejectMiddleware(auditLog, metricsReg))
 		r.Use(rateLimitMW)
 		// Back-pressure gate sits AFTER rate-limit (abusive clients still
@@ -456,7 +461,10 @@ func run() error {
 			ingestSuppression = suppressionList
 		}
 
-		r.Method(http.MethodPost, "/api/event", ingest.NewHandler(ingest.HandlerConfig{
+		// The OPTIONS binding is required so chi accepts the method —
+		// corsMW intercepts the preflight and returns 204 before the
+		// handler runs.
+		ingestHandler := ingest.NewHandler(ingest.HandlerConfig{
 			Pipeline:        pipeline,
 			WAL:             groupSyncer,
 			Sites:           registry,
@@ -469,7 +477,9 @@ func run() error {
 			Mode: func(r *http.Request, siteID uint32, p sites.SitePolicy) ingest.Mode {
 				return privacy.PolicyToMode(r, siteID, p)
 			},
-		}))
+		})
+		r.Method(http.MethodPost, "/api/event", ingestHandler)
+		r.Method(http.MethodOptions, "/api/event", ingestHandler)
 	})
 
 	// Login / logout / me. /api/login has its own per-IP rate-limit
@@ -623,7 +633,8 @@ func run() error {
 	//   /privacy                          (privacy.privacy_page)
 	//   /legal/privacy-policy/{lang}      (privacy.legal_routes)
 	//   /api/privacy/{opt-out,access,erase} (privacy.privacy_api)
-	corsMW := statnivemiddleware.CORS(originIndex.Resolver())
+	// corsMW is hoisted above the /api/event group earlier in this
+	// function and reused here for the privacy surfaces.
 
 	siteValidator := func(hostname string) bool {
 		id, _, err := registry.LookupSitePolicy(rootCtx, hostname)

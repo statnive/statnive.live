@@ -238,6 +238,169 @@ func TestOriginIndex_HotSwapNoTear(t *testing.T) {
 	}
 }
 
+// TestOriginIndex_Lookup_WwwToBareFallback — tenant allowlists the bare
+// origin; browser sends the www. variant (CF bare→www redirect, common
+// CDN topology). Lookup must resolve via the www.→bare retry.
+func TestOriginIndex_Lookup_WwwToBareFallback(t *testing.T) {
+	t.Parallel()
+
+	lister := &fakeLister{sites: []SiteAdmin{
+		{
+			Site:       Site{ID: 4, Enabled: true},
+			SitePolicy: SitePolicy{AllowedOrigins: []string{"https://televika.com"}},
+		},
+	}}
+
+	idx := NewOriginIndex()
+	if _, err := idx.Rebuild(context.Background(), lister); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+
+	if id, ok := idx.Lookup("https://www.televika.com"); !ok || id != 4 {
+		t.Errorf("www.televika lookup with bare-only allowlist = (%d, %v); want (4, true)", id, ok)
+	}
+}
+
+// TestOriginIndex_Lookup_BareToWwwFallback — symmetric direction: tenant
+// allowlists the www. origin; browser sends the bare variant (tenant
+// redirects www→bare; CDN strips). Lookup must resolve via the bare→www. retry.
+func TestOriginIndex_Lookup_BareToWwwFallback(t *testing.T) {
+	t.Parallel()
+
+	lister := &fakeLister{sites: []SiteAdmin{
+		{
+			Site:       Site{ID: 4, Enabled: true},
+			SitePolicy: SitePolicy{AllowedOrigins: []string{"https://www.televika.com"}},
+		},
+	}}
+
+	idx := NewOriginIndex()
+	if _, err := idx.Rebuild(context.Background(), lister); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+
+	if id, ok := idx.Lookup("https://televika.com"); !ok || id != 4 {
+		t.Errorf("bare televika lookup with www-only allowlist = (%d, %v); want (4, true)", id, ok)
+	}
+}
+
+// TestOriginIndex_Lookup_PortPreservedThroughFallback — explicit non-default
+// ports must round-trip through the www. toggle. Otherwise an admin who
+// allowlists https://staging.foo.com:8443 would be matched on bare 443 too,
+// which is wrong (different origin per RFC 6454).
+func TestOriginIndex_Lookup_PortPreservedThroughFallback(t *testing.T) {
+	t.Parallel()
+
+	lister := &fakeLister{sites: []SiteAdmin{
+		{
+			Site:       Site{ID: 7, Enabled: true},
+			SitePolicy: SitePolicy{AllowedOrigins: []string{"https://staging.foo.com:8443"}},
+		},
+	}}
+
+	idx := NewOriginIndex()
+	if _, err := idx.Rebuild(context.Background(), lister); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+
+	// www.+port should resolve via fallback toggle that preserves :8443.
+	if id, ok := idx.Lookup("https://www.staging.foo.com:8443"); !ok || id != 7 {
+		t.Errorf("www.+port lookup = (%d, %v); want (7, true)", id, ok)
+	}
+
+	// www. without port MUST NOT resolve — different origin per RFC 6454.
+	if id, ok := idx.Lookup("https://www.staging.foo.com"); ok {
+		t.Errorf("portless lookup must NOT cross :8443 origin boundary; got (%d, true)", id)
+	}
+}
+
+// TestOriginIndex_Lookup_ExplicitVariantStillWins — when both bare and www.
+// are allowlisted, the literal match must win (avoids unnecessary toggle
+// work AND keeps the exact-match-wins semantic visible to operators who
+// register both intentionally).
+func TestOriginIndex_Lookup_ExplicitVariantStillWins(t *testing.T) {
+	t.Parallel()
+
+	lister := &fakeLister{sites: []SiteAdmin{
+		{
+			Site:       Site{ID: 4, Enabled: true},
+			SitePolicy: SitePolicy{AllowedOrigins: []string{"https://televika.com", "https://www.televika.com"}},
+		},
+	}}
+
+	idx := NewOriginIndex()
+	if _, err := idx.Rebuild(context.Background(), lister); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+
+	if id, ok := idx.Lookup("https://televika.com"); !ok || id != 4 {
+		t.Errorf("bare lookup = (%d, %v); want (4, true)", id, ok)
+	}
+
+	if id, ok := idx.Lookup("https://www.televika.com"); !ok || id != 4 {
+		t.Errorf("www lookup = (%d, %v); want (4, true)", id, ok)
+	}
+}
+
+// TestOriginIndex_Lookup_WwwFallbackNeverWidensAcrossSites — admin A
+// allowlists https://foo.com (site=1); admin B allowlists
+// https://www.bar.com (site=2). A lookup for https://www.foo.com must
+// resolve to site=1 (via fallback), NOT cross to site=2; lookup for
+// https://bar.com must resolve to site=2, NOT cross to site=1. The
+// fallback is per-toggle, not a global www-collapse.
+func TestOriginIndex_Lookup_WwwFallbackNeverWidensAcrossSites(t *testing.T) {
+	t.Parallel()
+
+	lister := &fakeLister{sites: []SiteAdmin{
+		{Site: Site{ID: 1, Enabled: true}, SitePolicy: SitePolicy{AllowedOrigins: []string{"https://foo.com"}}},
+		{Site: Site{ID: 2, Enabled: true}, SitePolicy: SitePolicy{AllowedOrigins: []string{"https://www.bar.com"}}},
+	}}
+
+	idx := NewOriginIndex()
+	if _, err := idx.Rebuild(context.Background(), lister); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+
+	if id, ok := idx.Lookup("https://www.foo.com"); !ok || id != 1 {
+		t.Errorf("www.foo.com via fallback = (%d, %v); want (1, true)", id, ok)
+	}
+
+	if id, ok := idx.Lookup("https://bar.com"); !ok || id != 2 {
+		t.Errorf("bar.com via fallback = (%d, %v); want (2, true)", id, ok)
+	}
+
+	// Unrelated host must still miss — fallback is a www toggle, not a
+	// general subdomain collapse.
+	if id, ok := idx.Lookup("https://api.foo.com"); ok {
+		t.Errorf("api.foo.com must NOT resolve via www toggle; got (%d, true)", id)
+	}
+}
+
+// TestOriginIndex_Lookup_DisabledSiteNoFallback — when the only matching
+// site is disabled, neither the literal nor the www.-toggled lookup
+// resolves. Disabling a site must instantly stop accepting BOTH variants.
+func TestOriginIndex_Lookup_DisabledSiteNoFallback(t *testing.T) {
+	t.Parallel()
+
+	lister := &fakeLister{sites: []SiteAdmin{
+		{
+			Site:       Site{ID: 9, Enabled: false},
+			SitePolicy: SitePolicy{AllowedOrigins: []string{"https://disabled.example"}},
+		},
+	}}
+
+	idx := NewOriginIndex()
+	if _, err := idx.Rebuild(context.Background(), lister); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+
+	for _, probe := range []string{"https://disabled.example", "https://www.disabled.example"} {
+		if id, ok := idx.Lookup(probe); ok {
+			t.Errorf("disabled-site lookup leaked %s = (%d, true)", probe, id)
+		}
+	}
+}
+
 func TestOriginIndex_HasSelfHostInAnyAllowlist(t *testing.T) {
 	t.Parallel()
 

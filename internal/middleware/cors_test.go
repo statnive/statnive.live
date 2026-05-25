@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -182,6 +183,116 @@ func TestCORS_SecFetchSiteSameOriginMismatch(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("Sec-Fetch-Site=same-origin with cross-origin Origin must 403, got %d", rec.Code)
+	}
+}
+
+// wwwEquivalentResolver mimics the production sites.OriginIndex.Lookup
+// www.-toggle fallback. Kept inline here rather than importing the sites
+// package so the middleware test stays unit-scoped (no test-time
+// coupling between two packages).
+func wwwEquivalentResolver(seeded map[string]uint32) OriginResolver {
+	const httpsPrefix = "https://"
+
+	const wwwPrefix = "https://www."
+
+	return func(origin string) (uint32, bool) {
+		if id, ok := seeded[origin]; ok {
+			return id, true
+		}
+
+		var alt string
+
+		switch {
+		case strings.HasPrefix(origin, wwwPrefix):
+			alt = httpsPrefix + strings.TrimPrefix(origin, wwwPrefix)
+		case strings.HasPrefix(origin, httpsPrefix):
+			alt = wwwPrefix + strings.TrimPrefix(origin, httpsPrefix)
+		default:
+			return 0, false
+		}
+
+		id, ok := seeded[alt]
+
+		return id, ok
+	}
+}
+
+// TestCORS_WwwBareEquivalence_Preflight covers both directions of the
+// www.-toggle resolver fallback. The middleware MUST echo the REQUEST'S
+// Origin in ACAO, not the seeded variant — browser CORS spec requires
+// byte-match between request Origin and response ACAO.
+func TestCORS_WwwBareEquivalence_Preflight(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name          string
+		requestOrigin string
+		seededOrigin  string
+	}{
+		{
+			name:          "bare request resolves via www allowlist entry",
+			requestOrigin: "https://televika.com",
+			seededOrigin:  "https://www.televika.com",
+		},
+		{
+			name:          "www request resolves via bare allowlist entry",
+			requestOrigin: "https://www.televika.com",
+			seededOrigin:  "https://televika.com",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodOptions, "/api/event", nil)
+			req.Header.Set("Origin", c.requestOrigin)
+			req.Header.Set("Access-Control-Request-Method", "POST")
+
+			CORS(wwwEquivalentResolver(map[string]uint32{c.seededOrigin: 4}))(nopNext()).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("preflight status = %d, want 204", rec.Code)
+			}
+
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != c.requestOrigin {
+				t.Errorf("ACAO = %q, want request-Origin echo %q (browser CORS spec requires byte-match)", got, c.requestOrigin)
+			}
+		})
+	}
+}
+
+// TestCORS_WwwBareEquivalence_PostStashesSiteID — real POST (not
+// preflight) from the bare origin must still stash the seeded site_id
+// into the request context so downstream handlers see it. Locks the
+// invariant that www.-fallback works for the POST path too, not just
+// preflight.
+func TestCORS_WwwBareEquivalence_PostStashesSiteID(t *testing.T) {
+	t.Parallel()
+
+	const wantID uint32 = 4
+
+	var seenID uint32
+
+	var seenOK bool
+
+	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		seenID, seenOK = SiteIDFromOriginContext(r.Context())
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/event", nil)
+	req.Header.Set("Origin", "https://televika.com")
+
+	resolver := wwwEquivalentResolver(map[string]uint32{
+		"https://www.televika.com": wantID,
+	})
+
+	CORS(resolver)(next).ServeHTTP(rec, req)
+
+	if !seenOK || seenID != wantID {
+		t.Errorf("ctx stash via www. fallback = (%d, %v); want (%d, true)", seenID, seenOK, wantID)
 	}
 }
 

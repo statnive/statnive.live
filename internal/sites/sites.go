@@ -369,13 +369,18 @@ func (r *Registry) LookupSitePolicy(ctx context.Context, hostname string) (uint3
 	}
 
 	siteID, policy, err := r.lookupExactPolicy(ctx, host)
-	// Retry once with the leading "www." stripped so a customer who
+	// Retry once with the leading "www." toggled so a tenant who
 	// registers televika.com is still resolved when the tracker payload
-	// reports www.televika.com (CF-fronted bare→www redirects are common).
-	// Try the literal first so an explicitly-seeded "www.foo.com" row
-	// still wins over its bare counterpart.
-	if errors.Is(err, ErrUnknownHostname) && strings.HasPrefix(host, "www.") {
-		siteID, policy, err = r.lookupExactPolicy(ctx, strings.TrimPrefix(host, "www."))
+	// reports www.televika.com (CF-fronted bare→www redirects are common)
+	// — and symmetrically, a tenant who registers www.foo.com is resolved
+	// when the tracker payload reports foo.com. Try the literal first so
+	// an explicitly-seeded variant still wins over its alternate. Matches
+	// the OriginIndex.Lookup retry so CORS and ingest agree on www.
+	// equivalence.
+	if errors.Is(err, ErrUnknownHostname) {
+		if alt, ok := wwwBareToggleHost(host); ok {
+			siteID, policy, err = r.lookupExactPolicy(ctx, alt)
+		}
 	}
 
 	return siteID, policy, err
