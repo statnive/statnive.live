@@ -41,9 +41,12 @@ type Mode = 'single' | 'range';
 
 // Shared Cally attributes — kept identical between calendar-date and
 // calendar-range so theme + locale + week-start stay in sync.
+// locale=en-US pins the Intl.DateTimeFormat to the Gregorian calendar
+// with Latin digits; first-day-of-week=1 is Monday (ISO 8601 / GA4 /
+// Plausible / Looker default).
 const CALLY_ATTRS = {
-  'first-day-of-week': '6',
-  locale: 'fa-IR',
+  'first-day-of-week': '1',
+  locale: 'en-US',
   'show-outside-days': true as const,
 };
 
