@@ -272,9 +272,7 @@ if [ "$REDEPLOY" = "1" ]; then
 		exit 5
 	fi
 else
-	# Keep --ntp-profile=asiatech in sync with the allow-list at
-	# deploy/airgap-install.sh:46.
-	INSTALL_FLAGS="--ntp-profile=asiatech --apply-iptables"
+	INSTALL_FLAGS="--posture=inside-iran"
 
 	echo "courier-iran: first-install mode — airgap-install.sh $INSTALL_FLAGS on $HOST"
 	if ! run_remote "sudo bash '$REMOTE_STAGE/${BUNDLE_NAME}/deploy/airgap-install.sh' $INSTALL_FLAGS"; then
