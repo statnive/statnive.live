@@ -1713,3 +1713,303 @@ done
 ```
 
 The `pre-currency-tz-baseline` git tag in `statnive-live` points at the binary built before this PR. If the data-preservation diff fails, `gh release download <prev-version> && systemctl restart statnive-live` reverts in one cycle. Migration 008 is symmetric: `RENAME COLUMN revenue TO revenue_rials` (and `value` → `value_rials`) on the rollup tables + reverse `MODIFY QUERY` on the MVs restores the pre-state losslessly.
+
+---
+
+## Phase 10 — Iranian-DC cutover SOP (Asiatech G2 / SamplePlatform class)
+
+**Status: dry-run scope.** This SOP covers WP1–WP5 of the Phase 10 prep
+plan (`~/.claude/plans/deep-review-for-ready-declarative-giraffe.md`).
+It does NOT cover the full Phase 7e graduation gate (Locust + 7-scenario
+chaos + 72 h soak — separate ~12–15 wk track) which is the HARD GATE on
+real customer traffic. Use this SOP to:
+
+- run a credible Asiatech G2 dry-run on operator-test traffic (~1 K
+  synthetic events) and surface every Iranian-DC-specific bug before
+  contract pressure starts
+- onboard the operator + the Iranian VPS before sales/legal completes
+  the SamplePlatform commercial agreement
+
+> **Do NOT use this SOP to onboard real customer traffic until Phase 7e
+> has graduated.** The bin is gated on dry-run-class proof only.
+
+### Pre-flight checklist (run outside Iran)
+
+Tick every item before the courier runs. Each one is a known-failure
+path traced back to LEARN.md or PLAN-MILESTONE-1.md.
+
+- [ ] **License JWT exists in your age vault** — signed offline with the
+  Ed25519 private key matching `internal/license/signing.pub` (currently
+  the placeholder; replace before any real customer). Decrypt locally to
+  the path you'll pass as `LICENSE=`.
+- [ ] **TLS PEMs staged from `cert-forge`** — never run ACME from inside
+  Iran (CLAUDE.md anti-pattern `iran-no-letsencrypt-in-binary`). The
+  outside-Iran cert-forge issues `fullchain.pem` + `privkey.pem` for the
+  customer's hostname under the `.ir` zone, rsync'd to your laptop
+  before the courier trip. Put both files in one dir, pass as `CERT_DIR=`.
+- [ ] **GeoIP DB23** — LITE is acceptable for the dry-run (the
+  "parameter unavailable" sentinel from LEARN Lesson 30 is filtered).
+  Paid IP2Location DB23 Site License is the Phase 10-proper procurement
+  and is **not** required for the dry-run.
+- [ ] **NSD zone for `<host>.statnive.ir`** — A/AAAA records pointing
+  at the Asiatech VPS IP, primary on AT-VPS-B1 (PLAN.md Architecture C).
+  IRNIC glue updated.
+- [ ] **Ops SSH key in `~/.ssh/config`** with `HostKeyAlgorithms` /
+  `IdentityFile` set so the courier's `BatchMode=yes` ssh-probe succeeds
+  on first try.
+- [ ] **`make release VERSION=v0.0.X-rcN`** has run on the operator
+  laptop, producing `build/statnive-live-...-airgap.tar.gz` + `SHA256SUMS`
+  (+ `SHA256SUMS.sig` when `SIGNING_KEY=` is set). The courier's
+  `SKIP_BUILD=1` path will reuse this.
+
+### Step 1 — Dry-run against a Hetzner Debian 13 VPS (free / cheap proof)
+
+Before committing Rial to Asiatech, exercise the full courier pipeline
+against a throwaway international VPS. The Iranian NTP sources are
+reachable from Hetzner (public NTP, public DNS), so this proves the
+script logic end-to-end except the air-gap egress profile.
+
+```bash
+# Hetzner CX11 Debian 13, ~€4/mo, billed hourly — destroy after the run.
+HETZ_IP=$(hcloud server create --name statnive-iran-dryrun --image debian-13 \
+  --type cx11 --location nbg1 --ssh-key ops -o json | jq -r '.server.public_net.ipv4.ip')
+ssh-keyscan -H "$HETZ_IP" >> ~/.ssh/known_hosts
+
+# Install ClickHouse on the throwaway box (skip-ch-check covers this; do
+# it anyway for the dry-run to match the Asiatech topology).
+ssh root@"$HETZ_IP" 'apt-get update && apt-get install -y clickhouse-server clickhouse-client && systemctl start clickhouse-server'
+
+# Run the courier with --ntp-profile=asiatech to verify NTP source reach.
+make release-iran-vps \
+  VERSION=v0.0.15-dev \
+  HOST=root@"$HETZ_IP" \
+  LICENSE=/tmp/license.jwt \
+  SKIP_BUILD=1
+
+# Expected: courier exits 0; healthz green in <90 s; chronyc tracking
+# shows Stratum ≤4 against an *.ir source within 60 s.
+ssh root@"$HETZ_IP" 'chronyc tracking'
+ssh root@"$HETZ_IP" 'sudo iptables -L OUTPUT -v --line-numbers'
+
+# Tear down.
+hcloud server delete statnive-iran-dryrun
+```
+
+If the courier fails on Hetzner, fix the root cause before committing
+to the Asiatech provisioning. Costs ~€0.05 for the dry-run window.
+
+### Step 2 — Asiatech G2 provisioning
+
+**Order matters.** Each failure point below was discovered on the
+Netcup cutover (PLAN-MILESTONE-1.md). Run them in this exact sequence.
+
+1. **Account + payment** — provision Asiatech G2 (~27.9 M Rial / mo for
+   web-only P1; PLAN.md capacity-planning row). KYC takes 3–7 business
+   days; parallelize with WP1–WP5 development.
+2. **Distro = Debian 13** — match the Netcup dogfood box. Ubuntu 24 is
+   also tested via `airgap-install-matrix` CI but Debian is the canonical
+   path. **NOT** CentOS / RHEL / Alpine (LEARN Lesson 9).
+3. **`/var/tmp` mount sizing ≥ 500 MB free** — the courier stages
+   `bundle.tar.gz` (~50 MB) + license (~1 KB) + optional `.BIN` (~95 MB
+   compressed → ~210 MB uncompressed) + airgap-update-geoip.sh's
+   atomic-mv scratch space. `/tmp` is tmpfs on Asiatech and would defeat
+   the same-fs guard (LEARN Lesson 29).
+4. **Add the operator SSH pubkey to `/root/.ssh/authorized_keys`
+   BEFORE disabling password auth** — Asiatech's Rescue Mode is harder
+   to reach than Hetzner's. Lockout = lost VPS (LEARN Lesson 10):
+
+   ```bash
+   # Connect via Asiatech panel console (or password ssh).
+   mkdir -p /root/.ssh && chmod 0700 /root/.ssh
+   cat >> /root/.ssh/authorized_keys <<<"$(cat ~/.ssh/ops.pub)"
+   chmod 0600 /root/.ssh/authorized_keys
+
+   # NOW test from your laptop in a NEW terminal:
+   ssh -i ~/.ssh/ops root@<asiatech-ip> 'echo OK'
+
+   # ONLY after that returns OK, harden sshd_config:
+   sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+   sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+   systemctl reload sshd
+   ```
+
+5. **`apt-get update && apt-get install -y clickhouse-server clickhouse-client chrony
+   curl rsync iptables`** — pre-stage these before `--apply-iptables` lands
+   the egress lockdown (`airgap-install.sh`'s NTP block also auto-installs
+   chrony, but pre-staging keeps the apt path open if the courier is
+   re-run after iptables fires). Phase-10-polish: ship `chrony_*.deb` in
+   the bundle for true zero-egress installs.
+
+### Step 3 — Run the courier
+
+```bash
+# From outside-Iran operator laptop (or v1.1 self-hosted GHA runner).
+make release-iran-vps \
+  VERSION=v0.0.15-dev \
+  HOST=root@<asiatech-ip> \
+  LICENSE=/var/secrets/sampleplatform.license.jwt \
+  CERT_DIR=/var/secrets/sampleplatform-certs \
+  GEOIP_PATH=/var/secrets/IP2LOCATION-LITE-DB23.BIN \
+  SKIP_BUILD=1
+```
+
+The courier prints every step. Exit code 0 = `/healthz` returned 200
+within 90 s. Non-zero exit triggers `# § Rollback` (below).
+
+### Step 4 — Verify on the box
+
+Run these from your laptop over the same SSH ControlMaster session the
+courier opened (it persists 60 s after exit, then the connection drops).
+
+```bash
+HOST=root@<asiatech-ip>
+
+# 4a. NTP — chronyc must show Stratum ≤4 against an .ir source within 60 s
+# of boot. If Stratum is 16 (unsynced) or against a non-.ir host, the
+# IRST-keyed identity salt will silently corrupt across midnight.
+ssh "$HOST" 'chronyc tracking | grep -E "Stratum|Reference"'
+
+# Expected output:
+#   Reference ID    : XXXXXXXX (time.asiatech.ir)
+#   Stratum         : 3
+
+# 4b. Healthz — JSON-shape match (clickhouse=up, wal_fsync_p99_ms < 25).
+ssh "$HOST" 'bash /var/tmp/statnive-courier/statnive-live-*/deploy/statnive-deploy.sh health'
+
+# 4c. Air-gap — iptables OUTPUT policy must be DROP; binary still
+# serves /healthz from 127.0.0.1.
+ssh "$HOST" 'sudo iptables -L OUTPUT -v --line-numbers'
+# Expect: "Chain OUTPUT (policy DROP ...)"
+
+ssh "$HOST" 'curl -fsS http://127.0.0.1:8080/healthz | jq'
+
+# 4d. License — audit log shows license.verified event with our claims.
+ssh "$HOST" 'sudo tail -n 50 /var/log/statnive-live/audit.jsonl | grep license.verified'
+
+# 4e. Synthetic event smoke — push 1000 events through the courier's
+# rsync'd test/perf/fast-probe.js (or k6 from your laptop).
+cd /path/to/statnive-live
+HOST_URL="http://127.0.0.1:8080" SITE_ID=1 \
+  ssh -L 8080:127.0.0.1:8080 "$HOST" \
+  -- node test/perf/fast-probe.js --events=1000
+
+# 4f. ClickHouse-oracle — confirm zero loss + zero duplicates.
+ssh "$HOST" 'clickhouse-client --query "
+  SELECT count() AS received,
+         uniqExact(test_run_id) AS distinct_runs,
+         count() - uniqExact(generator_seq) AS duplicates
+  FROM statnive.events_raw
+  WHERE site_id = 1 AND test_run_id != toUUIDOrNull(\"\")
+"'
+# Expect: received >= 1000 (≤0.05% loss SLO), duplicates = 0.
+```
+
+### Step 5 — Capture evidence
+
+```bash
+# Operator side, after every dry-run.
+DRYRUN_DATE=$(date -u +%Y-%m-%d)
+EVIDENCE=releases/dry-run/asiatech-g2-${DRYRUN_DATE}.md
+mkdir -p "$(dirname "$EVIDENCE")"
+
+{
+  echo "# Asiatech G2 dry-run — ${DRYRUN_DATE}"
+  echo
+  echo "## VPS"
+  echo "- Provider: Asiatech G2"
+  echo "- IP: <redacted>"
+  echo "- Distro: $(ssh "$HOST" 'lsb_release -ds')"
+  echo
+  echo "## Courier run"
+  echo "- VERSION: v0.0.15-dev"
+  echo "- Bundle SHA: $(sha256sum build/statnive-live-*-airgap.tar.gz | cut -d' ' -f1)"
+  echo
+  echo "## Healthz"
+  echo '```'
+  ssh "$HOST" 'curl -fsS http://127.0.0.1:8080/healthz'
+  echo '```'
+  echo
+  echo "## chronyc"
+  echo '```'
+  ssh "$HOST" 'chronyc tracking'
+  echo '```'
+  echo
+  echo "## iptables OUTPUT"
+  echo '```'
+  ssh "$HOST" 'sudo iptables -L OUTPUT -v --line-numbers'
+  echo '```'
+  echo
+  echo "## CH-oracle (1000 synthetic events)"
+  echo '```'
+  ssh "$HOST" 'clickhouse-client --query "SELECT count() FROM statnive.events_raw WHERE site_id=1 AND test_run_id != toUUIDOrNull(\"\")"'
+  echo '```'
+} > "$EVIDENCE"
+
+# Commit the evidence (NOT customer IPs / license tokens) to main.
+git add "$EVIDENCE"
+```
+
+Mirror the pattern at `releases/load-gate/fast-probe-*.md` if it exists.
+
+### Step 6 — Update LEARN.md if any new bug class hit ≥3 related bugs
+
+CLAUDE.md "Workflow Rule — `LEARN.md` is canonical institutional memory"
+applies. Use the per-lesson format (What we did / Why it broke / Fix /
+Preventive measure). The Asiatech-specific lessons go in their own
+sub-section; do NOT mix with Netcup lessons.
+
+### Rollback
+
+If the courier exits non-zero at any step:
+
+1. **Exit code 1 (precondition)** — fix the missing input on your laptop;
+   nothing was written to the VPS yet. Re-run.
+2. **Exit code 2 (bundle verify)** — corruption on transfer or sig
+   mismatch. Re-run `make release VERSION=...` cleanly; SCP completed
+   files survive in `/var/tmp/statnive-courier/` but are now suspect.
+   `ssh "$HOST" 'rm -rf /var/tmp/statnive-courier'` then re-run courier.
+3. **Exit code 3 (install)** — `airgap-install.sh` failed mid-flight.
+   The binary is NOT enabled yet. Read the script's stderr; commonly
+   distro-specific (chrony / iptables not installed). Fix on the VPS,
+   re-run courier.
+4. **Exit code 4 (healthz)** — binary is installed AND enabled but
+   `/healthz` never went green within 90 s. Check `journalctl -u
+   statnive-live --since '5 minutes ago'`. Most-common failures:
+   ClickHouse not running, master.key missing, license verify failed.
+   Run `airgap-install.sh --uninstall` to retire the unit; data + config
+   in `/var/lib/statnive-live` + `/etc/statnive-live` are retained per
+   `airgap-install.sh:14`.
+
+For a clean roll-everything-back:
+
+```bash
+ssh "$HOST" 'sudo bash /var/tmp/statnive-courier/statnive-live-*/deploy/airgap-install.sh --uninstall'
+ssh "$HOST" 'sudo rm -rf /var/lib/statnive-live /etc/statnive-live /var/tmp/statnive-courier'
+ssh "$HOST" 'sudo iptables -F OUTPUT && sudo iptables -P OUTPUT ACCEPT'
+ssh "$HOST" 'sudo cp /etc/chrony/chrony.conf.airgap-install.bak /etc/chrony/chrony.conf && sudo systemctl restart chrony'
+```
+
+Note: `--uninstall` deliberately preserves `/var/lib/statnive-live`
+(rollup data + WAL) per the script docstring; the explicit `rm -rf`
+above is for a fresh-start scenario only.
+
+### When to graduate from dry-run to production
+
+This SOP covers the **dry-run**. Before pointing real customer traffic
+at the binary, all of these must be true:
+
+- [ ] **Phase 7e load-gate has passed** — Locust 72 h soak at 240 EPS,
+  0 → 450 EPS breakpoint, 7-scenario chaos matrix all green, on this
+  same Asiatech G2 box (or a sibling). PLAN.md Phase 7e is HARD GATE.
+- [ ] **Paid IP2Location DB23 Site License** procured + dropped via
+  `airgap-update-geoip.sh`. LITE is dry-run-only.
+- [ ] **Production Ed25519 license-signing pubkey** baked into
+  `internal/license/signing.pub` (not the all-zero placeholder).
+  Signing key in your age vault, never in git.
+- [ ] **NSD zone for `<host>.statnive.ir` validated** from inside Iran
+  via a non-test resolver.
+- [ ] **Operator on-call rotation** documented for the first 30 days
+  post-cutover.
+
+Until all five are checked, treat this Asiatech VPS as a dry-run
+testbed only.
