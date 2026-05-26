@@ -1,0 +1,63 @@
+name: blackout-sim-nightly
+
+# Nightly air-gap proof — boots the binary under iptables -P OUTPUT DROP
+# (except loopback + docker bridge) and asserts every Project Goal #5
+# invariant from CLAUDE.md holds:
+#
+#   - /healthz returns clickhouse=up
+#   - POST /api/event from 127.0.0.1 ingests
+#   - /api/stats/overview returns the 5 KPI keys
+#   - the binary made ZERO outbound packets to non-loopback addresses
+#
+# WP5 of the Phase 10 dry-run prep plan
+# (~/.claude/plans/deep-review-for-ready-declarative-giraffe.md).
+# Replaces the documented-only blackout test described in
+# CLAUDE.md § Isolation / Air-Gapped Capability.
+#
+# Failure here means the air-gap contract regressed since last green —
+# investigate BEFORE the next release. Iranian-DC customers cannot
+# install a binary that opens outbound TCP for any reason.
+
+on:
+  schedule:
+    # 03:30 UTC daily — staggered 30 min after wal-killtest-nightly so the
+    # CH docker pulls don't pile up against the same rate limits.
+    - cron: '30 3 * * *'
+  workflow_dispatch: {}  # operator-triggered re-runs
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  blackout-sim:
+    name: Air-gap blackout (iptables OUTPUT DROP under real binary + CH)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Vendor check
+        run: make vendor-check
+
+      - name: Boot ClickHouse via docker-compose
+        run: docker compose -f deploy/docker-compose.dev.yml up -d clickhouse
+
+      - name: Build binary
+        run: make build
+
+      - name: Run blackout-sim under iptables OUTPUT DROP
+        run: sudo make blackout-sim
+
+      - name: Tear down ClickHouse
+        if: always()
+        run: docker compose -f deploy/docker-compose.dev.yml down -v
