@@ -1,0 +1,74 @@
+name: posture-matrix
+
+# 3-job parallel matrix that runs the L1+L2 posture coverage for each
+# canonical deployment topology (SaaS, customer outside-Iran, customer
+# inside-Iran). Catches "binary accepts posture X but airgap-install
+# doesn't" or "X works on dev laptop but breaks under Y posture" before
+# release. Fires on every PR to main alongside the regular ci.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  # Forward-compat with GitHub's June 2026 forced Node-24 default.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  binary-posture:
+    name: binary accepts posture=${{ matrix.posture }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        posture: [saas, outside-iran, inside-iran]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Vendor check
+        run: make vendor-check
+
+      - name: Posture validation + loader tests
+        env:
+          STATNIVE_POSTURE: ${{ matrix.posture }}
+        run: go test -mod=vendor -race -count=1 -run 'TestValidatePosture|TestLoadConfig_Posture|TestLoadConfig_ExampleParity' ./cmd/statnive-live/
+
+      - name: Build binary with posture in env
+        # Sanity-check: build must succeed regardless of posture value
+        # in the env at compile time (posture is config-only — no build
+        # tags, no conditional code — but the matrix catches accidental
+        # build-time coupling if anyone ever wires one in).
+        env:
+          STATNIVE_POSTURE: ${{ matrix.posture }}
+        run: make build
+
+  installer-posture:
+    name: airgap-install --posture=${{ matrix.posture }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # inside-iran needs CAP_NET_ADMIN + chrony.conf.asiatech staging,
+        # which the docker harness handles separately via posture-aware
+        # branches in test-fresh-install.sh.
+        posture: [saas, outside-iran, inside-iran]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Fresh-install docker matrix with --posture
+        run: bash deploy/scripts/test-fresh-install.sh --posture=${{ matrix.posture }}
