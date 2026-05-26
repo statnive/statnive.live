@@ -1738,10 +1738,36 @@ real customer traffic. Use this SOP to:
 Tick every item before the courier runs. Each one is a known-failure
 path traced back to LEARN.md or PLAN-MILESTONE-1.md.
 
-- [ ] **License JWT exists in your age vault** — signed offline with the
-  Ed25519 private key matching `internal/license/signing.pub` (currently
-  the placeholder; replace before any real customer). Decrypt locally to
-  the path you'll pass as `LICENSE=`.
+- [ ] **License JWT exists in your age vault** — produced by the
+  offline signer CLI on your trusted operator laptop. Generate the
+  Ed25519 keypair once (`openssl genpkey -algorithm ed25519 -out
+  ~/age-vault/statnive-license.priv.pem`), extract + commit the
+  matching public key:
+
+  ```
+  make statnive-license
+  ./bin/statnive-license pub \
+    --priv=$HOME/age-vault/statnive-license.priv.pem \
+    --out=internal/license/signing.pub
+  git add internal/license/signing.pub
+  git commit -m "feat(license): production Ed25519 signing pubkey"
+  ```
+
+  Sign a customer JWT (one per customer, per expiry):
+
+  ```
+  ./bin/statnive-license sign \
+    --priv=$HOME/age-vault/statnive-license.priv.pem \
+    --customer=sampleplatform \
+    --site=1 \
+    --max=10000000 \
+    --features=dashboard,tracker,geoip-db23 \
+    --exp=2027-05-26 \
+    --out=$HOME/age-vault/sampleplatform.license.jwt
+  ```
+
+  Decrypt locally to the path you'll pass as `LICENSE=`. The private
+  key never enters the bundle or the VPS — only the JWT does.
 - [ ] **TLS PEMs staged from `cert-forge`** — never run ACME from inside
   Iran (CLAUDE.md anti-pattern `iran-no-letsencrypt-in-binary`). The
   outside-Iran cert-forge issues `fullchain.pem` + `privkey.pem` for the
