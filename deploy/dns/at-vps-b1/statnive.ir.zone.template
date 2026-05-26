@@ -1,0 +1,68 @@
+; statnive.ir — NSD authoritative zone (Architecture C, Iranian-DC).
+;
+; Architecture C, dual-domain: statnive.ir = Iranian customers only.
+; Origin: Asiatech AT-VPS-B1 (Tehran). Self-hosted NSD per the
+; `iranian-dc-deploy` skill items 1+13 — no Cloudflare on the .ir
+; chain (OFAC + sanctions surface). Single-primary, no AXFR-out;
+; secondary nameserver inside Iran is a v1.1 item.
+;
+; This is a TEMPLATE — substitute the placeholders (in double-braces)
+; below before loading into NSD via deploy/dns/at-vps-b1/install.sh.
+;
+;   {{ZONE_SERIAL}}           — YYYYMMDDNN; bump on every change
+;   {{PRIMARY_NS_IPV4}}        — AT-VPS-B1 IPv4 (the box running NSD)
+;   {{PRIMARY_NS_IPV6}}        — AT-VPS-B1 IPv6
+;   {{ADMIN_EMAIL_DOTTED}}     — RFC 1035-encoded operator email
+;                                (e.g. ops@statnive.ir → ops.statnive.ir.)
+;   {{CUSTOMER_SLUG}}          — e.g. "sampleplatform"
+;   {{CUSTOMER_VPS_IPV4}}      — Asiatech G2 IPv4 hosting the binary
+;   {{CUSTOMER_VPS_IPV6}}      — Asiatech G2 IPv6 (empty if single-stack)
+;
+; CAA records lock cert issuance to letsencrypt.org + sectigo.com per
+; iranian-dc-deploy item 12. Both are reachable from outside-Iran
+; cert-forge boxes; Iranian-resident hosts MUST NOT issue ACME
+; directly (iran-no-letsencrypt-in-binary).
+
+$ORIGIN statnive.ir.
+$TTL 300
+
+; ===== SOA =====
+@  3600  IN  SOA  ns1.statnive.ir. {{ADMIN_EMAIL_DOTTED}} (
+            {{ZONE_SERIAL}}  ; serial — YYYYMMDDNN
+            3600             ; refresh — secondary checks every 1h (v1.1)
+            900              ; retry — back off 15m on failure
+            604800           ; expire — secondary considers data stale after 7d
+            300              ; minimum / negative-cache TTL
+        )
+
+; ===== NS — self-referential, single primary =====
+@  3600  IN  NS  ns1.statnive.ir.
+
+; ===== Primary NS glue =====
+ns1     300  IN  A     {{PRIMARY_NS_IPV4}}
+ns1     300  IN  AAAA  {{PRIMARY_NS_IPV6}}
+
+; ===== Customer hostnames =====
+; Each customer gets one subdomain pointing at their Asiatech VPS.
+; Duplicate the CUSTOMER_SLUG / CUSTOMER_VPS_IPV4 / CUSTOMER_VPS_IPV6
+; trio per customer; bump ZONE_SERIAL on every change.
+{{CUSTOMER_SLUG}}      300  IN  A     {{CUSTOMER_VPS_IPV4}}
+{{CUSTOMER_SLUG}}      300  IN  AAAA  {{CUSTOMER_VPS_IPV6}}
+
+; ===== CAA records — cert issuance lock =====
+; iranian-dc-deploy item 12: letsencrypt.org + sectigo.com (fallback
+; ZeroSSL + Buypass tracked at the cert-forge level). issuewild=";"
+; explicitly forbids wildcard certs — every subdomain gets its own
+; PEM so a leak doesn't cascade across customers.
+@  3600  IN  CAA  0 issue "letsencrypt.org"
+@  3600  IN  CAA  0 issue "sectigo.com"
+@  3600  IN  CAA  0 issuewild ";"
+@  3600  IN  CAA  0 iodef "mailto:secops@statnive.ir"
+
+; ===== Negative: explicit exclusions =====
+; statnive.ir MUST NOT serve MX (no inbound email). support@statnive.com
+; is the canonical mailbox per CLAUDE.md (statnive-fa / statnive-ar
+; invariants). Operators must NOT add MX here without first updating
+; that invariant in the parent CLAUDE.md.
+;
+; No SPF / DMARC needed for a zone that doesn't send mail.
