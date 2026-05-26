@@ -138,6 +138,22 @@ jobs:
         if: always()
         run: docker compose -f deploy/docker-compose.dev.yml down -v
 
+      - name: Render per-posture release notes
+        id: notes
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          BASE="statnive-live-${VERSION}-linux-amd64-airgap"
+          SHA256_BUNDLE="$(sha256sum "build/${BASE}.tar.gz" | awk '{print $1}')"
+          export VERSION SHA256_BUNDLE
+          # envsubst is provided by gettext-base on ubuntu-latest. Only
+          # substitutes $VERSION + $SHA256_BUNDLE — the template's literal
+          # backticks/braces pass through untouched.
+          envsubst '${VERSION} ${SHA256_BUNDLE}' \
+            < deploy/release-notes-template.md \
+            > build/release-notes.md
+          echo "Rendered build/release-notes.md ($(wc -l < build/release-notes.md) lines)"
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -146,7 +162,7 @@ jobs:
           BASE="statnive-live-${VERSION}-linux-amd64-airgap"
           gh release create "$VERSION" \
             --title "$VERSION" \
-            --notes "Auto-generated release for $VERSION. Signed airgap bundle attached. Verify with \`airgap-verify-bundle.sh\` against the public key at \`/etc/statnive/release-key.pub\`." \
+            --notes-file build/release-notes.md \
             "build/${BASE}.tar.gz" \
             "build/SHA256SUMS" \
             "build/SHA256SUMS.sig"
