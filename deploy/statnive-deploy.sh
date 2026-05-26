@@ -216,6 +216,16 @@ do_deploy() {
 	local target_dir="$BUNDLES_DIR/${base}"
 	local prev_version; prev_version="$(current_version)"
 
+	# Idempotency guard: same-version re-deploy is a no-op rather than
+	# a silent restart + healthz wait. Without this, a re-courier of
+	# the already-current version would arm the auto-revert window
+	# against itself with nothing actually changing.
+	if [ "$prev_version" = "$base" ] && [ "${FORCE:-0}" != "1" ]; then
+		log "$version is already current — skip (set FORCE=1 to re-apply anyway)"
+
+		return 0
+	fi
+
 	[ -f "$tarball" ] || fail "missing $tarball — SCP the bundle first"
 	[ -f "$sums" ]    || fail "missing $sums"
 	[ -f "$PUBKEY" ]  || fail "missing $PUBKEY — provision the release pubkey first"

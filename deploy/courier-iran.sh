@@ -20,11 +20,13 @@
 #     /tmp (tmpfs on Asiatech). Required for airgap-update-geoip.sh's
 #     atomic-mv guard.
 #
-# v1.1 reuse opportunity: on a re-courier (VPS already provisioned),
-# delegate to `statnive-deploy deploy <version>` for atomic-swap +
-# auto-revert + version history. First-courier still needs
-# airgap-install.sh to provision user / dirs / NTP / iptables. Not
-# implemented in v1; first-install path covers the dry-run scope.
+# Two-mode operation (A2):
+#   - First courier (no /opt/statnive-live/current symlink) → run
+#     airgap-install.sh to provision user / dirs / NTP / iptables /
+#     systemd unit + install statnive-deploy to /usr/local/bin.
+#   - Re-courier (symlink exists) → delegate to statnive-deploy deploy
+#     <version> for atomic-swap, version history, and auto-revert on
+#     /healthz failure. Provisioning steps don't re-run.
 
 set -euo pipefail
 
@@ -57,8 +59,9 @@ Exit codes:
   0  binary running + /healthz green via SSH tunnel
   1  precondition failed (missing flag, missing tool, ssh unreachable)
   2  bundle SHA / signature verify failed on remote
-  3  airgap-install.sh failed on remote
-  4  /healthz never went green within HEALTHZ_TIMEOUT_S
+  3  first-install airgap-install.sh failed on remote
+  4  /healthz never went green within HEALTHZ_TIMEOUT_S (first-install only)
+  5  re-deploy (statnive-deploy deploy) failed on remote (auto-revert may have fired)
 
 Usage via Makefile (preferred):
   make release-iran-vps VERSION=v0.0.15-dev HOST=root@1.2.3.4 LICENSE=/path/to/license.jwt
@@ -189,22 +192,10 @@ if ! run_remote "cd '$REMOTE_STAGE' && tar -xzf '${BUNDLE_NAME}.tar.gz' && bash 
 	exit 2
 fi
 
-# --- install -----------------------------------------------------------------
-# Keep --ntp-profile=asiatech in sync with the allow-list at
-# deploy/airgap-install.sh:46.
-INSTALL_FLAGS="--ntp-profile=asiatech --apply-iptables"
-
-echo "courier-iran: airgap-install.sh $INSTALL_FLAGS on $HOST"
-if ! run_remote "sudo bash '$REMOTE_STAGE/${BUNDLE_NAME}/deploy/airgap-install.sh' $INSTALL_FLAGS"; then
-	echo "courier-iran: airgap-install.sh failed" >&2
-	exit 3
-fi
-
-# --- license + cert + geoip + config wire ------------------------------------
-# One heredoc'd remote shell keeps the operator-facing log linear AND lets
-# all artifact installs share one SSH session via ControlMaster.
-echo "courier-iran: installing license / TLS / GeoIP / config.yaml license.file:"
-
+# Build the artifact-install heredoc body once; invoked in both branches
+# at the appropriate point. Strings interpolate $REMOTE_STAGE +
+# $BUNDLE_NAME at heredoc construction time; the inner script runs as
+# root on the box via sudo bash -s.
 CERT_INSTALL=""
 if [ -n "$CERT_DIR" ]; then
 	CERT_INSTALL="install -m 0644 -o root -g statnive '$REMOTE_STAGE/tls/fullchain.pem' /etc/statnive-live/tls/fullchain.pem
@@ -219,46 +210,117 @@ fi
 # WP1's loader reads license.file from /etc/statnive-live/config.yaml.
 # Two-level grep guards re-courier idempotency AND catches the partial-key
 # edge case (block exists but file: leaf missing — would fail at boot).
-# When the leaf is missing we append the full block; when present we no-op.
 WIRE_LICENSE='
 if ! grep -qE "^[[:space:]]*file:[[:space:]]*/" /etc/statnive-live/config.yaml || ! grep -q "^license:" /etc/statnive-live/config.yaml; then
 	printf "\nlicense:\n  file: /etc/statnive-live/license.jwt\n" >> /etc/statnive-live/config.yaml
 fi
 '
 
-run_remote "sudo bash -se" <<REMOTE
+install_artifacts() {
+	echo "courier-iran: installing license / TLS / GeoIP / config.yaml license.file:"
+	run_remote "sudo bash -se" <<REMOTE
 set -euo pipefail
 install -m 0640 -o root -g statnive '$REMOTE_STAGE/license.jwt' /etc/statnive-live/license.jwt
 $CERT_INSTALL
 $GEOIP_INSTALL
 $WIRE_LICENSE
 REMOTE
+}
 
-# --- start + wait ------------------------------------------------------------
-echo "courier-iran: restarting statnive-live"
-run_remote "sudo systemctl restart statnive-live"
-
-if [ "$DRY_RUN" = "1" ]; then
-	echo "courier-iran: DRY_RUN=1 — skipping healthz wait"
-	exit 0
+# --- install OR re-deploy ---------------------------------------------------
+# Detect whether the VPS is already provisioned. /opt/statnive-live/current
+# is the canonical symlink statnive-deploy maintains (statnive-deploy.sh:160
+# uses the same test); its presence means we've installed before and should
+# use the atomic-swap path. Single-operator assumption — no flock guard.
+if run_remote "test -L /opt/statnive-live/current" 2>/dev/null; then
+	REDEPLOY=1
+else
+	REDEPLOY=0
 fi
 
-# Delegate healthz discovery to statnive-deploy.sh's derive_healthz_url(),
-# which already (a) honors STATNIVE_HEALTHZ_URL, (b) reads systemd
-# drop-ins, (c) reads config.yaml, (d) rewrites 0.0.0.0:N → 127.0.0.1:N,
-# (e) auto-adds curl -k when TLS is configured. LEARN.md Lesson 20.
-# A single remote loop avoids ~45 cross-border SSH handshakes and means
-# the comment math (1 poll per 2 s) is honest.
-echo "courier-iran: waiting up to ${HEALTHZ_TIMEOUT_S}s for /healthz (LEARN 25 — cold boot 35–50 s)"
-iter_max=$(( HEALTHZ_TIMEOUT_S / 2 ))
-if ! run_remote "iter_max=$iter_max; for i in \$(seq 1 \$iter_max); do
-	if bash '$REMOTE_STAGE/${BUNDLE_NAME}/deploy/statnive-deploy.sh' health >/dev/null 2>&1; then
-		echo \"courier-iran: /healthz OK after \$(( i * 2 ))s\"; exit 0
+if [ "$REDEPLOY" = "1" ]; then
+	echo "courier-iran: re-deploy mode — using statnive-deploy (atomic swap + auto-revert)"
+
+	# Install license + cert + GeoIP BEFORE statnive-deploy so the new
+	# binary starts up reading the new files in one motion. Doing this
+	# AFTER the deploy would leave the new binary briefly reading the
+	# OLD cert + GeoIP until the next SIGHUP — and statnive-deploy
+	# doesn't fire SIGHUP, only restart, so the old state would persist
+	# across the deploy.
+	install_artifacts
+
+	# statnive-deploy expects the bundle tarball at /opt/statnive-bundles/incoming/
+	# (its conventional drop dir, created by airgap-install.sh on first install).
+	if ! run_remote "sudo install -m 0644 -o root -g root '$REMOTE_STAGE/${BUNDLE_NAME}.tar.gz' /opt/statnive-bundles/incoming/${BUNDLE_NAME}.tar.gz"; then
+		echo "courier-iran: stage tarball into /opt/statnive-bundles/incoming/ failed" >&2
+		exit 5
 	fi
-	sleep 2
-done
-echo 'courier-iran: /healthz never went green' >&2; exit 4"; then
-	exit 4
+
+	# Stage matching SHA + sig — statnive-deploy.sh:223 invokes
+	# airgap-verify-bundle.sh which reads SHA256SUMS (mandatory) and
+	# SHA256SUMS.sig (optional, when SIGNING_KEY was set at build).
+	for sidecar in SHA256SUMS SHA256SUMS.sig; do
+		if run_remote "test -f '$REMOTE_STAGE/$sidecar'" >/dev/null 2>&1; then
+			if ! run_remote "sudo install -m 0644 -o root -g root '$REMOTE_STAGE/$sidecar' /opt/statnive-bundles/incoming/$sidecar"; then
+				echo "courier-iran: WARN — staging sidecar $sidecar failed (non-fatal; statnive-deploy will report missing if required)" >&2
+			fi
+		fi
+	done
+
+	if ! run_remote "sudo /usr/local/bin/statnive-deploy deploy '$VERSION'"; then
+		echo "courier-iran: statnive-deploy deploy '$VERSION' failed (the script auto-reverts to the previous version on /healthz failure — check journalctl)" >&2
+		exit 5
+	fi
+else
+	# Keep --ntp-profile=asiatech in sync with the allow-list at
+	# deploy/airgap-install.sh:46.
+	INSTALL_FLAGS="--ntp-profile=asiatech --apply-iptables"
+
+	echo "courier-iran: first-install mode — airgap-install.sh $INSTALL_FLAGS on $HOST"
+	if ! run_remote "sudo bash '$REMOTE_STAGE/${BUNDLE_NAME}/deploy/airgap-install.sh' $INSTALL_FLAGS"; then
+		echo "courier-iran: airgap-install.sh failed" >&2
+		exit 3
+	fi
+
+	# First-install: airgap-install.sh enabled the unit but did NOT
+	# start it. The artifact install + the explicit systemctl restart
+	# below are the cold start.
+	install_artifacts
+fi
+
+# --- start + wait ------------------------------------------------------------
+# Re-deploy mode: statnive-deploy already did restart + healthz wait +
+# auto-revert. Don't restart again (would defeat the auto-revert by
+# replacing the binary the deploy script is monitoring) and don't poll
+# again — the deploy subcommand's exit code already decided.
+if [ "$REDEPLOY" = "1" ]; then
+	echo "courier-iran: re-deploy completed (statnive-deploy handled restart + healthz)"
+else
+	echo "courier-iran: restarting statnive-live"
+	run_remote "sudo systemctl restart statnive-live"
+
+	if [ "$DRY_RUN" = "1" ]; then
+		echo "courier-iran: DRY_RUN=1 — skipping healthz wait"
+		exit 0
+	fi
+
+	# Delegate healthz discovery to statnive-deploy.sh's derive_healthz_url(),
+	# which already (a) honors STATNIVE_HEALTHZ_URL, (b) reads systemd
+	# drop-ins, (c) reads config.yaml, (d) rewrites 0.0.0.0:N → 127.0.0.1:N,
+	# (e) auto-adds curl -k when TLS is configured. LEARN.md Lesson 20.
+	# A single remote loop avoids ~45 cross-border SSH handshakes and means
+	# the comment math (1 poll per 2 s) is honest.
+	echo "courier-iran: waiting up to ${HEALTHZ_TIMEOUT_S}s for /healthz (LEARN 25 — cold boot 35–50 s)"
+	iter_max=$(( HEALTHZ_TIMEOUT_S / 2 ))
+	if ! run_remote "iter_max=$iter_max; for i in \$(seq 1 \$iter_max); do
+		if bash '$REMOTE_STAGE/${BUNDLE_NAME}/deploy/statnive-deploy.sh' health >/dev/null 2>&1; then
+			echo \"courier-iran: /healthz OK after \$(( i * 2 ))s\"; exit 0
+		fi
+		sleep 2
+	done
+	echo 'courier-iran: /healthz never went green' >&2; exit 4"; then
+		exit 4
+	fi
 fi
 
 cat <<EOF
