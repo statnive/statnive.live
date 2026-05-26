@@ -2302,3 +2302,293 @@ The Hetzner CX11 is a single-point-of-failure for TLS rotation. Two ways to miti
 - **Manual fallback**: any outside-Iran host with `acme.sh` + the same `/etc/cert-forge/` tree can issue + rsync a cert manually within ~5 minutes.
 
 The cert-forge state at `/etc/cert-forge/state/` (LE account key, issued certs, last-renewal timestamps) must be backed up — losing it forces re-registration with LE plus a fresh cert chain on every domain.
+
+---
+
+## On-Call Incident Response
+
+Production-readiness work-package **A7** from
+`~/.claude/plans/deep-review-for-ready-declarative-giraffe.md`. This
+section is the operator's first-30-day canary runbook AND the
+steady-state on-call playbook. **Cross-reference [`LEARN.md`](../LEARN.md)
+for the underlying bug classes — every playbook below traces back to a
+specific lesson or the 24-bug Milestone 1 cutover catalog at
+[`PLAN-MILESTONE-1.md`](../PLAN-MILESTONE-1.md).**
+
+### Comms channels
+
+| Channel | Purpose | SLO |
+|---|---|---|
+| **Telegram bot `@statnive_alerts`** (A4) | Per-alert push → operator phone | <10 s after alert fires |
+| **Telegram channel `#statnive-ops`** | Operator-to-operator coordination during incident | n/a (manual) |
+| **`/var/log/statnive-live/alerts.jsonl`** | On-box authoritative alert archive | Always available |
+| **journalctl `-u statnive-live`** | Service logs (binary stdout/stderr → systemd journal) | Always available |
+| **Customer status page** (v1.1) | Customer-facing incident communication | <15 min post-trigger |
+| **Operator on-call rotation** | Primary + secondary, 1-week shifts | First responder ack <5 min |
+
+### Triage tree — start here on any alert
+
+```
+ALERT FIRES (Telegram OR alerts.jsonl entry)
+│
+├─ Is /healthz returning 200?
+│   ├─ YES → service is alive; jump to the alert's specific playbook
+│   └─ NO  → service down. Check `systemctl status statnive-live`
+│           ├─ Service running but healthz failing → check ClickHouse
+│           │   reachability (see `clickhouse_down` below)
+│           └─ Service crashed → check `journalctl -u statnive-live --since '5 min ago'`,
+│              jump to "Service crashloop" below
+│
+├─ Is the alert resolved=true? (band re-cross, see internal/alerts/band.go)
+│   ├─ YES → archive, note in incident log; no action
+│   └─ NO  → continue
+│
+└─ Time since alert: > 15 min?
+    └─ YES → escalate to secondary on-call
+```
+
+### Per-alert playbooks
+
+The 6 canonical alert names are defined in
+[`internal/alerts/sink.go:51-58`](../internal/alerts/sink.go) — playbook
+names below must match those constants exactly so a future `GET
+/api/ops/alerts` endpoint can render them.
+
+#### `wal_high_fill_ratio`
+
+**Severity bands**: 0.80 (warn) / 0.90 (warn) / 0.95 (critical). Source:
+`internal/ingest/walgroup.go` per `wal-durability-review` skill.
+
+**Why it fires**: ClickHouse ingest is slower than the binary is
+producing (CH paused / disk slow / CGroup CPU throttled). The WAL grows
+until it hits the operator-configured ceiling (`ingest.wal_max_bytes`,
+default 10 GiB).
+
+**Operator action**:
+
+1. Check ClickHouse health: `clickhouse-client --query 'SELECT 1'`.
+   - If CH is responsive: check `/metrics` for `dropped_total{reason=...}` —
+     ingest is alive but downstream is slow. Move to step 2.
+   - If CH is down: jump to `clickhouse_down` playbook.
+2. Check disk pressure on `/var/lib/statnive-live/wal/`:
+   `df -h /var/lib/statnive-live`. If <10 % free, jump to
+   `disk_high_fill_ratio`.
+3. Check CH active-parts count:
+   `clickhouse-client --query "SELECT database, table, count() FROM system.parts WHERE active GROUP BY database, table HAVING count() > 80 ORDER BY count() DESC"`.
+   If any table > 100, CH is choking on merges — pause ingest with
+   `systemctl stop statnive-live`, wait 5 min for merges to catch up,
+   restart.
+4. If WAL is at 0.95 sustained for >10 min, the binary will start
+   dropping events (CLAUDE.md `wal-durability-review` invariant). This
+   IS data loss. Escalate immediately.
+
+#### `clickhouse_down` / `clickhouse_up`
+
+**Why it fires**: ClickHouse failed the `/healthz` probe (binary can't
+SELECT 1). Persistent for >30 s triggers the band crossing.
+
+**Operator action**:
+
+1. `systemctl status clickhouse-server` — running?
+2. `journalctl -u clickhouse-server --since '5 min ago' | tail -50` —
+   crash? OOM? Disk full?
+3. Try a manual restart: `systemctl restart clickhouse-server`. Wait
+   60 s. Re-probe.
+4. If CH boots clean but the binary still alerts, the binary's CH
+   connection pool may be stuck — restart `systemctl restart
+   statnive-live`. The binary will replay any WAL'd events on boot.
+5. If CH won't boot: check `df -h /var/lib/clickhouse` (CH refuses to
+   start with <5 % free) and `dmesg | tail` (OOM killer?). Restore from
+   the most recent backup per the **A8 / Backup & restore** section.
+   **MTTR realistic: 1–4 hours** including backup restore.
+
+#### `disk_high_fill_ratio`
+
+**Severity bands**: 0.85 (warn) / 0.90 (warn) / 0.95 (critical). Monitors
+`/var/lib/statnive-live` (where the WAL lives).
+
+**Operator action**:
+
+1. What's filling the disk?
+   ```bash
+   du -sh /var/lib/statnive-live/* | sort -h
+   du -sh /var/lib/clickhouse/* | sort -h
+   du -sh /var/log/* | sort -h
+   ```
+2. If `/var/lib/clickhouse/store/` is the bulge: ClickHouse parts
+   accumulated. `OPTIMIZE TABLE statnive.events_raw FINAL` is **NOT**
+   safe (CLAUDE.md anti-pattern). Instead, set
+   `min_age_to_force_merge_seconds=3600` per-table off-peak.
+3. If `/var/log/statnive-live/audit.jsonl` is the bulge: rotate it
+   (logrotate config at `/etc/logrotate.d/statnive-live`). The binary
+   honors SIGHUP for log reopen.
+4. If the bulge is `/var/lib/statnive-live/wal/`: jump to
+   `wal_high_fill_ratio` playbook.
+5. **Never** delete CH data files directly — use
+   `ALTER TABLE ... DROP PARTITION` instead.
+
+#### `tls_expiry_warn` (<30 d) / `tls_expiry_critical` (<7 d)
+
+**Why it fires**: The cert at `/etc/statnive-live/tls/fullchain.pem`
+will expire within the band. Source: `internal/cert/loader.go` SIGHUP
+watcher.
+
+**Operator action**:
+
+1. Rotate via the **cert-forge bastion (A5)** — the outside-Iran
+   Hetzner CX11 box issues a fresh PEM via DNS-01 against IRNIC, rsyncs
+   it to the Iranian VPS at `/etc/statnive-live/tls/fullchain.pem`,
+   sends SIGHUP to statnive-live.
+2. From the operator laptop:
+   ```bash
+   ssh <cert-forge-host> "make rotate-cert ZONE=statnive.ir CUSTOMER=<slug>"
+   ```
+3. Verify on the Iranian VPS:
+   ```bash
+   ssh root@<asiatech-ip> 'openssl x509 -in /etc/statnive-live/tls/fullchain.pem -noout -dates'
+   ```
+4. If `critical` (<7 d) fires and cert-forge is unreachable: emergency
+   manual issuance from any outside-Iran laptop with `certbot certonly
+   --manual --preferred-challenges dns -d <slug>.statnive.ir`, scp PEMs
+   in via `courier-iran.sh` with `CERT_DIR=` set.
+
+### Operational incidents (no file-sink alert)
+
+These fire as customer reports / external monitoring, not internal
+`internal/alerts/sink.go` events.
+
+#### License verify failure at startup
+
+**Symptom**: `systemctl start statnive-live` immediately exits non-zero;
+journal shows `license verify: ...`.
+
+**Cause** (per [`internal/license/license.go`](../internal/license/license.go)
+error sentinels):
+
+- `ErrPlaceholderPubKey` — binary built with the all-zero dev pubkey.
+  Operator needs to rebuild + redeploy with the production pubkey at
+  `internal/license/signing.pub`. Use the **A1 signing CLI** to extract.
+- `ErrExpired` — license JWT past its `exp` claim. Re-sign with the A1
+  CLI, push via courier.
+- `ErrInvalidSignature` — pubkey mismatch (operator deployed the wrong
+  binary, or the JWT was signed by a different priv key).
+- `ErrMalformed` — file is not a JWT-EdDSA triple. Operator pasted the
+  wrong file.
+
+**Fix**: per the cause, re-sign or rebuild via A1 + courier-redeploy
+via A2.
+
+#### DPI RST storm (Iran-specific)
+
+**Symptom**: Long-lived TLS connections from Iranian clients drop with
+RST mid-stream; tracker `sendBeacon` failures jump.
+
+**Why**: Iranian backbone DPI injects TCP RST on connections matching
+SNI patterns. Periodic; intensifies during political events. Not a
+binary bug.
+
+**Operator action**:
+
+1. Confirm with `iptables -L INPUT -v --line-numbers` — count of
+   `RST,ACK` drops will spike.
+2. As mitigation, drop incoming RSTs at the host: `iptables -I INPUT
+   -p tcp --tcp-flags RST RST -j DROP`. This makes the binary blind to
+   server-initiated tear-downs but lets in-flight requests complete.
+3. Note in the incident log; remove the rule when the storm subsides
+   (typically 30–90 min). Phase 7e chaos scenario #3 simulates this.
+
+#### chrony drift / Stratum > 4
+
+**Symptom**: `chronyc tracking` shows Stratum 16 (unsynced) or sources
+> 4 / offset > 100 ms.
+
+**Why**: IRST-keyed identity salt rotation (CLAUDE.md Privacy Rule 2)
+silently corrupts visitor hashes if wall-clock drifts >60 s. The
+binary doesn't alert on this (no direct hook); operator must monitor
+periodically.
+
+**Operator action**:
+
+1. `chronyc sources -v` — which sources are reachable?
+2. `chronyc makestep` — force-step to correct an offset >1 s.
+3. If all 4 Iranian NTP sources are unreachable (`time.asiatech.ir`,
+   `ntp.nic.ir`, `ntp.aut.ac.ir`, `0.ir.pool.ntp.org`), the box has a
+   network partition. Check the courier path can still SSH in.
+4. As emergency fallback (NOT recommended), add a non-`.ir` source
+   temporarily: `chronyc add server time.google.com iburst`. Remove
+   after the partition clears — `iranian-dc-deploy` skill item 10
+   forbids non-IR NTP in steady state.
+
+#### Service crashloop
+
+**Symptom**: `systemctl status statnive-live` shows repeated restarts.
+
+**Operator action**:
+
+1. `journalctl -u statnive-live --since '15 min ago' | tail -100` —
+   find the panic / error.
+2. Common causes (cross-ref LEARN.md):
+   - Lesson 25: cold-boot >30 s on slow disk → bump
+     `STATNIVE_HEALTHZ_TIMEOUT_S=120`
+   - Lesson 26: systemd drop-in conflicts with config.yaml → see
+     `derive_healthz_url` in `statnive-deploy.sh:54`
+   - PR #88: GeoIP DB sentinel mis-filtered → ensure DB version matches
+     the binary's library version
+3. If the binary fails to load the embedded SPA assets
+   (`//go:embed all:dist` empty), rebuild the bundle — LEARN Lesson 23.
+4. Rollback path: `statnive-deploy rollback <previous-version>`
+   (A2 installed `/usr/local/bin/statnive-deploy` for this).
+
+### Rollback decision matrix
+
+| Symptom | Time-since-cutover | Action |
+|---|---|---|
+| `/healthz` red | < 30 min | Auto-revert already fired (statnive-deploy:208). Nothing more to do. |
+| `/healthz` red | > 30 min, < 24 h | Manual `statnive-deploy rollback <prev>`. Confirm with customer. |
+| Customer-reported under-count | < 24 h | View-source customer HTML first (LEARN Lesson 27); only rollback if server-side. |
+| Customer-reported under-count | > 24 h | Data is already in CH; rollback wouldn't help. Diagnose + forward-fix. |
+| License signing key compromise | any | Generate new keypair via A1 CLI, rebuild binary, full re-cutover. Revocation list = v1.1. |
+| Iranian DC outage | any | Wait for Asiatech to restore. v1.1: secondary on ParsPack via NSD secondary. |
+| BGP cut (cross-border) | any | NSD on AT-VPS-B1 keeps serving Iranian resolvers via NIN. Document the customer-visible impact and wait. Phase 7e scenario #1 simulates this. |
+| Tracker reporting 0 events | < 5 min after cutover | Customer hasn't updated tracker `<script src=>` yet. Wait; not an incident. |
+| Tracker reporting 0 events | > 5 min after cutover | View-source the customer HTML. If the new endpoint is loading, check the binary's `received_total` metric. |
+
+### First 30 days — canary protocol
+
+1. **Daily** for the first 30 days:
+   - Snapshot `/metrics` to `releases/cutover/<DATE>/metrics.txt`.
+   - Snapshot `audit.jsonl` last 24 h to `releases/cutover/<DATE>/audit.jsonl`.
+   - Confirm `chronyc tracking` Stratum ≤ 4.
+   - Confirm `iptables -L OUTPUT -v` packet count stayed at 0 (air-gap
+     contract).
+2. **Weekly** for the first 30 days:
+   - Trigger `backup-drill-nightly` workflow manually (A3); confirm
+     row-count parity.
+   - Review `releases/cutover/<DATE>/` for any anomaly.
+   - Update LEARN.md if any new bug class hit ≥3 related bugs (CLAUDE.md
+     rule).
+3. **No new code deploys** to the Iranian VPS for the first 30 days
+   unless an incident demands it. If an incident does, document the
+   minimum-viable patch + customer sign-off in
+   `releases/cutover/<DATE>/incident-<N>.md`.
+
+### LEARN.md cross-references
+
+Each playbook above traces to one or more LEARN.md lessons. When
+updating this section, also bump the lesson back-references:
+
+- Lesson 9 — distro choice (Debian 13 canonical)
+- Lesson 10 — SSH lockdown ordering
+- Lesson 20 — `derive_healthz_url` TLS-aware
+- Lesson 25 — cold-boot 35–50 s window
+- Lesson 26 — systemd drop-in vs config.yaml
+- Lesson 27 — customer under-count diagnostic (view-source first)
+- Lesson 28 — `scp -C` cross-border
+- Lesson 29 — `/var/tmp` not `/tmp`
+- Lesson 30 — LITE GeoIP sentinel filter
+
+When the operator on-call rotation produces a NEW lesson (post-cutover
+incident, ≥3 related bugs hit), the lesson goes into LEARN.md AND a
+back-reference goes into the relevant playbook above. The runbook is
+the canonical operator-facing index; LEARN.md is the canonical engineer-
+facing institutional memory. Keep them in sync.
