@@ -2013,3 +2013,75 @@ at the binary, all of these must be true:
 
 Until all five are checked, treat this Asiatech VPS as a dry-run
 testbed only.
+
+## Phase 10b — Outside-Iran customer cutover SOP
+
+The mirror SOP for the `outside-iran` posture — customer hosts on their own VPS (Hetzner / AWS / DigitalOcean / bare metal) **outside** Iran. Significantly lighter-weight than Phase 10 because most Iranian-DC constraints (cert-forge, NSD, iptables OUTPUT DROP, Asiatech NTP) don't apply.
+
+For the **inside-Iran** posture see § Phase 10 above. For the deployment-posture reference see [`docs/deployment-postures.md`](deployment-postures.md). For the customer-onboarding workflow see [`docs/customer-onboarding.md`](customer-onboarding.md).
+
+### Pre-flight checklist (run outside the customer's environment)
+
+- [ ] **License JWT generated** via `statnive-license sign` on operator's trusted laptop (offline). Customer name + site_id + feature list + exp date all baked in.
+- [ ] **TLS strategy decided**: either (a) the customer terminates TLS at their reverse proxy (nginx/Caddy/HAProxy) and statnive-live runs plain HTTP on `127.0.0.1:8080`, or (b) the operator stages a fullchain.pem + privkey.pem for direct termination. ACME-from-binary is v1.1.
+- [ ] **GeoIP BIN staged**: paid IP2Location DB23 Site License (preferred) or LITE (dry-run only). Drop path matches `CERT_DIR=` env var the operator will pass.
+- [ ] **DNS A/AAAA records** for the customer's tracker hostname point at the VPS. Operator confirms with `dig +short`.
+- [ ] **SSH key** added to the customer's VPS `~/.ssh/authorized_keys`.
+- [ ] **Customer has signed DPA** if they have EU visitors (`docs/dpa-draft.md`).
+
+### Courier run (one shot)
+
+```bash
+make release-customer POSTURE=outside-iran \
+    VERSION=v0.0.15 \
+    HOST=root@customer-host.example.com \
+    LICENSE=./out/${CUSTOMER}.license.jwt \
+    CERT_DIR=./out/${CUSTOMER}-tls/ \
+    GEOIP_PATH=./out/IP2LOCATION-LITE-DB23.BIN
+```
+
+The courier (`deploy/courier.sh`):
+1. Builds the airgap bundle (or reuses with `SKIP_BUILD=1`)
+2. rsync the bundle + license + certs + GeoIP to `/var/tmp/statnive-courier` on the VPS
+3. Verifies the bundle SHA-256 + Ed25519 signature on the remote
+4. Runs `airgap-install.sh --posture=outside-iran --skip-ch-check` (no iptables, no chrony override)
+5. Installs the license JWT + wires `license.file` in `config.yaml`
+6. Restarts the binary and waits up to 90 s for `/healthz` green
+
+### Post-courier verification
+
+```bash
+ssh "$HOST" 'systemctl status statnive-live | head -20'
+ssh "$HOST" 'grep -m1 posture /var/log/statnive-live/audit.jsonl'
+# Expect: "deployment posture" "outside-iran"
+
+ssh "$HOST" 'cat /etc/systemd/system/statnive-live.service.d/posture.conf'
+# Expect: Environment="STATNIVE_POSTURE=outside-iran"
+
+ssh "$HOST" 'curl -fsSk https://localhost:8080/healthz'
+# Expect: {"status":"ok",...}
+
+# License surface (truncated for audit, never the raw JWT):
+ssh "$HOST" 'sudo grep -m1 license_verified /var/log/statnive-live/audit.jsonl'
+```
+
+### When to graduate from dry-run to production (outside-Iran)
+
+Lighter than Phase 10's gate because the Iranian-DC constraints don't apply, but the binary surface gates remain:
+
+- [ ] **Phase 7e load-gate has passed** on a sibling outside-Iran VPS at the customer's expected EPS profile
+- [ ] **Paid IP2Location DB23 Site License** if the customer needs accurate country attribution
+- [ ] **Production Ed25519 license-signing pubkey** baked into `internal/license/signing.pub` (not the placeholder)
+- [ ] **Customer's DPA signed** if EU-visitor exposure exists
+- [ ] **Operator on-call rotation** documented for the first 30 days
+
+### Rollback
+
+Same procedure as Phase 10's "clean roll-everything-back" section, minus the iptables/chrony restoration:
+
+```bash
+ssh "$HOST" 'sudo bash /var/tmp/statnive-courier/statnive-live-*/deploy/airgap-install.sh --uninstall'
+ssh "$HOST" 'sudo rm -rf /var/lib/statnive-live /etc/statnive-live /var/tmp/statnive-courier'
+```
+
+`--uninstall` removes the binary + systemd unit + posture drop-in; data + config under `/var/lib/statnive-live` and `/etc/statnive-live` are retained for the contractual retention window per `airgap-install.sh` docstring.
