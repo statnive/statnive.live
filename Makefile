@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -390,6 +390,25 @@ release: web-build lint test test-integration audit airgap-bundle
 release-fresh:
 	rm -rf bin/ build/ internal/dashboard/spa/dist/ web/dist/
 	$(MAKE) release
+
+## release-iran-vps: One-shot courier from outside-Iran operator laptop
+## to an Iranian-DC VPS. Wraps make airgap-bundle + rsync + remote
+## airgap-install.sh + license install + healthz wait. See
+## deploy/courier-iran.sh for full flag list.
+##
+## This target does NOT chain to `release` (the full lint+test+audit
+## gate) — that path takes 5-10 min and defeats dry-run iteration. For
+## production cutover, run `make release VERSION=...` first to produce
+## a gated bundle, THEN `make release-iran-vps SKIP_BUILD=1 VERSION=...`.
+##
+## Usage:
+##   make release-iran-vps VERSION=v0.0.15-dev HOST=root@1.2.3.4 \
+##       LICENSE=/path/to/license.jwt \
+##       [CERT_DIR=/path/with/fullchain.pem+privkey.pem] \
+##       [GEOIP_PATH=/path/to/IP2LOCATION-LITE-DB23.BIN] \
+##       [SKIP_BUILD=1] [DRY_RUN=1]
+release-iran-vps:
+	@bash deploy/courier-iran.sh
 
 ## ops-install-release-key: One-time per-VPS prereq for GHA-driven deploys.
 ## Pushes deploy/keys/release-signing.pub to /etc/statnive/release-key.pub on
