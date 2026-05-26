@@ -1,0 +1,64 @@
+# deploy/backup/config-prod-iran-b2.yml — DR restore-only config.
+#
+# Pointed at the Backblaze B2 mirror bucket — used ONLY when the
+# Asiatech DC is unreachable AND a restore is needed. The B2 leg is
+# never written to by clickhouse-backup directly; the daily cron at
+# deploy/backup/cron.d/statnive-live-backup-iran.cron mirrors the
+# encrypted artifact from Asiatech S3 to B2 via `mc cp` so this
+# config sees the same .age-encrypted files.
+#
+# Procurement (operator-side):
+#   B2 application key + secret, scoped to bucket
+#   `statnive-backup-iran-mirror`. https://www.backblaze.com/b2/docs/
+#   application_keys.html
+#
+# Env vars at restore-time:
+#   CLICKHOUSE_PASSWORD  — drill-host CH password
+#   B2_ACCESS_KEY        — B2 application key ID
+#   B2_SECRET_KEY        — B2 application key
+#   DATA_DIR             — drill CH data_path (typically /var/lib/clickhouse)
+#
+# Restore procedure: see docs/runbook.md § Phase 10 / DR restore from
+# Backblaze B2. Summary:
+#   1. Provision a drill VPS outside Iran (Hetzner CX21 or similar)
+#   2. Hand-carry ~/age-vault/backup-age.key to /etc/statnive-live/backup-age.key
+#   3. clickhouse-backup --config=this-file list remote
+#   4. clickhouse-backup --config=this-file restore_remote <NAME>
+#   5. Verify with deploy/backup/drill.sh --config=this-file
+
+general:
+  remote_storage: s3
+  backups_to_keep_local: 7
+  # B2-side retention is enforced by the bucket's Lifecycle Rule, not
+  # by clickhouse-backup. Set this to a large number so the tool
+  # doesn't prune the mirror.
+  backups_to_keep_remote: 9999
+
+clickhouse:
+  username: default
+  password: ${CLICKHOUSE_PASSWORD}
+  host: 127.0.0.1
+  port: 9000
+  data_path: ${DATA_DIR}
+
+s3:
+  access_key: ${B2_ACCESS_KEY}
+  secret_key: ${B2_SECRET_KEY}
+  bucket: statnive-backup-iran-mirror
+  # B2's S3-compatible endpoint. Region varies by bucket creation
+  # location; consult the B2 console for the exact URL.
+  endpoint: https://s3.eu-central-003.backblazeb2.com
+  force_path_style: true
+  region: us-east-1
+  # Same path prefix as the Asiatech config so `mc cp` mirrors
+  # cleanly without rewriting object keys.
+  path: clickhouse/iranian-dc
+  compression_format: zstd
+  compression_level: 19
+
+custom_encryption:
+  # Restore-only config — pre_upload_command intentionally omitted so
+  # an accidental `create_remote` against this config aborts at the
+  # encryption hook rather than silently uploading to B2 (which is
+  # the DR-mirror target, not a write target).
+  post_download_command: 'age -d -i /etc/statnive-live/backup-age.key -o $FILE ${FILE}.age && rm ${FILE}.age'

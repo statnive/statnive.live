@@ -488,23 +488,225 @@ host (NOT production):
   immediately before `make migrate`. Same restore drill afterward
   proves the migration itself didn't corrupt the data set.
 
+### Iranian-DC backup posture (A8)
+
+The Iranian-DC SamplePlatform-class deploy uses a **dual-storage backup
+strategy** for data-residency + DR:
+
+- **Primary**: Asiatech S3-compatible Object Storage. Data stays
+  inside Iran for legal review. Daily full backups via
+  `clickhouse-backup create_remote` (v1 ships full-daily, not
+  differentials — operational simplicity over storage minimisation;
+  ~50 MB compressed × 30-day retention ≈ 1.5 GB).
+- **Mirror**: Backblaze B2 (EU region). Off-DC mirror via `mc mirror`
+  copying the already-encrypted artifact. Covers the Asiatech-DC-wide
+  outage scenario where the production VPS, NSD bastion, and the
+  primary backup target are all in the same DC.
+
+Both legs are **age-encrypted** before upload — neither Asiatech nor
+B2 ever sees plaintext.
+
+**v1 single-tenancy assumption**: one Iranian customer per Asiatech
+VPS. Multi-tenant per-VPS isolation (separate `clickhouse-backup`
+instances per tenant data path) is out of scope until v2.
+
+#### Key custody — single point of total backup loss in v1
+
+The age private key at `~/age-vault/backup-age.key` is the **only**
+decryption path for either leg. If the operator loses it, every
+encrypted artifact on Asiatech AND B2 becomes useless. Document this
+dependency loudly before A8 closes:
+
+- **v1 minimum**: two copies on encrypted USB sticks in two physical
+  locations (operator's primary safe + a co-founder's safe / safety
+  deposit box). Both must be kept current after any keypair rotation.
+- **v1.1**: Shamir 3-of-5 split via `ssss-split`, distributed across
+  operator, CTO, legal counsel, ops backup, off-site escrow. Recovery
+  requires assembling any 3 of 5 shares.
+- **v2**: YubiKey HSM-protected age identity via `age-plugin-yubikey`.
+
+Loss of all key copies in v1 → **total backup data loss, no recovery
+path**. Operator must acknowledge this in writing before the first
+real customer license is signed.
+
+Files:
+
+- [`deploy/backup/config-prod-iran-asiatech.yml.example`](../deploy/backup/config-prod-iran-asiatech.yml.example) — primary, write+read
+- [`deploy/backup/config-prod-iran-b2.yml.example`](../deploy/backup/config-prod-iran-b2.yml.example) — DR restore only
+- [`deploy/backup/cron.d/statnive-live-backup-iran.cron`](../deploy/backup/cron.d/statnive-live-backup-iran.cron) — host-cron template
+
+#### Provision the Iranian-DC backup pipeline
+
+1. **Generate the age keypair** on a trusted operator laptop (one-time):
+   ```bash
+   age-keygen -o ~/age-vault/backup-age.key
+   grep '# public key:' ~/age-vault/backup-age.key | awk '{print $4}' \
+     > ~/age-vault/backup-age.pub
+   ```
+   Hand-carry `backup-age.pub` to `/etc/statnive-live/backup-age.pub`
+   on the Asiatech VPS. The private key stays in the age vault.
+
+2. **Provision storage**: open an Asiatech Object Storage bucket via
+   sales (S3-compatible endpoint, confirm URL with sales rep); open a
+   Backblaze B2 bucket `statnive-backup-iran-mirror` (EU region for
+   lower latency). Generate bucket-scoped key pairs for each.
+
+2b. **Configure B2 Lifecycle Rule** on `statnive-backup-iran-mirror`.
+    Without this, the mirror grows unbounded:
+
+    ```
+    B2 Console → Buckets → statnive-backup-iran-mirror → Lifecycle Settings
+    → Custom →
+        Keep prior versions:   0 days
+        Hide files after:      90 days
+        Delete hidden files after: 1 day
+    ```
+
+    Net retention: 90 days of encrypted artifacts on the DR leg. Match
+    this to the customer DPA's retention promise (see
+    `docs/dpa-draft.md`).
+
+3. **Install tools on the Asiatech VPS** — `clickhouse-backup` from
+   Altinity v2.5.20 release, `mc` from MinIO. No `mc alias set`
+   pre-configuration needed; the cron passes credentials via
+   `MC_HOST_<alias>` env vars to keep them out of `~/.mc/config.json`.
+
+4. **Configure env-file** at `/etc/statnive-live/backup-env`
+   (`chmod 0600 root:root`). **Every line must start with `export`**
+   so the vars reach the `clickhouse-backup` process environment
+   (Go's `os.ExpandEnv` reads from process env, not shell vars):
+
+   ```bash
+   export CLICKHOUSE_PASSWORD=...
+   export S3_ACCESS_KEY=...           # Asiatech-bucket key
+   export S3_SECRET_KEY=...
+   export S3_ENDPOINT=https://s3.asiatech.cloud
+   export B2_ACCESS_KEY=...           # B2 application key ID
+   export B2_SECRET_KEY=...
+   export B2_ENDPOINT=https://s3.eu-central-003.backblazeb2.com
+   export DATA_DIR=/var/lib/clickhouse
+   ```
+
+   The cron uses `set -a; . /etc/statnive-live/backup-env; set +a` to
+   defend against env-files without the `export` prefix, but the
+   `export` form is the documented contract.
+
+5. **Copy configs to runtime location**:
+   ```bash
+   sudo install -d -m 0750 -o root -g statnive /etc/statnive-live/backup
+   sudo install -m 0640 -o root -g statnive \
+     deploy/backup/config-prod-iran-asiatech.yml.example \
+     /etc/statnive-live/backup/config-prod-iran-asiatech.yml
+   ```
+
+6. **Install the cron**:
+   ```bash
+   sudo install -m 0644 -o root -g root \
+     deploy/backup/cron.d/statnive-live-backup-iran.cron \
+     /etc/cron.d/statnive-live-backup-iran
+   ```
+
+7. **Validate** — after the next 02:30 Tehran cron cycle. Every step
+   of the pipeline (`create_remote`, `mc mirror`, `clean`) tags
+   journalctl with `statnive-backup-iran`, so one filter catches the
+   whole flow:
+
+   ```bash
+   sudo journalctl -t statnive-backup-iran --since '1 hour ago'
+   MC_HOST_asiatech="https://$S3_ACCESS_KEY:$S3_SECRET_KEY@s3.asiatech.cloud" \
+     mc ls asiatech/statnive-backup-iran/  | tail -5
+   MC_HOST_b2="https://$B2_ACCESS_KEY:$B2_SECRET_KEY@s3.eu-central-003.backblazeb2.com" \
+     mc ls b2/statnive-backup-iran-mirror/ | tail -5
+   ```
+
+#### Primary-leg restore (Asiatech alive)
+
+Run on the production VPS or a co-located drill VPS:
+
+1. **Capture the expected row counts** from the live (still-running)
+   binary before kicking off the restore — drill.sh needs this as the
+   parity oracle. From `clickhouse-client`:
+
+   ```bash
+   for t in events_raw hourly_visitors daily_pages daily_sources; do
+     N=$(clickhouse-client -q "SELECT sum(rows) FROM system.parts WHERE table='$t' AND active")
+     echo "$t=$N"
+   done
+   ```
+
+   Concatenate into the `EXPECT_ROWS` shell var with the
+   `table=N,table=N` shape that `drill.sh` expects.
+
+2. **List available remote backups**:
+
+   ```bash
+   sudo /usr/local/bin/clickhouse-backup \
+     --config=/etc/statnive-live/backup/config-prod-iran-asiatech.yml \
+     list remote
+   ```
+
+3. **Run the restore** against the chosen `<NAME>`:
+
+   ```bash
+   sudo /usr/local/bin/clickhouse-backup \
+     --config=/etc/statnive-live/backup/config-prod-iran-asiatech.yml \
+     restore_remote <NAME>
+   ```
+
+4. **Verify parity** with the captured `EXPECT_ROWS`:
+
+   ```bash
+   sudo EXPECT_ROWS="events_raw=...,hourly_visitors=...,daily_pages=...,daily_sources=..." \
+        bash deploy/backup/drill.sh \
+          --config=/etc/statnive-live/backup/config-prod-iran-asiatech.yml \
+          --name=<NAME>
+   ```
+
+#### DR restore from Backblaze B2 (Asiatech DC down)
+
+Run **only** when Asiatech is unreachable. Cold-start MTTR is the
+dominant cost — every step except #5 is provisioning + carry.
+
+1. **Provision an outside-Iran drill VPS** — Hetzner CX21 in
+   Falkenstein, ~€8/mo. Debian 13.
+2. **Install the stack**: `clickhouse-server` + Altinity
+   `clickhouse-backup` v2.5.20 + `mc`. Same versions as the
+   Asiatech production stack.
+3. **Hand-carry the age private key** from your offline vault to
+   `/etc/statnive-live/backup-age.key` (`chmod 0600 root:root`). This
+   typically means flying / driving with an encrypted USB; SSH/email
+   defeats the offline-key invariant.
+4. **Set the drill env-file** at `/etc/statnive-live/backup-env`:
+   `B2_ACCESS_KEY`, `B2_SECRET_KEY`, `CLICKHOUSE_PASSWORD`,
+   `DATA_DIR=/var/lib/clickhouse` (note: **B2** creds, not Asiatech).
+   Same `export ...` format as the production env-file.
+5. **Install the B2 restore-only config** to
+   `/etc/statnive-live/backup/config-prod-iran-b2.yml`.
+6. **List remote** + **restore** + **verify parity** (same shape as
+   the primary-leg steps 2–4 above, but `--config=...config-prod-iran-b2.yml`).
+
+**MTTR scenarios:**
+
+- **Cold-start (most likely)**: 2–4 hours total. Steps 1–5 dominate
+  (provisioning + carry). The actual restore (step 6) is ~5 min for a
+  daily full + drill verify.
+- **Warm-standby** (v1.1 deliverable; not yet shipped): ~5 min total.
+  Drill VPS pre-provisioned at Hetzner with stack installed + age key
+  already in-place via 1-of-2 Shamir share. The DR-restore becomes
+  "step 6 only".
+
+**The drill VPS does NOT become the new production.** It's a
+verification target proving the backup chain is restorable. Customer
+cutover after a DC-wide outage requires re-provisioning a fresh
+Iranian VPS + re-running the full courier (A2) against it.
+
 ### Known issues
 
-- **CI drill is workflow_dispatch-only (2026-04-23).** The
-  `backup-drill-nightly` GitHub Actions workflow used to run on a
-  nightly `0 4 * * *` cron. It was demoted to manual-dispatch because
-  `clickhouse/clickhouse-server:24.12-alpine` refuses `DROP TABLE IF
-  EXISTS` against materialized-view inner tables without the
-  `/var/lib/clickhouse/flags/force_drop_table` flag — even for empty
-  tables and with `max_table_size_to_drop=10_000_000_000_000` (10 TB)
-  set in a `config.d/` fragment — breaking `clickhouse-backup
-  restore_remote`'s pre-create drop loop. Reproduced in PRs #36→#40.
-  Operator-side drills via `deploy/backup/drill.sh` against real CH
-  are unaffected. Tracked as **v1.1-ci-drill** in `PLAN.md`;
-  re-enablement depends on either (a) a CH point release that drops
-  the MV-inner-table flag requirement, (b) a workaround that
-  continuously recreates the flag file during restore, or (c) a
-  different CH image with the same Atomic-engine semantics.
+- **CI drill nightly schedule** — re-enabled by A3 (PR #141).
+  Resolved via the continuous `force_drop_table`-touch workaround;
+  see `.github/workflows/backup-drill-nightly.yml` for the loop
+  details. Host-side operator cron at the drill VPS remains the
+  release-blocking SoT.
 
 ## Disk full (CH error code 243)
 
