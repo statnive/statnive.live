@@ -4,6 +4,15 @@
 # `airgap-verify-bundle.sh` succeeds.
 #
 # Flags:
+#   --posture=NAME        deployment posture: saas | outside-iran | inside-iran
+#                         (default: empty — legacy/dev; sets STATNIVE_POSTURE
+#                         in the systemd drop-in and implies posture-specific
+#                         defaults for --ntp-profile and --apply-iptables:
+#                           saas         → no implied flag changes
+#                           outside-iran → no implied flag changes
+#                           inside-iran  → implies --ntp-profile=asiatech
+#                                          + --apply-iptables unless either
+#                                          is already set explicitly)
 #   --skip-ch-check       don't probe for ClickHouse (cold install)
 #   --apply-iptables      apply deploy/iptables/rules.v{4,6} (off by default;
 #                         most operators have their own firewalls)
@@ -20,19 +29,23 @@
 
 set -euo pipefail
 
+POSTURE=""
 SKIP_CH_CHECK=0
 APPLY_IPTABLES=0
 NTP_PROFILE=""
 UNINSTALL=0
+EXPLICIT_APPLY_IPTABLES=0
+EXPLICIT_NTP_PROFILE=0
 
 for arg in "$@"; do
 	case "$arg" in
+		--posture=*)            POSTURE="${arg#--posture=}" ;;
 		--skip-ch-check)        SKIP_CH_CHECK=1 ;;
-		--apply-iptables)       APPLY_IPTABLES=1 ;;
-		--ntp-profile=*)        NTP_PROFILE="${arg#--ntp-profile=}" ;;
+		--apply-iptables)       APPLY_IPTABLES=1; EXPLICIT_APPLY_IPTABLES=1 ;;
+		--ntp-profile=*)        NTP_PROFILE="${arg#--ntp-profile=}"; EXPLICIT_NTP_PROFILE=1 ;;
 		--uninstall)            UNINSTALL=1 ;;
 		-h|--help)
-			sed -n '1,22p' "$0" | sed 's/^# \{0,1\}//'
+			sed -n '1,28p' "$0" | sed 's/^# \{0,1\}//'
 			exit 0
 			;;
 		*)
@@ -41,6 +54,25 @@ for arg in "$@"; do
 			;;
 	esac
 done
+
+case "$POSTURE" in
+	""|saas|outside-iran|inside-iran) ;;
+	*)
+		echo "airgap-install: --posture=$POSTURE not recognized (allowed: saas, outside-iran, inside-iran, or empty)" >&2
+		exit 2
+		;;
+esac
+
+# inside-iran implies asiatech NTP + OUTPUT DROP iptables unless the
+# operator explicitly overrode either flag.
+if [ "$POSTURE" = "inside-iran" ]; then
+	if [ "$EXPLICIT_NTP_PROFILE" != "1" ]; then
+		NTP_PROFILE="asiatech"
+	fi
+	if [ "$EXPLICIT_APPLY_IPTABLES" != "1" ]; then
+		APPLY_IPTABLES=1
+	fi
+fi
 
 case "$NTP_PROFILE" in
 	""|netcup|asiatech) ;;
@@ -72,6 +104,8 @@ if [ "$UNINSTALL" = "1" ]; then
 	echo "airgap-install: uninstalling (keeps /var/lib/statnive-live + /etc/statnive-live)"
 	systemctl disable --now statnive-live >/dev/null 2>&1 || true
 	rm -f /etc/systemd/system/statnive-live.service
+	rm -f /etc/systemd/system/statnive-live.service.d/posture.conf
+	rmdir /etc/systemd/system/statnive-live.service.d 2>/dev/null || true
 	systemctl daemon-reload >/dev/null 2>&1 || true
 	rm -f /usr/local/bin/statnive-live
 	echo "airgap-install: uninstalled. Data + config retained; \`rm -rf /var/lib/statnive-live /etc/statnive-live\` to purge."
@@ -196,6 +230,21 @@ echo "airgap-install: installing systemd unit"
 install -m 0644 "$BUNDLE_ROOT/deploy/systemd/statnive-live.service" \
 	/etc/systemd/system/statnive-live.service
 
+# --- posture drop-in (sets STATNIVE_POSTURE in the systemd environment) ------
+# Written regardless of whether posture is empty so that re-installs with a
+# different posture always overwrite stale drop-ins rather than leaving the
+# old value active. An empty posture writes an empty env var — the binary
+# treats that identically to "unset" (legacy/dev path).
+install -d -m 0755 /etc/systemd/system/statnive-live.service.d
+install -m 0644 /dev/stdin \
+	/etc/systemd/system/statnive-live.service.d/posture.conf <<EOF
+[Service]
+Environment="STATNIVE_POSTURE=$POSTURE"
+EOF
+if [ -n "$POSTURE" ]; then
+	echo "airgap-install: posture=$POSTURE set in systemd drop-in"
+fi
+
 if systemctl daemon-reload 2>/dev/null; then
 	systemctl enable statnive-live >/dev/null
 	echo "airgap-install: enabled (not started yet)"
@@ -236,9 +285,15 @@ else
 fi
 
 # --- hints -------------------------------------------------------------------
+POSTURE_HINT=""
+if [ -n "$POSTURE" ]; then
+	POSTURE_HINT="  Posture:  $POSTURE (STATNIVE_POSTURE set in systemd drop-in)"
+fi
+
 cat <<-EOF
 
 airgap-install: done. Next steps (from docs/quickstart.md § Minute 3):
+${POSTURE_HINT}
 
   1. Edit $CONFIG_DST — at minimum, set TLS cert paths or clear them
      for HTTP-behind-proxy.

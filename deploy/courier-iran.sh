@@ -190,9 +190,7 @@ if ! run_remote "cd '$REMOTE_STAGE' && tar -xzf '${BUNDLE_NAME}.tar.gz' && bash 
 fi
 
 # --- install -----------------------------------------------------------------
-# Keep --ntp-profile=asiatech in sync with the allow-list at
-# deploy/airgap-install.sh:46.
-INSTALL_FLAGS="--ntp-profile=asiatech --apply-iptables"
+INSTALL_FLAGS="--posture=inside-iran"
 
 echo "courier-iran: airgap-install.sh $INSTALL_FLAGS on $HOST"
 if ! run_remote "sudo bash '$REMOTE_STAGE/${BUNDLE_NAME}/deploy/airgap-install.sh' $INSTALL_FLAGS"; then
