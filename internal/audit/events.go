@@ -28,6 +28,13 @@ const (
 	EventRateLimited EventName = "ratelimit.exceeded"
 )
 
+// License lifecycle events. Emitted from cmd/statnive-live/main.go at
+// boot when license.Verify succeeds. Phase 10 Iranian-DC only —
+// existing deploys with no license.file configured emit nothing.
+const (
+	EventLicenseVerified EventName = "license.verified"
+)
+
 // Ingest events. Emitted by internal/ingest/handler.go +
 // internal/enrich/pipeline.go.
 const (

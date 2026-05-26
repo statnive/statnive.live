@@ -152,6 +152,25 @@ admin:
 features:
   per_site_admin: false   # STATNIVE_FEATURES_PER_SITE_ADMIN — on: RequireSiteRole middleware; off: legacy single-site RequireRole (v0.0.9 default; flip to true after smoke verifies on prod)
 
+# ─── License verification (opt-in, offline Ed25519) ────────────────────
+# Empty `file` is the default and disables verification — boot proceeds
+# as it always has. Existing deploys (statnive.com / .de / fr.statnive.com)
+# leave this section unset; the binary is byte-for-byte compatible with
+# their pre-WP1 configs.
+#
+# Phase 10 / Iranian-DC operators uncomment and set `file` to the path of
+# the JWT-EdDSA license token shipped by the upstream signer. The public
+# key is baked into the binary; tampering with the file gets you an
+# `ErrInvalidSignature` at startup.
+#
+# `phone_home` MUST remain false for any Iranian-DC deployment per the
+# `iran-license-verify-must-be-offline` rule (CLAUDE.md anti-patterns).
+# Kept in the schema so air-gap-validator can audit accidental flips.
+#
+# license:
+#   file:       "/etc/statnive-live/license.jwt"   # STATNIVE_LICENSE_FILE
+#   phone_home: false                              # STATNIVE_LICENSE_PHONE_HOME
+
 # ─── Opt-in outbound features (ALL default OFF) ────────────────────────
 # Turning any on breaks the Isolation invariant (zero required outbound).
 # Placeholders shown for visibility; activated in v1.1 / Phase 11.
@@ -163,5 +182,3 @@ features:
 #     enabled: false
 # email:
 #   enabled: false
-# license:
-#   phone_home: false

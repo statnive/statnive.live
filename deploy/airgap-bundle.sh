@@ -84,6 +84,10 @@ cp "$ROOT/deploy/iptables/rules.v6"             "$BUNDLE_DIR/deploy/iptables/"
 cp "$ROOT/deploy/airgap-install.sh"             "$BUNDLE_DIR/deploy/"
 cp "$ROOT/deploy/airgap-update-geoip.sh"        "$BUNDLE_DIR/deploy/"
 cp "$ROOT/deploy/airgap-verify-bundle.sh"       "$BUNDLE_DIR/deploy/"
+# Iranian-DC NTP profile consumed by `airgap-install.sh --ntp-profile=asiatech`.
+# Read from $BUNDLE_ROOT/deploy/chrony.conf.asiatech inside the installer, so
+# it must be present in the unpacked bundle for the flag to work.
+cp "$ROOT/deploy/chrony.conf.asiatech"          "$BUNDLE_DIR/deploy/"
 # statnive-deploy.sh is the on-box deploy primitive used by the GHA
 # pipeline + manual cutover (step-b § B.4 installs it to /usr/local/bin).
 # Cutover Bug #1 — was missing from the bundle.

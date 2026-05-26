@@ -7,6 +7,10 @@
 #   --skip-ch-check       don't probe for ClickHouse (cold install)
 #   --apply-iptables      apply deploy/iptables/rules.v{4,6} (off by default;
 #                         most operators have their own firewalls)
+#   --ntp-profile=NAME    install Iranian-DC chrony.conf when NAME=asiatech
+#                         (default: leave host chrony.conf untouched —
+#                         Netcup / Hetzner / international keeps its distro
+#                         defaults; only Iranian-DC ops opt in)
 #   --uninstall           remove binary + systemd unit; keeps data + config
 #   -h | --help           usage
 #
@@ -18,15 +22,17 @@ set -euo pipefail
 
 SKIP_CH_CHECK=0
 APPLY_IPTABLES=0
+NTP_PROFILE=""
 UNINSTALL=0
 
 for arg in "$@"; do
 	case "$arg" in
-		--skip-ch-check)  SKIP_CH_CHECK=1 ;;
-		--apply-iptables) APPLY_IPTABLES=1 ;;
-		--uninstall)      UNINSTALL=1 ;;
+		--skip-ch-check)        SKIP_CH_CHECK=1 ;;
+		--apply-iptables)       APPLY_IPTABLES=1 ;;
+		--ntp-profile=*)        NTP_PROFILE="${arg#--ntp-profile=}" ;;
+		--uninstall)            UNINSTALL=1 ;;
 		-h|--help)
-			sed -n '1,20p' "$0" | sed 's/^# \{0,1\}//'
+			sed -n '1,22p' "$0" | sed 's/^# \{0,1\}//'
 			exit 0
 			;;
 		*)
@@ -35,6 +41,14 @@ for arg in "$@"; do
 			;;
 	esac
 done
+
+case "$NTP_PROFILE" in
+	""|netcup|asiatech) ;;
+	*)
+		echo "airgap-install: --ntp-profile=$NTP_PROFILE not recognized (allowed: asiatech, netcup, or empty)" >&2
+		exit 2
+		;;
+esac
 
 if [ "$(id -u)" -ne 0 ]; then
 	echo "airgap-install: must run as root (sudo)" >&2
@@ -129,6 +143,52 @@ SOURCES_DST="/etc/statnive-live/sources.yaml"
 if [ -f "$BUNDLE_ROOT/config/sources.yaml" ] && [ ! -f "$SOURCES_DST" ]; then
 	install -m 0640 -o root -g statnive \
 		"$BUNDLE_ROOT/config/sources.yaml" "$SOURCES_DST"
+fi
+
+# --- NTP profile (opt-in) ----------------------------------------------------
+# Only --ntp-profile=asiatech installs a chrony.conf. The default (no
+# flag) and --ntp-profile=netcup are explicit no-ops so existing
+# deploys keep their distro chrony config byte-for-byte. The binary's
+# IRST-keyed salt rotation (CLAUDE.md Privacy Rule 2) needs Stratum <=4
+# within 60 s of boot; this step gets the Iranian-DC operator there.
+#
+# Ordering invariant: this block runs BEFORE --apply-iptables. The apt
+# install path below needs egress to the package mirror; the Iranian
+# OUTPUT-DROP policy (CLAUDE.md Isolation table) lands after this
+# script and the operator has staged the binary + GeoIP. For a true
+# zero-egress install, pre-stage `chrony_*.deb` and switch the apt
+# call to `dpkg -i` — Phase 10 polish.
+if [ "$NTP_PROFILE" = "asiatech" ]; then
+	NTP_SRC="$BUNDLE_ROOT/deploy/chrony.conf.asiatech"
+	if [ ! -f "$NTP_SRC" ]; then
+		echo "airgap-install: --ntp-profile=asiatech but $NTP_SRC missing from bundle" >&2
+		exit 1
+	fi
+
+	if ! command -v chronyc >/dev/null 2>&1; then
+		case "$DISTRO_ID" in
+			debian|ubuntu)
+				echo "airgap-install: chrony not present; installing via apt (must precede --apply-iptables / OUTPUT DROP)"
+				DEBIAN_FRONTEND=noninteractive apt-get install -y chrony
+				;;
+			*)
+				echo "airgap-install: chrony missing on $DISTRO_ID — install it manually before --ntp-profile=asiatech" >&2
+				exit 1
+				;;
+		esac
+	fi
+
+	echo "airgap-install: installing Iranian-DC chrony.conf (sources: time.asiatech.ir, ntp.nic.ir, ntp.aut.ac.ir, 0.ir.pool.ntp.org)"
+	# Back up the distro default once so an operator can roll back without
+	# the bundle. The pre-existence guard makes re-runs idempotent.
+	if [ -f /etc/chrony/chrony.conf ] && [ ! -f /etc/chrony/chrony.conf.airgap-install.bak ]; then
+		cp -p /etc/chrony/chrony.conf /etc/chrony/chrony.conf.airgap-install.bak
+	fi
+	install -m 0644 -o root -g root "$NTP_SRC" /etc/chrony/chrony.conf
+	systemctl restart chrony >/dev/null 2>&1 || \
+		echo "airgap-install: chrony restart failed (systemd in container?); operator must restart on the live host"
+
+	echo "airgap-install: NTP profile applied. Verify with: chronyc tracking"
 fi
 
 # --- systemd unit ------------------------------------------------------------

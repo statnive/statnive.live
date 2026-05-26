@@ -43,6 +43,7 @@ REQUIRED=(
 	"deploy/airgap-install.sh"                   # the installer the operator invokes
 	"deploy/airgap-update-geoip.sh"              # GeoIP BIN drop-in script (manual monthly refresh)
 	"deploy/airgap-verify-bundle.sh"             # tarball SHA + sig check (operator-side)
+	"deploy/chrony.conf.asiatech"                # Iranian-DC NTP profile; required by --ntp-profile=asiatech
 	"deploy/statnive-deploy.sh"                  # GHA / cutover deploy primitive; installs to /usr/local/bin/statnive-deploy
 	"deploy/systemd/statnive-live.service"       # systemd unit
 	"deploy/iptables/rules.v4"                   # opt-in egress lockdown (--apply-iptables)
