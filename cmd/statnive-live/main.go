@@ -151,6 +151,17 @@ func run() error {
 
 	defer func() { _ = auditLog.Close() }()
 
+	// Deployment posture announcement (L1 multi-posture support). The
+	// binary doesn't branch on this — every behavioural knob has its
+	// own config key — but logging the operator's declared posture
+	// makes "wrong posture / wrong knobs" drift visible in audit at
+	// startup. Empty = unset / legacy / dev.
+	if cfg.Posture == "" {
+		logger.Info("deployment posture unset (legacy / dev — set `posture` in config for production)")
+	} else {
+		logger.Info("deployment posture", "posture", cfg.Posture)
+	}
+
 	// License verification (WP1). Opt-in: empty license.file is the
 	// long-standing default — boot proceeds identically to the pre-WP1
 	// binary so deploys without a license file (statnive.com / .de /
@@ -1261,6 +1272,17 @@ type appConfig struct {
 		// for accidental flips; the v1 binary ignores it.
 		PhoneHome bool
 	}
+	// Posture labels the deployment shape — informational only. The
+	// binary does NOT branch on it; every behavioral knob (license,
+	// consent, outbound, NTP, TLS) is independently configured. The
+	// label exists so /healthz + audit can report the operator's
+	// intent, catching mis-configuration drift (e.g. "saas posture
+	// but license.file is set" → operator probably copied the wrong
+	// snippet from config.yaml.example).
+	//
+	// Allowed values: "" (unset, legacy), "saas", "outside-iran",
+	// "inside-iran". Anything else fails fast at load.
+	Posture string
 	Privacy struct {
 		// PrivacyPage gates GET /privacy. Default on; flip to false
 		// for an instant rollback that returns 404 to all visitors.
@@ -1287,6 +1309,25 @@ type appConfig struct {
 // operator account format is the operator's choice — this rejects
 // only obvious injection payloads.
 var operatorEmailRegex = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
+
+// validPostures is the allowlist for the `posture` config key — see
+// the appConfig.Posture comment for the contract. Empty is allowed
+// (legacy / dev). All other values fail fast at config load so an
+// operator typo doesn't propagate to runtime.
+var validPostures = []string{"", "saas", "outside-iran", "inside-iran"}
+
+// validatePosture enforces the allowlist. Comparison is on the
+// already-lowercased + trimmed string from the loader, so case +
+// whitespace are normalized before the check.
+func validatePosture(p string) error {
+	for _, v := range validPostures {
+		if p == v {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("posture %q: must be one of %v", p, validPostures[1:])
+}
 
 // loadConfig parses CLI flags + env vars to find the config file path,
 // then defers to loadConfigFromPath. Splitting the two means tests can
@@ -1403,6 +1444,10 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("license.file", "")
 	v.SetDefault("license.phone_home", false)
 
+	// Deployment posture label (L1 multi-posture support). Empty =
+	// unset (legacy / dev), allowed values are validated below.
+	v.SetDefault("posture", "")
+
 	// Privacy routes — Stage 2 of the consent-free implementation.
 	// All three default on so a fresh deploy gets the GDPR Art. 21
 	// opt-out path without operator intervention; flip individual
@@ -1492,6 +1537,11 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 
 	cfg.License.File = strings.TrimSpace(v.GetString("license.file"))
 	cfg.License.PhoneHome = v.GetBool("license.phone_home")
+
+	cfg.Posture = strings.ToLower(strings.TrimSpace(v.GetString("posture")))
+	if err := validatePosture(cfg.Posture); err != nil {
+		return appConfig{}, err
+	}
 
 	cfg.Privacy.PrivacyPage = v.GetBool("privacy.privacy_page")
 	cfg.Privacy.PrivacyAPI = v.GetBool("privacy.privacy_api")

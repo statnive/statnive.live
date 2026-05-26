@@ -13,6 +13,38 @@
 # /etc/systemd/system/statnive-live.service.d/env.conf is the canonical
 # config surface for paths and secrets.
 
+# ─── Deployment posture (informational label) ──────────────────────────
+# The binary does NOT branch on this — every behavioural knob below
+# (license, consent, outbound, NTP, TLS) is independently configured.
+# This label exists so /healthz + audit can report the operator's
+# declared posture, making "wrong posture / wrong knobs" drift visible.
+#
+# Three canonical postures, each with its own knob recipe below:
+#
+#   "saas"            — we host on statnive.live / Netcup; multi-tenant
+#                       across customer site_ids. license.file=""
+#                       (no per-binary license); consent.required=true
+#                       (GDPR for EU visitors); outbound opt-in for
+#                       Telegram + Polar.sh.
+#
+#   "outside-iran"    — customer hosts on their own VPS (Hetzner/AWS/
+#                       bare metal). Single-customer, license required.
+#                       license.file=/etc/statnive-live/license.jwt;
+#                       consent.required=true (default; flip if customer
+#                       has no EU visitors); outbound opt-in (customer
+#                       choice — ACME, Telegram, etc.).
+#
+#   "inside-iran"     — customer hosts on Asiatech inside Iran.
+#                       Air-gap-capable. license.file=/etc/...; consent
+#                       .required=false (CLAUDE.md Privacy Rule 5
+#                       carve-out — Iran has no GDPR); outbound DROP
+#                       via --apply-iptables; NTP via chrony.conf
+#                       .asiatech; TLS via outside-Iran cert-forge.
+#
+# Empty = unset (legacy / dev). Allowed values: saas, outside-iran,
+# inside-iran. Anything else fails fast at boot.
+posture: ""   # STATNIVE_POSTURE
+
 # ─── Master secret ─────────────────────────────────────────────────────
 # The master secret value NEVER lives in YAML. Set STATNIVE_MASTER_SECRET
 # (64 hex chars or ≥32 raw bytes) via systemd EnvironmentFile, OR drop a
