@@ -24,12 +24,21 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DISTROS="${STATNIVE_FRESH_INSTALL_DISTROS:-ubuntu:24.04 debian:13-slim}"
+POSTURE=""
 
 # Override via flag.
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--distros)
 			DISTROS="$2"
+			shift 2
+			;;
+		--posture=*)
+			POSTURE="${1#--posture=}"
+			shift
+			;;
+		--posture)
+			POSTURE="$2"
 			shift 2
 			;;
 		-h|--help)
@@ -42,6 +51,14 @@ while [ $# -gt 0 ]; do
 			;;
 	esac
 done
+
+case "$POSTURE" in
+	""|saas|outside-iran|inside-iran) ;;
+	*)
+		echo "test-fresh-install: --posture=$POSTURE not recognized (allowed: saas, outside-iran, inside-iran, or empty)" >&2
+		exit 2
+		;;
+esac
 
 if ! command -v docker >/dev/null 2>&1; then
 	echo "test-fresh-install: docker required" >&2
@@ -67,10 +84,22 @@ STUB
 	cp "$REPO_ROOT/config/sources.yaml" "$stage/config/sources.yaml"
 	cp "$REPO_ROOT/deploy/systemd/statnive-live.service" "$stage/deploy/systemd/statnive-live.service"
 	cp "$REPO_ROOT/deploy/airgap-install.sh" "$stage/deploy/airgap-install.sh"
+	# statnive-deploy.sh is staged because A2's airgap-install.sh installs
+	# it to /usr/local/bin/statnive-deploy on every run. Missing → install
+	# step exits before writing the posture drop-in (L2 contract).
+	if [ -f "$REPO_ROOT/deploy/statnive-deploy.sh" ]; then
+		cp "$REPO_ROOT/deploy/statnive-deploy.sh" "$stage/deploy/statnive-deploy.sh"
+	fi
 	# iptables/* aren't loaded under --skip-ch-check + no --apply-iptables;
 	# placeholder files keep the optional-fallback branch quiet.
 	: > "$stage/deploy/iptables/rules.v4"
 	: > "$stage/deploy/iptables/rules.v6"
+	# chrony.conf.asiatech is staged for the inside-iran posture (L2),
+	# which auto-implies --ntp-profile=asiatech. Copied unconditionally
+	# so test-fresh-install.sh's stub is identical across postures.
+	if [ -f "$REPO_ROOT/deploy/chrony.conf.asiatech" ]; then
+		cp "$REPO_ROOT/deploy/chrony.conf.asiatech" "$stage/deploy/chrony.conf.asiatech"
+	fi
 }
 
 run_in_distro() {
@@ -82,15 +111,33 @@ run_in_distro() {
 	build_stub_bundle "$stage"
 
 	echo ""
-	echo "==> $distro"
+	echo "==> $distro (posture=${POSTURE:-<empty>})"
+
+	# inside-iran auto-implies --apply-iptables, which needs CAP_NET_ADMIN.
+	# The other postures don't.
+	local docker_caps=()
+	if [ "$POSTURE" = "inside-iran" ]; then
+		docker_caps=(--cap-add NET_ADMIN)
+	fi
+
+	# Posture flag forwarded into the container; empty means the legacy
+	# call path (no --posture passed, drop-in still written with empty
+	# STATNIVE_POSTURE per L2 contract).
+	local install_args="--skip-ch-check"
+	if [ -n "$POSTURE" ]; then
+		install_args="$install_args --posture=$POSTURE"
+	fi
 
 	# bash is needed to run the script; iputils-ping just gives the
 	# container a saner debug surface; ss for the CH listener probe.
 	# We run the full install path and assert it returns 0, then
 	# re-run to assert idempotency.
 	docker run --rm \
+		"${docker_caps[@]}" \
 		-v "$stage:/bundle:ro" \
 		-w /bundle/deploy \
+		-e INSTALL_ARGS="$install_args" \
+		-e EXPECTED_POSTURE="$POSTURE" \
 		"$distro" \
 		bash -c '
 			set -e
@@ -103,9 +150,9 @@ run_in_distro() {
 			apt-get install -y -qq bash iproute2 systemctl >/dev/null 2>&1 || \
 				apt-get install -y -qq bash iproute2 >/dev/null
 			# First pass — must complete cleanly.
-			bash /bundle/deploy/airgap-install.sh --skip-ch-check 2>&1 | sed "s|^|  [1] |"
+			bash /bundle/deploy/airgap-install.sh $INSTALL_ARGS 2>&1 | sed "s|^|  [1] |"
 			# Second pass — must remain idempotent.
-			bash /bundle/deploy/airgap-install.sh --skip-ch-check 2>&1 | sed "s|^|  [2] |"
+			bash /bundle/deploy/airgap-install.sh $INSTALL_ARGS 2>&1 | sed "s|^|  [2] |"
 			# Permission assertions: parent + subdirs both reachable to
 			# the statnive user. LEARN.md Lesson 7 — a parent-dir mode
 			# 0700 hides files inside even when files are 0644.
@@ -119,6 +166,13 @@ run_in_distro() {
 			runuser -u statnive -- cat /etc/statnive-live/tls/.probe >/dev/null || \
 				{ echo "  FAIL: statnive user cannot reach /etc/statnive-live/tls/.probe"; exit 1; }
 			rm -f /etc/statnive-live/tls/.probe
+			# Posture drop-in assertion: file always written by L2; content
+			# must match the requested posture (or be empty when no posture
+			# was passed).
+			drop=/etc/systemd/system/statnive-live.service.d/posture.conf
+			[ -f "$drop" ] || { echo "  FAIL: $drop not written"; exit 1; }
+			expected="Environment=\"STATNIVE_POSTURE=$EXPECTED_POSTURE\""
+			grep -qF "$expected" "$drop" || { echo "  FAIL: $drop missing $expected"; cat "$drop"; exit 1; }
 			echo "  ok"
 		'
 }
