@@ -64,7 +64,7 @@ func TestNextEvent_OracleTuplePresent(t *testing.T) {
 		Profile:  allScenarios[0],
 	}
 
-	rng := rand.New(rand.NewPCG(1, 2))
+	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // test fixture, not a security path
 	ev := nextEvent(rng, cfg, 7, 42)
 
 	if ev.TestRunID != cfg.RunID.String() {
@@ -124,7 +124,7 @@ func TestPostEvent_RoundTrip(t *testing.T) {
 		Timeout:  2 * time.Second,
 	}
 
-	rng := rand.New(rand.NewPCG(99, 100))
+	rng := rand.New(rand.NewPCG(99, 100)) //nolint:gosec // test fixture, not a security path
 	ev := nextEvent(rng, cfg, 3, 99)
 
 	client := &http.Client{Timeout: cfg.Timeout}

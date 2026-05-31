@@ -76,7 +76,7 @@ func main() {
 	cfg := genConfig{
 		URL:         *urlFlag,
 		Hostname:    *hostname,
-		SiteID:      uint32(*siteID),
+		SiteID:      uint32(*siteID), //nolint:gosec // site_id fits in uint32 by domain constraint; flag value bounded by user
 		EPS:         *eps,
 		Duration:    *duration,
 		Nodes:       *nodes,
@@ -203,7 +203,7 @@ func run(ctx context.Context, logger *slog.Logger, cfg genConfig) genSummary {
 		go func(nodeID uint16) {
 			defer wg.Done()
 			runNode(runCtx, logger, client, sem, cfg, nodeID, perNodeEPS, &sentOK, &sentFail)
-		}(uint16(nodeID))
+		}(uint16(nodeID)) //nolint:gosec // nodeID <= maxGeneratorNodes (256), validated above
 	}
 
 	wg.Wait()
@@ -230,8 +230,9 @@ func runNode(ctx context.Context, logger *slog.Logger, client *http.Client, sem 
 	var seq atomic.Uint64
 
 	// rand.New + rand.NewPCG seeded from time + nodeID so parallel nodes
-	// don't synchronize on the same session shapes.
-	rng := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(nodeID)))
+	// don't synchronize on the same session shapes. math/rand/v2 is
+	// correct here: load-gate generator, not a security path.
+	rng := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(nodeID))) //nolint:gosec // not a security path; load-gate generator
 
 	tickInterval := time.Duration(float64(time.Second) / perNodeEPS)
 	if tickInterval <= 0 {

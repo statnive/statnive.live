@@ -129,7 +129,7 @@ func postEvent(ctx context.Context, client *http.Client, baseURL string, ev rawE
 	if err != nil {
 		return fmt.Errorf("do: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("status %d", resp.StatusCode)
@@ -137,4 +137,3 @@ func postEvent(ctx context.Context, client *http.Client, baseURL string, ev rawE
 
 	return nil
 }
-
