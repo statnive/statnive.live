@@ -5,12 +5,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/statnive/statnive.live/internal/ingest"
+	"github.com/statnive/statnive.live/internal/metrics"
 	"github.com/statnive/statnive.live/internal/sites"
 )
 
@@ -567,5 +569,64 @@ func TestHandler_RespectDNTUnchecked_DNTIgnored(t *testing.T) {
 
 	if !hadCookie {
 		t.Error("Set-Cookie missing despite RespectDNT=false unchecking the deny")
+	}
+}
+
+// Stage-4 fresh-visitor opt-out path: visitor presents only the per-
+// site _statnive_optout_<site_id>=v1 cookie (no _statnive identifier
+// — pre-consent hybrid mode never minted one). The ingest gate must
+// drop the event before the pipeline sees it, and the dropped metric
+// must increment with reason="opted_out". Mirrors the production
+// path that ships in privacy.OptOut after the v0.0.35 hot-fix.
+func TestHandler_OptOutCookieDropsEvent_NoStatnive(t *testing.T) {
+	t.Parallel()
+
+	const siteID uint32 = 1
+
+	body := `{"hostname":"example.com","pathname":"/","event_type":"pageview","event_name":"pageview"}`
+
+	fake := &fakePipeline{}
+	wal := &fakeWAL{}
+	reg := metrics.New()
+
+	inner := ingest.NewHandler(ingest.HandlerConfig{
+		Pipeline: fake,
+		WAL:      wal,
+		Sites: ingest.StaticSiteResolver{
+			SiteID: siteID,
+			Policy: sites.SitePolicy{TrackBots: true},
+		},
+		MasterSecret: []byte("optout-cookie-test-master-secret-padded"),
+		Metrics:      reg,
+		Now:          func() time.Time { return time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC) },
+		Logger:       slog.New(slog.DiscardHandler),
+	})
+	handler := ingest.FastRejectMiddleware(nil, nil)(inner)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/event", strings.NewReader(body))
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+	req.Header.Set("Content-Type", "text/plain")
+	req.AddCookie(&http.Cookie{
+		Name:  "_statnive_optout_" + strconv.FormatUint(uint64(siteID), 10),
+		Value: "v1",
+	})
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 (response-shape stable on opt-out drop)", rr.Code)
+	}
+
+	if got := fake.calls.Load(); got != 0 {
+		t.Errorf("pipeline calls = %d, want 0 (event must short-circuit at gate)", got)
+	}
+
+	if got := wal.calls.Load(); got != 0 {
+		t.Errorf("WAL appends = %d, want 0", got)
+	}
+
+	if dropped := reg.DroppedFor(metrics.ReasonOptedOut); dropped != 1 {
+		t.Errorf("dropped_total{reason=opted_out} = %d, want 1", dropped)
 	}
 }

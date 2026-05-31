@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -289,13 +290,13 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashIdenti
 			raw.CookieID = ""
 		}
 
-		// Visitor opt-out gate (Stage 2 — GDPR Art. 21). If the
-		// suppression list contains the hashed cookie_id, drop the
-		// event silently with 204 and skip every downstream stage.
-		// We MUST NOT leak whether a visitor is suppressed (would
-		// undermine the right to object); the response shape is
-		// identical to a normal "accepted" path.
-		if cfg.Suppression != nil && raw.CookieID != "" && cfg.Suppression.IsSuppressed(raw.CookieID) {
+		// Visitor opt-out gate (Stage 2 — GDPR Art. 21). Cookie-based
+		// path covers fresh visitors who opted out without ever
+		// holding a _statnive; hash-based path is belt-and-braces for
+		// CHIPS partition flushes where the per-site cookie is gone
+		// but _statnive survives. Response shape stays stable so the
+		// visitor MUST NOT learn they were suppressed.
+		if isOptedOut(r, raw.SiteID, raw.CookieID, cfg.Suppression) {
 			cfg.Metrics.IncDropped(metrics.ReasonOptedOut)
 
 			continue
@@ -529,6 +530,34 @@ func consentDenied(r *http.Request, policy sites.SitePolicy) bool {
 // HandlerConfig.ConsentRequired is true; ignored otherwise.
 func consentGiven(r *http.Request) bool {
 	return r.Header.Get("X-Statnive-Consent") == "given"
+}
+
+// isOptedOut composes the cookie + hash-suppression checks the ingest
+// gate runs to honour GDPR Art. 21. Either signal short-circuits the
+// pipeline; both are needed because Stage-4 fresh-visitor opt-out (no
+// _statnive) only sets the cookie, while CHIPS partition flushes can
+// keep _statnive alive after the per-site cookie is gone.
+func isOptedOut(r *http.Request, siteID uint32, cookieIDHash string, supp SuppressionChecker) bool {
+	if hasOptOutCookie(r, siteID) {
+		return true
+	}
+
+	return supp != nil && cookieIDHash != "" && supp.IsSuppressed(cookieIDHash)
+}
+
+// hasOptOutCookie reports whether the visitor presents the per-site
+// _statnive_optout_<siteID>=v1 marker. The cookie-name shape mirrors
+// privacy.optoutCookieName(siteID) — inlined here so the ingest
+// package does not need to import internal/privacy (privacy already
+// depends on identity which ingest also uses; keeping the DAG flat).
+// Drift between the two is pinned by
+// privacy.TestOptOutCookieName_IngestPrefixInSync.
+func hasOptOutCookie(r *http.Request, siteID uint32) bool {
+	name := "_statnive_optout_" + strconv.FormatUint(uint64(siteID), 10)
+
+	c, err := r.Cookie(name)
+
+	return err == nil && c.Value == "v1"
 }
 
 // readOrSetCookieID returns the existing _statnive cookie or mints a fresh
