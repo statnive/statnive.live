@@ -2664,3 +2664,32 @@ ssh "$HOST" 'sudo rm -rf /var/lib/statnive-live /etc/statnive-live /var/tmp/stat
 ```
 
 `--uninstall` removes the binary + systemd unit + posture drop-in; data + config under `/var/lib/statnive-live` and `/etc/statnive-live` are retained for the contractual retention window per `airgap-install.sh` docstring.
+
+### Phase 7e graduation criteria checklist (B-track HARD GATE)
+
+The full Phase 7e load-gate battery is the **hard gate** between dry-run and real customer traffic on Asiatech. Operator runs this on a dedicated gate VPS (separate from production); evidence pack lands under `releases/load-gate/asiatech-${PHASE}-${DATE}.md`. PLAN.md Phase 7e + doc 29 §4.
+
+The full battery:
+
+```bash
+# On the gate VPS, with the observability stack reachable:
+make capacity-probe        # ~5 min pre-flight; aborts if anything is unwired
+make load-gate-full        # ~80 hours: P5 + chaos + 72h soak + breakpoint
+```
+
+Mark all of these off the night the battery completes — any single line unticked = NO real customer traffic:
+
+- [ ] **`make load-gate PHASE=P1`** through **P5** all completed with the per-phase SLO budgets met (locustfile.py enforces; exit non-zero on breach)
+- [ ] **`make load-gate-soak DURATION=72h VUS=1000`** completed without Pyroscope heap growth exceeding `HEAP_GROWTH_BUDGET_MB` between the t=2h and t=6h snapshots (then again at 24h / 48h / 72h)
+- [ ] **`make chaos-matrix`** ran clean — all 7 scenarios applied + restored idempotently; no scenario left iptables/tc state behind
+- [ ] **`make load-gate-breakpoint`** identified a clear breakpoint EPS (the last step where SLO held) and that number is ≥ 2× the design ceiling (PLAN.md design ceiling vs measured headroom)
+- [ ] **`make oracle-scan TEST_RUN_ID=...`** for every PHASE run shows:
+      - loss_pct ≤ 0.05% per (test_run_id, generator_node_id)
+      - dup_pct ≤ 0.1%
+      - ordering inversion_count = 0
+      - latency p99 ≤ 2000 ms (P1–P3), ≤ 5000 ms (P4–P5)
+- [ ] **Observability dashboards** (`chaos-during-gate.json`) show every chaos scenario as a labelled annotation; no SLO breach lines crossed except inside the chaos windows
+- [ ] **Evidence pack** committed at `releases/load-gate/asiatech-${PHASE}-${DATE}.md` with the 4 oracle query outputs, locust CSVs, Pyroscope heap diffs, and chaos-matrix log
+- [ ] **Sign-off** from at least one engineer who did NOT run the battery — they read the evidence pack cold and either approve graduation or flag a follow-up
+
+Once every line is checked: graduation. Real customer traffic can cut over per § Phase 10 / Phase 10b SOPs. Any failure resets the clock — run the full battery again after the fix lands.
