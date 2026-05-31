@@ -1747,6 +1747,7 @@ path traced back to LEARN.md or PLAN-MILESTONE-1.md.
   outside-Iran cert-forge issues `fullchain.pem` + `privkey.pem` for the
   customer's hostname under the `.ir` zone, rsync'd to your laptop
   before the courier trip. Put both files in one dir, pass as `CERT_DIR=`.
+  See § Phase 10 / TLS rotation via cert-forge below for the bastion SOP.
 - [ ] **GeoIP DB23** — LITE is acceptable for the dry-run (the
   "parameter unavailable" sentinel from LEARN Lesson 30 is filtered).
   Paid IP2Location DB23 Site License is the Phase 10-proper procurement
@@ -2013,3 +2014,46 @@ at the binary, all of these must be true:
 
 Until all five are checked, treat this Asiatech VPS as a dry-run
 testbed only.
+
+### Phase 10 / TLS rotation via cert-forge
+
+The Asiatech production VPS cannot reach Let's Encrypt — outbound DROP plus the `iran-no-letsencrypt-in-binary` anti-pattern forbid ACME from inside Iran. The `cert-forge` bastion outside Iran (Hetzner CX11, ~€4/mo) issues + rotates TLS PEMs and rsync's them inward.
+
+Full bastion docs live in [`deploy/cert-forge/README.md`](../deploy/cert-forge/README.md). Per-cutover operator flow:
+
+1. **Bastion already provisioned** (one-time per ops team — see the cert-forge README first-time-setup section). Confirm with:
+   ```bash
+   ssh ops@cert-forge.example.com 'systemctl is-active cert-forge.timer'
+   ```
+2. **Issue the customer's first cert** from the bastion:
+   ```bash
+   ssh ops@cert-forge.example.com 'sudo bash /etc/cert-forge/issue.sh customer-1.statnive.ir'
+   ```
+   First issue can take 2–5 minutes (DNS-01 propagation through Pars.ir). Subsequent renewals are automatic — the systemd timer at 03:17 UTC daily sweeps every issued domain.
+3. **Verify the cert landed on the production VPS** after the courier run:
+   ```bash
+   ssh root@<asiatech-host> 'openssl x509 -in /etc/statnive-live/tls/fullchain.pem -noout -dates -subject'
+   # notBefore=... notAfter=... subject=CN=customer-1.statnive.ir
+   ```
+4. **Force a manual rotation drill** (does not re-issue, just re-pushes the existing PEM through the rsync + SIGHUP path):
+   ```bash
+   ssh ops@cert-forge.example.com 'sudo bash /etc/cert-forge/rsync-push.sh customer-1.statnive.ir'
+   ssh root@<asiatech-host> 'journalctl -u statnive-live --since "1 minute ago" | grep -E "(tls reloaded|tls reload failed)"'
+   ```
+   Expect `tls reloaded` within 1 second of the SIGHUP. If `tls reload failed` appears, the binary kept serving the previous cert — investigate `internal/cert/loader.go` logs.
+
+#### Cert expiry watcher
+
+The binary emits two cert-expiry alerts via the alert sink:
+- `tls_cert_expiry_warning` at < 30 days remaining
+- `tls_cert_expiry_critical` at < 7 days remaining
+
+Both should fire long before LE's own 30-day-pre-expiry email; if they don't, the cert-forge timer is stuck or the bastion's outbound to LE is blocked. Check `journalctl -u cert-forge.service` on the bastion.
+
+#### When the bastion itself dies
+
+The Hetzner CX11 is a single-point-of-failure for TLS rotation. Two ways to mitigate:
+- **Standby**: keep a second bastion configured identically; rotate `PARSIR_API_KEY` rights to the standby on outage.
+- **Manual fallback**: any outside-Iran host with `acme.sh` + the same `/etc/cert-forge/` tree can issue + rsync a cert manually within ~5 minutes.
+
+The cert-forge state at `/etc/cert-forge/state/` (LE account key, issued certs, last-renewal timestamps) must be backed up — losing it forces re-registration with LE plus a fresh cert chain on every domain.

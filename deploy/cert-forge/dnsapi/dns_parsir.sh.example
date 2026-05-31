@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# dns_parsir.sh — acme.sh DNS-01 provider for Pars.ir IRNIC reseller.
+#
+# acme.sh contract:
+#   dns_parsir_add    "$fulldomain" "$txtvalue"   # add the _acme-challenge TXT
+#   dns_parsir_rm     "$fulldomain" "$txtvalue"   # remove it after validation
+#
+# Provider env (sourced from /etc/cert-forge/.env via docker-compose env_file):
+#   PARSIR_API_KEY        bearer token issued via Pars.ir customer dashboard
+#   PARSIR_API_ENDPOINT   defaults to https://api.pars.ir/v1/dns
+#
+# TODO(operator):
+#   The exact request/response shape below is a TEMPLATE — Pars.ir does not
+#   publish a stable public OpenAPI spec, so the operator MUST verify the
+#   endpoint paths + payload schema against their account dashboard before
+#   first use. The shape below mirrors the common reseller pattern (POST
+#   to add, DELETE to remove). Test on the LE staging server first
+#   (set ACME_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory).
+
+# shellcheck disable=SC2034   # consumed by acme.sh
+PARSIR_API_ENDPOINT="${PARSIR_API_ENDPOINT:-https://api.pars.ir/v1/dns}"
+
+# acme.sh splits "_acme-challenge.foo.bar.ir" into:
+#   sub = _acme-challenge.foo
+#   apex = bar.ir
+# the API requires the apex zone, not the FQDN.
+_parsir_split_domain() {
+	local fulldomain="$1"
+	local apex sub
+
+	# Walk from the right: apex is the last two labels (xyz.ir).
+	# (Pars.ir TLD is always two labels — .ir SLDs like co.ir don't exist.)
+	apex="$(echo "$fulldomain" | awk -F. '{ printf "%s.%s", $(NF-1), $NF }')"
+	# sub is everything before the apex; strip the trailing "."
+	sub="${fulldomain%."$apex"}"
+	echo "$apex|$sub"
+}
+
+dns_parsir_add() {
+	local fulldomain="$1"
+	local txtvalue="$2"
+
+	if [ -z "${PARSIR_API_KEY:-}" ]; then
+		_err "cert-forge dns_parsir: PARSIR_API_KEY unset"
+		return 1
+	fi
+
+	local pair apex sub
+	pair="$(_parsir_split_domain "$fulldomain")"
+	apex="${pair%%|*}"
+	sub="${pair##*|}"
+
+	_info "cert-forge dns_parsir: adding TXT $sub.$apex = $txtvalue"
+
+	# TODO(operator): verify this POST shape against your Pars.ir API docs.
+	local resp
+	resp="$(curl -sS -X POST \
+		-H "Authorization: Bearer ${PARSIR_API_KEY}" \
+		-H "Content-Type: application/json" \
+		-d "{\"zone\":\"${apex}\",\"name\":\"${sub}\",\"type\":\"TXT\",\"content\":\"${txtvalue}\",\"ttl\":60}" \
+		"${PARSIR_API_ENDPOINT}/records")"
+
+	if ! echo "$resp" | grep -qiE '"ok"|"success"|"created"'; then
+		_err "cert-forge dns_parsir: add failed: $resp"
+		return 1
+	fi
+	_info "cert-forge dns_parsir: TXT added"
+	return 0
+}
+
+dns_parsir_rm() {
+	local fulldomain="$1"
+	local txtvalue="$2"
+
+	if [ -z "${PARSIR_API_KEY:-}" ]; then
+		_err "cert-forge dns_parsir: PARSIR_API_KEY unset"
+		return 1
+	fi
+
+	local pair apex sub
+	pair="$(_parsir_split_domain "$fulldomain")"
+	apex="${pair%%|*}"
+	sub="${pair##*|}"
+
+	_info "cert-forge dns_parsir: removing TXT $sub.$apex = $txtvalue"
+
+	# TODO(operator): adjust to your reseller's DELETE-by-content API.
+	curl -sS -X DELETE \
+		-H "Authorization: Bearer ${PARSIR_API_KEY}" \
+		"${PARSIR_API_ENDPOINT}/records?zone=${apex}&name=${sub}&type=TXT&content=${txtvalue}" \
+		>/dev/null
+
+	_info "cert-forge dns_parsir: TXT removed (best-effort)"
+	return 0
+}

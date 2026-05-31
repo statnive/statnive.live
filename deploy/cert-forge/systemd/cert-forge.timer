@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily cert-forge renewal sweep
+Documentation=file:///etc/cert-forge/README.md
+
+[Timer]
+# Once per day at 03:17 UTC — small fixed offset avoids the top-of-hour
+# stampede across other LE clients. Persistent=true catches up if the
+# bastion was off when the timer fired.
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+Unit=cert-forge.service
+
+[Install]
+WantedBy=timers.target
