@@ -77,12 +77,23 @@ test.describe('/api/privacy/consent — fresh-visitor give path (v0.0.35 fix)', 
     const csrf = await fetchCSRF(visitorCtx!);
     const existingUUID = '550e8400-e29b-41d4-a716-446655440000';
 
+    // An explicit `Cookie:` header overrides Playwright's cookie jar
+    // wholesale and would drop the CSRF cookie issued by fetchCSRF.
+    // Read both cookies from storageState and combine them so the
+    // server sees the CSRF anchor AND the visitor's pre-existing
+    // _statnive identifier.
+    const state = await visitorCtx!.storageState();
+    const csrfCookie = state.cookies.find(
+      c => c.name === '_statnive_csrf' || c.name === '__Host-statnive_csrf',
+    );
+    expect(csrfCookie, 'CSRF cookie present after fetchCSRF').toBeDefined();
+
     const resp = await visitorCtx!.post('/api/privacy/consent', {
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Token': csrf,
         'X-Statnive-Site': HOST,
-        Cookie: `_statnive=${existingUUID}`,
+        Cookie: `${csrfCookie!.name}=${csrfCookie!.value}; _statnive=${existingUUID}`,
       },
       data: { action: 'give' },
     });
