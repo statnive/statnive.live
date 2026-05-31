@@ -12,13 +12,15 @@
 #   - `make audit` (already chained from pre-commit gate)
 #   - `make audit` is what `/simplify` re-runs after a doc change
 #
-# Caps (revised 2026-04-27 for Milestone 1 close-out — content grew with
-# Privacy Rule 9 + 3 consent flags + Phase 11a-pre GDPR ops gate + doc 30
-# calibration overlay; tracked as tech debt for a follow-up doc-pruning
-# PR before the aspirational caps below get reinstated):
+# Caps (revised 2026-05-31 for Phase 10 close-out — content grew with
+# the multi-posture batch (L1–L6), the Phase 7e load-gate scaffolding
+# (B.1–B.6), and the rc2-rc7 chain narrative from PR #92; tracked as
+# tech debt for a follow-up doc-pruning PR before the aspirational caps
+# below get reinstated):
 #   - CLAUDE.md      <= 285 lines (was 220 — root routing index)
-#   - PLAN.md        <= 780 lines (was 720 — research-53 consent-free
-#                                  audit backlog index added 2026-05-11)
+#   - PLAN.md        <= 800 lines (was 780 — multi-posture L1–L6 +
+#                                  Phase 7e B-track + rc2-rc7 closure;
+#                                  current size ~793 lines)
 #   - docs/tooling.md <= 350 lines (was 320 — skill routing detail)
 #   - Each custom skill SKILL.md `description:` field <= 1100 chars
 #     (~150 tokens; one trigger sentence + file globs + enforcement summary)
@@ -44,7 +46,7 @@ check_lines() {
 }
 
 check_lines CLAUDE.md 290
-check_lines PLAN.md 780
+check_lines PLAN.md 800
 check_lines PLAN-MILESTONE-1.md 120
 check_lines docs/tooling.md 350
 
