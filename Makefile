@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -272,6 +272,68 @@ load-gate-crosscheck:
 ##                             [STEP_DURATION=30s]
 load-gate-breakpoint:
 	@bash test/perf/gate/breakpoint.sh
+
+## load-gate-soak: Long-session memory-leak soak (doc 30 §6).
+## Defaults: 6h × 1000 VUs. Snapshots Pyroscope heap at t=0, 33%, 66%,
+## final and parks them under build/soak-<ts>/.
+##   make load-gate-soak [DURATION=6h] [VUS=1000] [STATNIVE_URL=...]
+##                       [PYROSCOPE_URL=...]
+load-gate-soak:
+	@bash test/perf/soak/longsession.sh \
+		$(if $(DURATION),--duration=$(DURATION)) \
+		$(if $(VUS),--vus=$(VUS)) \
+		$(if $(STATNIVE_URL),--url=$(STATNIVE_URL)) \
+		$(if $(PYROSCOPE_URL),--pyroscope=$(PYROSCOPE_URL))
+
+## capacity-probe: Fast pre-flight (~5 min) before a full PHASE run.
+## Mini Locust ramp (0 → 100 EPS over 60s, hold 60s, drain 30s) to
+## confirm the binary + observability + oracle scan path are all wired
+## end-to-end. Aborts if any leg fails. Cheaper than discovering a
+## broken pipe 2 hours into the P5 ramp.
+##   make capacity-probe [STATNIVE_URL=...] [SITE_ID=...] [HOSTNAME=...]
+capacity-probe:
+	@TEST_RUN_ID="$$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr 'A-Z' 'a-z')"; \
+	echo "capacity-probe: test_run_id=$$TEST_RUN_ID"; \
+	STATNIVE_URL="$${STATNIVE_URL:-http://127.0.0.1:8080}"; \
+	SITE_ID="$${SITE_ID:-1}"; \
+	HOSTNAME="$${HOSTNAME:-load-test.example.com}"; \
+	curl -fsS "$${STATNIVE_URL}/healthz" >/dev/null || { echo "FAIL: /healthz unreachable"; exit 2; }; \
+	TEST_RUN_ID="$$TEST_RUN_ID" \
+	LOAD_GATE_PHASE=p1 \
+	SITE_ID="$$SITE_ID" \
+	HOSTNAME="$$HOSTNAME" \
+	locust -f test/perf/gate/locustfile.py \
+		--host="$$STATNIVE_URL" \
+		--headless \
+		-u 100 -r 25 -t 2m \
+		--csv=build/capacity-probe || { echo "FAIL: locust phase exited non-zero"; exit 1; }; \
+	echo "capacity-probe: ok; ready for full make load-gate PHASE=Px"; \
+	echo "capacity-probe: oracle scan → make oracle-scan TEST_RUN_ID=$$TEST_RUN_ID"
+
+## load-gate-full: P5 ramp + 7-scenario chaos + 72h soak + breakpoint, in
+## sequence. The full Phase 7e battery — DO NOT run this casually; it
+## takes ~80 hours wall and burns the gate VPS budget. Designed to be
+## kicked off once per Phase 10 graduation attempt.
+##
+## Requires: gate VPS, observability stack reachable, all the same env
+## the individual targets need. Captures evidence under
+## build/load-gate-full-<ts>/.
+##
+##   make load-gate-full [STATNIVE_URL=...] [SITE_ID=...] [HOSTNAME=...]
+##                       [SOAK_DURATION=72h] [SOAK_VUS=1000]
+load-gate-full:
+	@OUT="build/load-gate-full-$$(date -u +%Y%m%dT%H%M%SZ)"; \
+	mkdir -p "$$OUT"; \
+	echo "load-gate-full: starting battery; evidence → $$OUT"; \
+	echo "==> step 1/4: P5 ramp"; \
+	$(MAKE) load-gate PHASE=P5 2>&1 | tee "$$OUT/p5.log" || true; \
+	echo "==> step 2/4: chaos matrix"; \
+	$(MAKE) chaos-matrix 2>&1 | tee "$$OUT/chaos.log" || true; \
+	echo "==> step 3/4: long-session soak ($${SOAK_DURATION:-72h})"; \
+	$(MAKE) load-gate-soak DURATION="$${SOAK_DURATION:-72h}" VUS="$${SOAK_VUS:-1000}" 2>&1 | tee "$$OUT/soak.log" || true; \
+	echo "==> step 4/4: breakpoint"; \
+	$(MAKE) load-gate-breakpoint 2>&1 | tee "$$OUT/breakpoint.log" || true; \
+	echo ""; echo "load-gate-full: battery complete; evidence at $$OUT"
 
 ## chaos-matrix: runs all 7 Phase 7e chaos scenarios in series. Each
 ## scenario applies for CHAOS_DURATION (default 60s), then restores
