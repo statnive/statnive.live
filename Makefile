@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps oracle-scan help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -240,6 +240,38 @@ perf-generator:
 		--duration="$${DURATION}" \
 		--nodes="$${NODES}" \
 		--profile="$${PROFILE}"
+
+## load-gate: Phase 7e primary load-gate run via Locust. Picks a phase
+## ramp from PLAN.md Phase 7e (P1..P5). Requires locust installed
+## (pip install locust>=2.30).
+##   make load-gate PHASE=P1 [STATNIVE_URL=...] [SITE_ID=...] [HOSTNAME=...]
+load-gate:
+	@if [ -z "$(PHASE)" ]; then \
+		echo "load-gate: PHASE required (P1..P5)"; exit 2; \
+	fi
+	@LOAD_GATE_PHASE="$$(echo $(PHASE) | tr 'A-Z' 'a-z')" \
+	SITE_ID="$${SITE_ID:-1}" \
+	HOSTNAME="$${HOSTNAME:-load-test.example.com}" \
+	locust -f test/perf/gate/locustfile.py \
+		--host="$${STATNIVE_URL:-http://127.0.0.1:8080}" \
+		--headless \
+		-u 4800 -r 100 -t 90m
+
+## load-gate-crosscheck: k6 sanity cross-check. ~2 min, low EPS, exists
+## to catch issues the Locust primary might miss (CI-cheap second eye).
+##   make load-gate-crosscheck [STATNIVE_URL=...] [SITE_ID=...] [HOSTNAME=...]
+load-gate-crosscheck:
+	@STATNIVE_URL="$${STATNIVE_URL:-http://127.0.0.1:8080}" \
+	SITE_ID="$${SITE_ID:-1}" \
+	HOSTNAME="$${HOSTNAME:-load-test.example.com}" \
+	k6 run test/perf/gate/k6-crosscheck.js
+
+## load-gate-breakpoint: vegeta step-ramp until SLO breach. Empirical
+## measurement of the binary's headroom on this hardware.
+##   make load-gate-breakpoint [STATNIVE_URL=...] [STEPS=100,250,500,...]
+##                             [STEP_DURATION=30s]
+load-gate-breakpoint:
+	@bash test/perf/gate/breakpoint.sh
 
 ## oracle-scan: Run the 4 canonical Phase 7e gate queries against the
 ## production CH for one TEST_RUN_ID. Each query returns a one-line
