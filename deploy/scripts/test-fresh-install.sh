@@ -84,6 +84,12 @@ STUB
 	cp "$REPO_ROOT/config/sources.yaml" "$stage/config/sources.yaml"
 	cp "$REPO_ROOT/deploy/systemd/statnive-live.service" "$stage/deploy/systemd/statnive-live.service"
 	cp "$REPO_ROOT/deploy/airgap-install.sh" "$stage/deploy/airgap-install.sh"
+	# statnive-deploy.sh is staged because A2's airgap-install.sh installs
+	# it to /usr/local/bin/statnive-deploy on every run. Missing → install
+	# step exits before writing the posture drop-in (L2 contract).
+	if [ -f "$REPO_ROOT/deploy/statnive-deploy.sh" ]; then
+		cp "$REPO_ROOT/deploy/statnive-deploy.sh" "$stage/deploy/statnive-deploy.sh"
+	fi
 	# iptables/* aren't loaded under --skip-ch-check + no --apply-iptables;
 	# placeholder files keep the optional-fallback branch quiet.
 	: > "$stage/deploy/iptables/rules.v4"
