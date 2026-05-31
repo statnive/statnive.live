@@ -14,26 +14,18 @@ import (
 	"time"
 )
 
-// signToken builds a JWT-EdDSA token from the given claims using priv.
-// Test-only — production signing happens offline via the v1.1 CLI.
-func signToken(t *testing.T, priv ed25519.PrivateKey, c Claims) string {
+// mustSign wraps Sign with t.Fatal on error so test bodies stay flat.
+// Sign itself is exported so cmd/statnive-license + this package both
+// produce byte-identical JWT envelopes.
+func mustSign(t *testing.T, priv ed25519.PrivateKey, c Claims) string {
 	t.Helper()
 
-	header := `{"alg":"EdDSA","typ":"JWT"}`
-	headerB64 := base64.RawURLEncoding.EncodeToString([]byte(header))
-
-	claimsBytes, err := json.Marshal(c)
+	tok, err := Sign(priv, c)
 	if err != nil {
-		t.Fatalf("marshal claims: %v", err)
+		t.Fatalf("Sign: %v", err)
 	}
 
-	claimsB64 := base64.RawURLEncoding.EncodeToString(claimsBytes)
-
-	signingInput := headerB64 + "." + claimsB64
-	sig := ed25519.Sign(priv, []byte(signingInput))
-	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
-
-	return signingInput + "." + sigB64
+	return tok
 }
 
 // genKey returns a fresh Ed25519 keypair for one test.
@@ -54,7 +46,7 @@ func TestVerifyToken_Valid(t *testing.T) {
 	pub, priv := genKey(t)
 
 	exp := time.Now().Add(30 * 24 * time.Hour).Unix()
-	token := signToken(t, priv, Claims{
+	token := mustSign(t, priv, Claims{
 		Customer:     "sampleplatform",
 		SiteID:       1,
 		MaxEventsDay: 10_000_000,
@@ -63,9 +55,9 @@ func TestVerifyToken_Valid(t *testing.T) {
 		ExpiresAt:    exp,
 	})
 
-	c, err := verifyToken(token, pub, time.Now())
+	c, err := VerifyToken(token, pub, time.Now())
 	if err != nil {
-		t.Fatalf("verifyToken: %v", err)
+		t.Fatalf("VerifyToken: %v", err)
 	}
 
 	if c.Customer != "sampleplatform" {
@@ -91,14 +83,14 @@ func TestVerifyToken_Expired(t *testing.T) {
 	pub, priv := genKey(t)
 
 	past := time.Now().Add(-1 * time.Hour).Unix()
-	token := signToken(t, priv, Claims{
+	token := mustSign(t, priv, Claims{
 		Customer:  "expired-co",
 		ExpiresAt: past,
 	})
 
-	_, err := verifyToken(token, pub, time.Now())
+	_, err := VerifyToken(token, pub, time.Now())
 	if !errors.Is(err, ErrExpired) {
-		t.Errorf("verifyToken on expired token: got %v, want ErrExpired", err)
+		t.Errorf("VerifyToken on expired token: got %v, want ErrExpired", err)
 	}
 }
 
@@ -108,19 +100,19 @@ func TestVerifyToken_BadSignature(t *testing.T) {
 	pubGood, priv := genKey(t)
 	pubAttacker, _ := genKey(t) // verifier holds the wrong key
 
-	token := signToken(t, priv, Claims{
+	token := mustSign(t, priv, Claims{
 		Customer:  "victim-co",
 		ExpiresAt: time.Now().Add(time.Hour).Unix(),
 	})
 
-	_, err := verifyToken(token, pubAttacker, time.Now())
+	_, err := VerifyToken(token, pubAttacker, time.Now())
 	if !errors.Is(err, ErrInvalidSignature) {
-		t.Errorf("verifyToken with wrong pubkey: got %v, want ErrInvalidSignature", err)
+		t.Errorf("VerifyToken with wrong pubkey: got %v, want ErrInvalidSignature", err)
 	}
 
 	// Sanity: the same token verifies fine against the original key.
-	if _, err := verifyToken(token, pubGood, time.Now()); err != nil {
-		t.Errorf("verifyToken with correct pubkey unexpectedly failed: %v", err)
+	if _, err := VerifyToken(token, pubGood, time.Now()); err != nil {
+		t.Errorf("VerifyToken with correct pubkey unexpectedly failed: %v", err)
 	}
 }
 
@@ -129,7 +121,7 @@ func TestVerifyToken_TamperedClaims(t *testing.T) {
 
 	pub, priv := genKey(t)
 
-	token := signToken(t, priv, Claims{
+	token := mustSign(t, priv, Claims{
 		Customer:     "honest-co",
 		SiteID:       1,
 		MaxEventsDay: 1_000_000,
@@ -153,9 +145,9 @@ func TestVerifyToken_TamperedClaims(t *testing.T) {
 	parts[1] = base64.RawURLEncoding.EncodeToString(evilClaims)
 	tampered := strings.Join(parts, ".")
 
-	_, err := verifyToken(tampered, pub, time.Now())
+	_, err := VerifyToken(tampered, pub, time.Now())
 	if !errors.Is(err, ErrInvalidSignature) {
-		t.Errorf("verifyToken on tampered claims: got %v, want ErrInvalidSignature", err)
+		t.Errorf("VerifyToken on tampered claims: got %v, want ErrInvalidSignature", err)
 	}
 }
 
@@ -178,9 +170,9 @@ func TestVerifyToken_Malformed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := verifyToken(tc.token, pub, time.Now())
+			_, err := VerifyToken(tc.token, pub, time.Now())
 			if !errors.Is(err, ErrMalformed) {
-				t.Errorf("verifyToken(%q): got %v, want ErrMalformed", tc.token, err)
+				t.Errorf("VerifyToken(%q): got %v, want ErrMalformed", tc.token, err)
 			}
 		})
 	}
@@ -294,20 +286,20 @@ func TestVerify_TimingClock(t *testing.T) {
 	pub, priv := genKey(t)
 	exp := time.Now().Add(1 * time.Hour).Unix()
 
-	token := signToken(t, priv, Claims{
+	token := mustSign(t, priv, Claims{
 		Customer:  "clock-co",
 		ExpiresAt: exp,
 	})
 
 	// One second before exp — must pass.
 	just := time.Unix(exp-1, 0)
-	if _, err := verifyToken(token, pub, just); err != nil {
-		t.Errorf("verifyToken 1s before exp: %v", err)
+	if _, err := VerifyToken(token, pub, just); err != nil {
+		t.Errorf("VerifyToken 1s before exp: %v", err)
 	}
 
 	// At exp — must fail (the >= check).
 	at := time.Unix(exp, 0)
-	if _, err := verifyToken(token, pub, at); !errors.Is(err, ErrExpired) {
-		t.Errorf("verifyToken at exp: got %v, want ErrExpired", err)
+	if _, err := VerifyToken(token, pub, at); !errors.Is(err, ErrExpired) {
+		t.Errorf("VerifyToken at exp: got %v, want ErrExpired", err)
 	}
 }

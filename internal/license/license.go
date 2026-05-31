@@ -43,8 +43,14 @@ var embeddedPubKey []byte
 // maxLicenseFileBytes caps the file read so a malicious symlink to a
 // large file can't OOM the binary at startup. Tokens are ~500 bytes;
 // 8 KiB is the same defensive ceiling CLAUDE.md Security §4 picks for
-// the ingest MaxBytesReader.
+// the ingest MaxBytesReader. Also reused by cmd/statnive-license for
+// the same defense on the signer-side priv-PEM read.
 const maxLicenseFileBytes = 8 << 10
+
+// JWTHeader is the canonical RFC 8037 EdDSA JWT header. Both the
+// verifier (this package) and the signer (cmd/statnive-license) read
+// from this constant so the byte-for-byte format cannot drift.
+const JWTHeader = `{"alg":"EdDSA","typ":"JWT"}`
 
 // Claims is the verified license body.
 type Claims struct {
@@ -120,12 +126,39 @@ func verifyFile(path string, pubKey ed25519.PublicKey, now time.Time) (*Claims, 
 		return nil, fmt.Errorf("license: read %s: %w", path, err)
 	}
 
-	return verifyToken(strings.TrimSpace(string(raw)), pubKey, now)
+	return VerifyToken(strings.TrimSpace(string(raw)), pubKey, now)
 }
 
-// verifyToken parses + validates a token string. Tests inject pubKey
-// + clock here directly without touching the filesystem.
-func verifyToken(token string, pubKey ed25519.PublicKey, now time.Time) (*Claims, error) {
+// Sign produces an RFC 8037 EdDSA JWT bearing the given claims, signed
+// by priv. Used by cmd/statnive-license (operator-side issuance) and
+// by the package's own tests. Production verify path is Verify ->
+// verifyFile -> VerifyToken; this function is the symmetric inverse.
+func Sign(priv ed25519.PrivateKey, c Claims) (string, error) {
+	if l := len(priv); l != ed25519.PrivateKeySize {
+		return "", fmt.Errorf("license: priv key is %d bytes, expected %d", l, ed25519.PrivateKeySize)
+	}
+
+	headerB64 := base64.RawURLEncoding.EncodeToString([]byte(JWTHeader))
+
+	claimsBytes, err := json.Marshal(c)
+	if err != nil {
+		return "", fmt.Errorf("license: marshal claims: %w", err)
+	}
+
+	claimsB64 := base64.RawURLEncoding.EncodeToString(claimsBytes)
+	signingInput := headerB64 + "." + claimsB64
+	sig := ed25519.Sign(priv, []byte(signingInput))
+	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
+
+	return signingInput + "." + sigB64, nil
+}
+
+// VerifyToken parses + validates a token string against pubKey at the
+// supplied clock. Exported so the offline signer CLI's roundtrip test
+// can verify its own output without reimplementing the crypto path.
+// Tests in this package use VerifyToken to inject pubKey + clock
+// directly without touching the filesystem.
+func VerifyToken(token string, pubKey ed25519.PublicKey, now time.Time) (*Claims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, ErrMalformed

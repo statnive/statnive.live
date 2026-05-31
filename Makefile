@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -40,6 +40,13 @@ build-linux: web-build
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build -mod=vendor -trimpath \
 		-o $(BIN_DIR)/$(BIN_NAME)-linux-amd64 ./cmd/statnive-live
 	@file $(BIN_DIR)/$(BIN_NAME)-linux-amd64
+
+## statnive-license: Build the offline Ed25519 JWT license signer CLI.
+## Operator-side tool — runs on a trusted laptop, never on a production
+## VPS. Private key never crosses the boundary; only the verified JWT +
+## the embedded 32-byte pubkey at internal/license/signing.pub do.
+statnive-license:
+	CGO_ENABLED=0 $(GO) build -mod=vendor -o $(BIN_DIR)/statnive-license ./cmd/statnive-license
 
 ## test: Run unit tests with race detector (target <5s wall time)
 test:
