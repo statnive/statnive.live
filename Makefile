@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps oracle-scan help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -420,21 +420,29 @@ release-fresh:
 	rm -rf bin/ build/ internal/dashboard/spa/dist/ web/dist/
 	$(MAKE) release
 
-## release-iran-vps: One-shot courier from outside-Iran operator laptop
-## to an Iranian-DC VPS. Wraps make airgap-bundle + rsync + remote
-## airgap-install.sh + license install + healthz wait. See
-## deploy/courier-iran.sh for full flag list.
+## release-customer: Ship an airgap bundle to any customer VPS (all postures).
+## Wraps make airgap-bundle + rsync + remote airgap-install.sh + artifact
+## install + healthz wait. Use POSTURE= to pick the deployment topology.
 ##
-## This target does NOT chain to `release` (the full lint+test+audit
-## gate) — that path takes 5-10 min and defeats dry-run iteration. For
-## production cutover, run `make release VERSION=...` first to produce
-## a gated bundle, THEN `make release-iran-vps SKIP_BUILD=1 VERSION=...`.
+## This target does NOT chain to `release` (the full lint+test+audit gate) —
+## run `make release VERSION=...` first, then re-courier with SKIP_BUILD=1.
 ##
 ## Usage:
-##   make release-iran-vps VERSION=v0.0.15-dev HOST=root@1.2.3.4 \
-##       LICENSE=/path/to/license.jwt \
+##   make release-customer POSTURE=inside-iran VERSION=v0.0.15 \
+##       HOST=root@1.2.3.4 LICENSE=/path/to/license.jwt \
 ##       [CERT_DIR=/path/with/fullchain.pem+privkey.pem] \
 ##       [GEOIP_PATH=/path/to/IP2LOCATION-LITE-DB23.BIN] \
+##       [SKIP_BUILD=1] [DRY_RUN=1]
+##   make release-customer POSTURE=outside-iran VERSION=v0.0.15 \
+##       HOST=root@customer.host LICENSE=/path/to/license.jwt
+##   make release-customer POSTURE=saas VERSION=v0.0.15 HOST=root@statnive.live
+release-customer:
+	@bash deploy/courier.sh
+
+## release-iran-vps: Backward-compat alias for release-customer with
+## POSTURE=inside-iran. Delegates to deploy/courier-iran.sh (a shim).
+##   make release-iran-vps VERSION=v0.0.15-dev HOST=root@1.2.3.4 \
+##       LICENSE=/path/to/license.jwt [CERT_DIR=...] [GEOIP_PATH=...] \
 ##       [SKIP_BUILD=1] [DRY_RUN=1]
 release-iran-vps:
 	@bash deploy/courier-iran.sh
