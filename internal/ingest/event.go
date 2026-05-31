@@ -107,7 +107,7 @@ type EnrichedEvent struct {
 	// production tracker traffic land in the typed-default sentinels and
 	// engage the sparse-serialization path — ~zero cost per CLAUDE.md
 	// Architecture Rule 5 carve-out.
-	TestRunID        string // UUID string; empty → toUUIDOrNull('') sentinel
+	TestRunID        string // UUID string; empty → toUUIDOrZero('') sentinel (all-zero UUID)
 	TestGeneratorSeq uint64
 	GeneratorNodeID  uint16
 	SendTSMilli      int64 // millisecond Unix; 0 → DateTime64(3) sentinel

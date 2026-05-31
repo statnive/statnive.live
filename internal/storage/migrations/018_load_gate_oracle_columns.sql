@@ -14,10 +14,11 @@
 -- threshold). Nullable would cost 10–200% on aggregations per CLAUDE.md
 -- Architecture Rule 5.
 --
---   test_run_id          UUID DEFAULT toUUIDOrNull('') — the load run that
---                        emitted this event; toUUIDOrNull('') returns the
---                        all-zero UUID, our "this event was not part of a
---                        load gate run" sentinel
+--   test_run_id          UUID DEFAULT toUUIDOrZero('') — the load run that
+--                        emitted this event; toUUIDOrZero('') returns the
+--                        all-zero UUID (NOT NULL — would break the non-
+--                        Nullable column constraint), our "this event
+--                        was not part of a load gate run" sentinel
 --   test_generator_seq   UInt64 DEFAULT 0 — monotonically increasing per
 --                        (test_run_id, generator_node_id); the primary
 --                        loss-detection primitive (any gap = lost event)
@@ -55,7 +56,7 @@
 -- Ingest code paths that write these columns must be reverted first.
 
 ALTER TABLE statnive.events_raw{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
-    ADD COLUMN IF NOT EXISTS test_run_id UUID DEFAULT toUUIDOrNull('') CODEC(ZSTD(3));
+    ADD COLUMN IF NOT EXISTS test_run_id UUID DEFAULT toUUIDOrZero('') CODEC(ZSTD(3));
 
 ALTER TABLE statnive.events_raw{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}}
     ADD COLUMN IF NOT EXISTS test_generator_seq UInt64 DEFAULT 0 CODEC(Delta(8), ZSTD(1));
