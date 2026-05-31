@@ -1,0 +1,69 @@
+# /etc/cron.d/statnive-live-backup-iran
+#
+# Daily full backup of the Iranian-DC production binary's ClickHouse to
+# Asiatech S3 (primary, data-residency leg) + Backblaze B2 mirror
+# (off-DC DR leg).
+#
+# v1 ships full-daily — no --diff-from-remote. ~50 MB compressed × 30
+# daily fulls ≈ 1.5 GB on Asiatech (rounding-error spend). Per-tenant
+# differentials are a v1.1 deliverable; v1 chooses operational
+# simplicity over storage minimisation.
+#
+# Install on the Asiatech production VPS:
+#   sudo install -m 0644 -o root -g root \
+#     deploy/backup/cron.d/statnive-live-backup-iran.cron \
+#     /etc/cron.d/statnive-live-backup-iran
+#
+# **Before the first cron fires, replace MAILTO below** — `ops@statnive.com`
+# is a placeholder. Set it to whatever address routes to the operator
+# on-call rotation. When A4 (Telegram alert sink) lands, the failure
+# path becomes the Telegram bot; MAILTO will become redundant.
+#
+# Pre-requisites:
+#   1. clickhouse-backup installed at /usr/local/bin/clickhouse-backup
+#      (Altinity v2.5.20 — see docs/runbook.md § Provision step 3).
+#   2. mc (MinIO Client) installed at /usr/local/bin/mc — no `mc alias`
+#      configuration needed; the cron passes credentials via
+#      MC_HOST_<alias> env vars to avoid leaving creds in ~/.mc/config.json.
+#   3. /etc/statnive-live/backup-env contains (chmod 0600 root:root)
+#      with `export` prefixes so vars reach the clickhouse-backup
+#      process environment (Go os.ExpandEnv reads from process env,
+#      NOT from shell variables):
+#        export CLICKHOUSE_PASSWORD=...
+#        export S3_ACCESS_KEY=...   # Asiatech-bucket key
+#        export S3_SECRET_KEY=...
+#        export S3_ENDPOINT=https://s3.asiatech.cloud   # confirm with sales
+#        export B2_ACCESS_KEY=...   # Backblaze application key ID
+#        export B2_SECRET_KEY=...
+#        export B2_ENDPOINT=https://s3.eu-central-003.backblazeb2.com
+#        export DATA_DIR=/var/lib/clickhouse
+#   4. age public key at /etc/statnive-live/backup-age.pub.
+#
+# journalctl tag — every step uses `statnive-backup-iran` so the
+# operator's on-call playbook filter at docs/runbook.md § On-Call
+# matches the full pipeline:
+#   journalctl -t statnive-backup-iran --since '1 hour ago'
+
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+MAILTO=ops@statnive.com
+
+# Daily full backup at 02:30 Asia/Tehran (low-watermark window). The
+# create_remote name includes the date so operators can grep history.
+# clickhouse-backup with no --diff-from-remote always produces a full
+# backup; see header note.
+30 2 * * *  root  set -a; . /etc/statnive-live/backup-env; set +a; /usr/local/bin/clickhouse-backup --config=/etc/statnive-live/backup/config-prod-iran-asiatech.yml create_remote "$(date -u +full-%Y%m%d)" 2>&1 | logger -t statnive-backup-iran
+
+# Mirror Asiatech → B2, 90 min after create_remote starts. Slow upload
+# days on Asiatech (P5-class CH backup) can exceed 30 min; 90 min is
+# the realistic race-guard. v1.1 upgrade: chain via
+# systemd-run --on-active=NN min so the timing isn't fixed-cron.
+#
+# mc mirror loses S3 SSE metadata, but encryption is application-layer
+# (age) — the .age payload bytes are identical, B2 never sees plaintext.
+# `--overwrite` is idempotent: same artifact → no-op.
+0 4 * * *   root  set -a; . /etc/statnive-live/backup-env; set +a; MC_HOST_asiatech="https://$S3_ACCESS_KEY:$S3_SECRET_KEY@${S3_ENDPOINT#https://}" MC_HOST_b2="https://$B2_ACCESS_KEY:$B2_SECRET_KEY@${B2_ENDPOINT#https://}" /usr/local/bin/mc mirror --overwrite asiatech/statnive-backup-iran/ b2/statnive-backup-iran-mirror/ 2>&1 | logger -t statnive-backup-iran
+
+# Housekeeping — prune local-side stragglers (interrupted creates,
+# rotated locals beyond backups_to_keep_local).
+0 5 * * *   root  set -a; . /etc/statnive-live/backup-env; set +a; /usr/local/bin/clickhouse-backup --config=/etc/statnive-live/backup/config-prod-iran-asiatech.yml clean 2>&1 | logger -t statnive-backup-iran

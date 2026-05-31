@@ -1,0 +1,80 @@
+# deploy/backup/config-prod-iran-asiatech.yml — Iranian-DC production
+# backup config. Primary target: Asiatech S3-compatible Object Storage.
+#
+# Architecture:
+#   PRIMARY:   This config. Daily full backups → Asiatech S3. Data
+#              residency stays inside Iran (legal-review-friendly).
+#              v1 ships full-daily (no --diff-from-remote) for
+#              operational simplicity; daily ~50 MB × 30-day retention
+#              = ~1.5 GB on Asiatech (rounding error at their rates).
+#              Per-tenant differentials = v1.1.
+#   MIRROR:    deploy/backup/cron.d/statnive-live-backup-iran.cron
+#              uses `mc mirror` to push the same encrypted artifact to
+#              Backblaze B2 for off-DC DR (covers Asiatech DC-wide outage).
+#   RESTORE:   - primary path: drill.sh --config=this-file (Asiatech)
+#              - DR path:      deploy/backup/config-prod-iran-b2.yml.example
+#
+# Procurement (operator-side, A8):
+#   1. Open an Asiatech Object Storage bucket (sales-gated).
+#      Confirm S3 endpoint URL — typically https://s3.asiatech.cloud
+#      or https://objectstorage.asiatech.ir; ask sales.
+#   2. Open a Backblaze B2 account + bucket `statnive-backup-iran-mirror`.
+#      Choose EU region for lower-latency mirror.
+#   3. Generate an age keypair on a trusted operator laptop:
+#        age-keygen -o ~/age-vault/backup-age.key
+#      Copy the PUBLIC key (the line starting with `age1...`) to
+#      /etc/statnive-live/backup-age.pub on the Asiatech VPS.
+#      The PRIVATE key stays in the age vault — required only for
+#      restore (which the operator hand-carries to the drill host).
+#
+# Env vars expected at cron-time (set via systemd EnvironmentFile or
+# a chmod-0600 file the cron sources):
+#   CLICKHOUSE_PASSWORD  — same password the statnive-live binary uses
+#   S3_ACCESS_KEY        — Asiatech-bucket-scoped key
+#   S3_SECRET_KEY
+#   S3_ENDPOINT          — Asiatech S3 endpoint URL (https://...)
+#   DATA_DIR             — CH data_path, typically /var/lib/clickhouse
+
+general:
+  remote_storage: s3
+  # 7 local copies for fast restore; 30 remotes (30 daily fulls) on
+  # Asiatech. The B2 mirror enforces its own retention via the bucket's
+  # Lifecycle Rule (runbook § Provision step 2b). Each entry is a
+  # complete backup, not an incremental — see the v1 simplification
+  # note in the header docblock above.
+  backups_to_keep_local: 7
+  backups_to_keep_remote: 30
+
+clickhouse:
+  username: default
+  password: ${CLICKHOUSE_PASSWORD}
+  host: 127.0.0.1
+  port: 9000
+  data_path: ${DATA_DIR}
+
+s3:
+  access_key: ${S3_ACCESS_KEY}
+  secret_key: ${S3_SECRET_KEY}
+  bucket: statnive-backup-iran
+  endpoint: ${S3_ENDPOINT}
+  # Asiatech S3 is region-less in the AWS sense; force-path-style for
+  # any S3-compatible non-AWS endpoint.
+  force_path_style: true
+  # Region field is required by the S3 client even when the endpoint
+  # doesn't actually use it — "us-east-1" is the documented stub.
+  region: us-east-1
+  # Static path (not {cluster}/{shard} like deploy/backup/config.yml)
+  # so the mc-mirror prefix stays stable across any future cluster
+  # topology change. If the IR-DC ever grows shards, flip to
+  # {cluster}/{shard} here AND adjust the cron's mc-mirror dest path
+  # together.
+  path: clickhouse/iranian-dc
+  compression_format: zstd
+  compression_level: 19
+
+# age encryption sidecar — same pattern as config.yml. Asiatech NEVER
+# sees plaintext; B2 NEVER sees plaintext either (the mirror copies
+# the already-encrypted .age artifact).
+custom_encryption:
+  pre_upload_command: 'age -r $(cat /etc/statnive-live/backup-age.pub) -o $FILE.age $FILE && rm $FILE'
+  post_download_command: 'age -d -i /etc/statnive-live/backup-age.key -o $FILE ${FILE}.age && rm ${FILE}.age'
