@@ -193,6 +193,11 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 		PropVals:      vals,
 		UserSegment:   raw.UserSegment,
 		IsBot:         boolU8(isBot),
+
+		TestRunID:        raw.TestRunID,
+		TestGeneratorSeq: raw.TestGeneratorSeq,
+		GeneratorNodeID:  raw.GeneratorNodeID,
+		SendTSMilli:      raw.SendTSMilli,
 	}
 
 	// Stage 7 — goal matching. Server-authoritative on event_value when

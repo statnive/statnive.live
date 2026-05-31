@@ -35,6 +35,16 @@ type RawEvent struct {
 	// contract in Privacy Rule 1 (geoip.go discards IP after lookup).
 	UserID string `json:"user_id"`
 
+	// Phase 7e load-gate oracle fields. The test/perf/generator/ tool fills
+	// these on every synthesized event so the oracle queries can compute
+	// loss / dupes / ordering / latency. Production tracker traffic
+	// always sends the zero values, which migration 018's typed-default
+	// sentinels treat as "not part of a load gate run". Doc 29 §6.1.
+	TestRunID        string `json:"test_run_id,omitempty"`
+	TestGeneratorSeq uint64 `json:"test_generator_seq,omitempty"`
+	GeneratorNodeID  uint16 `json:"generator_node_id,omitempty"`
+	SendTSMilli      int64  `json:"send_ts_ms,omitempty"`
+
 	// Server-side fields, never decoded from JSON.
 	TSUTC      time.Time `json:"-"`
 	UserIDHash string    `json:"-"` // populated by handler from UserID + master_secret.
@@ -92,4 +102,13 @@ type EnrichedEvent struct {
 	PropVals      []string
 	UserSegment   string
 	IsBot         uint8
+
+	// Phase 7e load-gate oracle (migration 018). Zero values for
+	// production tracker traffic land in the typed-default sentinels and
+	// engage the sparse-serialization path — ~zero cost per CLAUDE.md
+	// Architecture Rule 5 carve-out.
+	TestRunID        string // UUID string; empty → toUUIDOrZero('') sentinel (all-zero UUID)
+	TestGeneratorSeq uint64
+	GeneratorNodeID  uint16
+	SendTSMilli      int64 // millisecond Unix; 0 → DateTime64(3) sentinel
 }
