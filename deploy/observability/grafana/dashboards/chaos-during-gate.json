@@ -1,0 +1,49 @@
+{
+  "uid": "statnive-chaos-gate",
+  "title": "statnive-live — Chaos during load gate",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["statnive", "phase-7e", "chaos"],
+  "refresh": "10s",
+  "time": {"from": "now-30m", "to": "now"},
+  "annotations": {
+    "list": [
+      {
+        "name": "Chaos windows",
+        "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+        "enable": true,
+        "iconColor": "rgba(255, 96, 96, 1)",
+        "expr": "ALERTS{alertname=~\"Statnive.*\",alertstate=\"firing\"}",
+        "tagKeys": "alertname,severity",
+        "titleFormat": "{{alertname}}"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "p99 (with SLO line)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {"refId": "p99", "expr": "statnive:http_request_duration_seconds:p99_5m{route=\"POST /api/event\"}", "legendFormat": "p99 5m"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 2.0}]}}}
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "5xx error rate (with SLO line)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+      "targets": [{"refId": "A", "expr": "statnive:http_requests:error_rate_5m"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.005}]}}}
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Events ingested vs dropped",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 9},
+      "targets": [
+        {"refId": "ingested", "expr": "sum(rate(statnive_events_ingested_total[1m]))", "legendFormat": "ingested"},
+        {"refId": "dropped",  "expr": "sum(rate(statnive_events_dropped_total[1m]))",  "legendFormat": "dropped"}
+      ]
+    }
+  ]
+}
