@@ -295,6 +295,10 @@ export default async function globalSetup(): Promise<void> {
     // flow to sign in as. Mirrors test/smoke/harness.sh exactly.
     STATNIVE_DEV: '1',
     STATNIVE_AUTH_SESSION_SECURE: 'false',
+    // Drop the __Host- prefix + Secure on the CSRF cookie too. Without
+    // this the Stage-4 CSRF cookie is rejected by Playwright's cookie
+    // jar over plain HTTP, and every /api/privacy/* POST 403s.
+    STATNIVE_DEV_INSECURE_CSRF: '1',
     STATNIVE_BOOTSTRAP_ADMIN_EMAIL: process.env.STATNIVE_E2E_ADMIN_EMAIL ?? 'e2e-admin@statnive.live',
     STATNIVE_BOOTSTRAP_ADMIN_PASSWORD: process.env.STATNIVE_E2E_ADMIN_PASSWORD ?? 'e2e-P@ssw0rd-static',
     // Per-site admin is ON in production (v0.0.10+) — match it here so
