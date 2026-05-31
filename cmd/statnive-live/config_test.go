@@ -160,3 +160,69 @@ func TestLoadConfig_ImplicitMissingFile(t *testing.T) { //nolint:paralleltest //
 		t.Error("Server.Listen empty after default fallback")
 	}
 }
+
+// TestValidatePosture pins the allowlist for the `posture` config
+// key. Empty is allowed (legacy); the three canonical postures are
+// allowed; anything else fails fast at config load.
+func TestValidatePosture(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in     string
+		wantOK bool
+	}{
+		{"", true},
+		{"saas", true},
+		{"outside-iran", true},
+		{"inside-iran", true},
+		{"SaaS", false},       // case-sensitive — loader lowercases before this fn
+		{"in-iran", false},    // typo
+		{"selfhosted", false}, // wrong format
+		{"none", false},       // not in allowlist
+	}
+
+	for _, tc := range cases {
+		err := validatePosture(tc.in)
+		if tc.wantOK && err != nil {
+			t.Errorf("validatePosture(%q): want nil, got %v", tc.in, err)
+		}
+
+		if !tc.wantOK && err == nil {
+			t.Errorf("validatePosture(%q): want error, got nil", tc.in)
+		}
+	}
+}
+
+// TestLoadConfig_PostureLowercased verifies the loader normalizes
+// posture to lowercase + trimmed before validating, so "  Saas  " in
+// the YAML or env produces the canonical "saas" — operator typo
+// resilience.
+func TestLoadConfig_PostureLowercased(t *testing.T) {
+	clearStatniveEnvs(t)
+	t.Setenv("STATNIVE_POSTURE", "  Inside-IRAN  ")
+
+	cfg, err := loadConfigFromPath("")
+	if err != nil {
+		t.Fatalf("loadConfigFromPath: %v", err)
+	}
+
+	if cfg.Posture != "inside-iran" {
+		t.Errorf("Posture = %q, want inside-iran (lowercased + trimmed)", cfg.Posture)
+	}
+}
+
+// TestLoadConfig_PostureInvalid asserts a bad posture string is a
+// boot-blocking error rather than a silent acceptance.
+func TestLoadConfig_PostureInvalid(t *testing.T) {
+	clearStatniveEnvs(t)
+	t.Setenv("STATNIVE_POSTURE", "selfhost")
+
+	_, err := loadConfigFromPath("")
+	if err == nil {
+		t.Fatal("expected error on invalid posture; got nil")
+	}
+
+	if !strings.Contains(err.Error(), "posture") {
+		t.Errorf("error %q doesn't mention posture", err.Error())
+	}
+}
