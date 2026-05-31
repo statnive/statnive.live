@@ -1,0 +1,34 @@
+[Unit]
+Description=cert-forge — outside-Iran TLS renewal sweep for statnive-live
+Documentation=file:///etc/cert-forge/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/cert-forge/.env
+# Run acme.sh's --cron sweep: walks all issued certs, renews any within
+# the threshold (--days flag set at issue time). Each successful renewal
+# fires --renew-hook → rsync-push.sh → ssh SIGHUP.
+#
+# We invoke via docker exec if the cert-forge-acme container is present,
+# else fall back to a host-installed acme.sh binary. Either path uses
+# the same state directory at /etc/cert-forge/state.
+ExecStart=/bin/bash -c '\
+	if docker ps --format "{{.Names}}" 2>/dev/null | grep -q "^cert-forge-acme$"; then \
+		docker exec cert-forge-acme acme.sh --cron --home /acme.sh; \
+	else \
+		acme.sh --cron --home /etc/cert-forge/state; \
+	fi'
+# Hardening: this unit only needs to read state + the docker socket and
+# write to journald. Lock everything else down.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/etc/cert-forge/state /var/log/cert-forge /var/run/docker.sock
+ProtectHome=true
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

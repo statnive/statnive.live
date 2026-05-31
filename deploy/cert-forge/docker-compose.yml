@@ -1,0 +1,39 @@
+# cert-forge — outside-Iran TLS issuance bastion (Hetzner CX11 et al.).
+#
+# Two services:
+#   acme        — neilpang/acme.sh image; daily cron renewal loop. The
+#                 custom Pars.ir DNS provider is bind-mounted from
+#                 ./dnsapi/ so the operator can edit without rebuilding.
+#   rsync-push  — alpine + openssh + rsync; runs renew-hook.sh as a
+#                 sidecar after every acme.sh renewal (acme.sh invokes
+#                 it via --renew-hook).
+#
+# Both containers share the cert-forge state directory at /etc/cert-forge
+# (host path); never let acme.sh write outside it.
+
+services:
+  acme:
+    image: neilpang/acme.sh:3.0.7
+    container_name: cert-forge-acme
+    restart: unless-stopped
+    # acme.sh runs `daemon` which polls every 24h. The renewal threshold
+    # is set per-issue (see issue.sh --days flag); 30d is the default.
+    command: daemon
+    env_file:
+      - /etc/cert-forge/.env
+    volumes:
+      - /etc/cert-forge/state:/acme.sh
+      - /etc/cert-forge/dnsapi:/usr/local/share/acme.sh/dnsapi.local:ro
+      - /etc/cert-forge/ssh:/root/.ssh:ro
+      - /etc/cert-forge/renew-hook.sh:/etc/cert-forge/renew-hook.sh:ro
+      - /etc/cert-forge/rsync-push.sh:/etc/cert-forge/rsync-push.sh:ro
+      - /var/log/cert-forge:/var/log/cert-forge
+    # No published ports — DNS-01 has no listener requirement, and we
+    # don't want this box to be a tracker endpoint.
+    network_mode: bridge
+
+  # rsync-push is intentionally NOT a long-running container; acme.sh's
+  # --renew-hook calls /etc/cert-forge/rsync-push.sh INSIDE the acme
+  # container. The script uses rsync + ssh that ship with the acme.sh
+  # image's alpine base. Kept here as documentation that the operator
+  # can run rsync-push.sh manually for a rotation drill.
