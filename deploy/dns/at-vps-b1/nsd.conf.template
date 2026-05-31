@@ -1,0 +1,88 @@
+# NSD authoritative-server config for AT-VPS-B1 (Architecture C primary).
+#
+# NSD4-flavor. Single primary, no AXFR-out, no DNSSEC inline-signing
+# (operator pre-signs offline with `ldns-signzone` if DNSSEC is rolled
+# out — Phase 10 polish).
+#
+# Install location: /etc/nsd/nsd.conf (Debian/Ubuntu) — match the
+# distro packaging so `systemctl restart nsd` picks up changes.
+
+server:
+    # Bind to all interfaces by default; restrict with ip-address: if
+    # the box has multiple NICs and you want NSD to answer only on
+    # one. Iranian-DC convention: answer on the VPS's public IPv4 +
+    # IPv6.
+    ip-address: 0.0.0.0
+    ip-address: ::
+
+    # Port 53 is reserved for the privileged process; NSD drops to
+    # nsd:nsd after binding. systemd's stock service file already does
+    # the right thing.
+    port: 53
+
+    # Concurrency — single primary, low query volume. 2 server-count
+    # matches Asiatech G2 vCPU. Bump on G3+ hardware.
+    server-count: 2
+
+    # Identify ourselves on CHAOS TXT queries so debugging is easy
+    # but we don't leak version info. NSD reports its version by
+    # default; suppress with hide-version.
+    identity: "ns1.statnive.ir"
+    hide-version: yes
+
+    # Logging — journalctl picks up via syslog. NSD's default is INFO
+    # which is loud during AXFR; we don't run AXFR so this stays quiet.
+    verbosity: 1
+    use-syslog: yes
+
+    # State + ZSK + DB directories. Stick with distro defaults
+    # (/var/lib/nsd) so the systemd unit's PrivateTmp / ReadWritePaths
+    # work out of the box.
+    database: "/var/lib/nsd/nsd.db"
+    zonelistfile: "/var/lib/nsd/zone.list"
+
+    # Refuse any-query → block recon. NSD is authoritative-only, so
+    # any-rrtype queries make no sense from external clients.
+    refuse-any: yes
+
+    # Reject queries we can't answer authoritatively — don't act as a
+    # recursive resolver under any condition.
+    minimal-responses: yes
+
+    # Response Rate Limiting (RRL) — mitigates spoofed-source DNS
+    # amplification at line-rate. Iranian DC peering doesn't reliably
+    # filter BCP-38, so an attacker can spoof a victim's IP and
+    # bounce queries off this NS. refuse-any cuts the amp factor; RRL
+    # caps total qps per source. ~200 qps is generous for legitimate
+    # IR-resolver traffic (Asiatech, MCI, Irancell each query at
+    # <50 qps/visitor cohort) and stops volumetric attacks cold.
+    # rrl-slip: 2 means every second dropped response becomes TC=1
+    # (truncated), forcing legitimate clients to TCP — attackers
+    # using spoofed UDP can't follow up.
+    rrl-size: 1000000
+    rrl-ratelimit: 200
+    rrl-slip: 2
+    rrl-ipv4-prefix-length: 24
+    rrl-ipv6-prefix-length: 56
+
+
+# Remote-control disabled by default. Phase 10 polish: enable on
+# loopback with TLS-pinned keys for `nsd-control reload`.
+remote-control:
+    control-enable: no
+
+
+# Per-zone config — point at the substituted zone file.
+# install.sh runs `nsd-control reload` after each substitution.
+zone:
+    name: "statnive.ir"
+    zonefile: "/etc/nsd/zones/statnive.ir.zone"
+
+    # AXFR refused by default in NSD4 (no provide-xfr line = no
+    # transfer permitted to anyone). Single-primary architecture per
+    # PLAN.md Architecture C. Adding a secondary inside Iran is a
+    # v1.1 item; see docs/runbook.md § Phase 10 / DNS secondary. The
+    # absence of provide-xfr below is INTENTIONAL — uncomment with a
+    # specific IP + TSIG key when v1.1 secondary lands.
+    # provide-xfr: ...
+    # notify: ...
