@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -279,6 +279,26 @@ load-gate-crosscheck:
 ##                             [STEP_DURATION=30s]
 load-gate-breakpoint:
 	@bash test/perf/gate/breakpoint.sh
+
+## chaos-matrix: runs all 7 Phase 7e chaos scenarios in series. Each
+## scenario applies for CHAOS_DURATION (default 60s), then restores
+## with a 30s recovery between scenarios. Run alongside `make load-gate`
+## in another shell — the chaos hits while load is sustained, oracle
+## scan afterwards reveals per-scenario damage.
+##
+## REQUIRES ROOT — never run on a production cluster. The 7 scripts in
+## test/perf/chaos/ manipulate iptables / tc / chrony directly.
+chaos-matrix:
+	@if [ "$$(id -u)" -ne 0 ] && [ "$$DRY" != "1" ]; then \
+		echo "chaos-matrix: must run as root (or DRY=1 for noop)"; exit 1; \
+	fi
+	@CHAOS_DURATION="$${CHAOS_DURATION:-60s}"; \
+	for s in bgp-cut mobile-curfew dpi-rst tehran-ix asiatech-outage clock-skew intl-egress; do \
+		echo ""; echo "==> chaos: $$s"; \
+		CHAOS_DURATION="$$CHAOS_DURATION" bash test/perf/chaos/$$s.sh || true; \
+		echo "==> recovering 30s before next scenario"; sleep 30; \
+	done; \
+	echo ""; echo "chaos-matrix: done"
 
 ## oracle-scan: Run the 4 canonical Phase 7e gate queries against the
 ## production CH for one TEST_RUN_ID. Each query returns a one-line
