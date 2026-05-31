@@ -69,12 +69,14 @@ fi
 
 # --- uninstall path ----------------------------------------------------------
 if [ "$UNINSTALL" = "1" ]; then
-	echo "airgap-install: uninstalling (keeps /var/lib/statnive-live + /etc/statnive-live)"
+	echo "airgap-install: uninstalling (keeps /var/lib/statnive-live + /etc/statnive-live + /opt/statnive-bundles)"
 	systemctl disable --now statnive-live >/dev/null 2>&1 || true
 	rm -f /etc/systemd/system/statnive-live.service
 	systemctl daemon-reload >/dev/null 2>&1 || true
 	rm -f /usr/local/bin/statnive-live
-	echo "airgap-install: uninstalled. Data + config retained; \`rm -rf /var/lib/statnive-live /etc/statnive-live\` to purge."
+	rm -f /usr/local/bin/statnive-deploy
+	echo "airgap-install: uninstalled. Data + config + bundle history retained;"
+	echo "  \`rm -rf /var/lib/statnive-live /etc/statnive-live /opt/statnive-bundles\` to purge."
 	exit 0
 fi
 
@@ -128,6 +130,22 @@ install -d -m 0750 -o root -g statnive /etc/statnive-live/tls
 # --- binary ------------------------------------------------------------------
 echo "airgap-install: installing binary"
 install -m 0755 "$BUNDLE_ROOT/bin/statnive-live" /usr/local/bin/statnive-live
+
+# --- on-box deploy primitive -------------------------------------------------
+# statnive-deploy.sh provides `deploy <version>` (atomic-swap + healthz +
+# auto-revert), `rollback`, `versions`, `health` subcommands. The GHA
+# deploy-saas.yml pipeline calls it via SSH; the Iran courier's re-deploy
+# branch (deploy/courier-iran.sh) calls it for v2+ ships on the same VPS.
+# First-install ships it now so subsequent re-couriers can use it directly.
+install -m 0755 "$BUNDLE_ROOT/deploy/statnive-deploy.sh" /usr/local/bin/statnive-deploy
+
+# /opt/statnive-bundles/incoming/ is the SCP drop dir statnive-deploy
+# expects; pre-create it with the right perms so the deploy user can
+# write without sudo. /opt/statnive-live/ holds the current-version
+# symlink target created by `statnive-deploy deploy`.
+install -d -m 0750 -o root -g statnive /opt/statnive-bundles
+install -d -m 0775 -o root -g statnive /opt/statnive-bundles/incoming
+install -d -m 0755 -o root -g root     /opt/statnive-live
 
 # --- config (copy-once; never overwrite existing operator edits) -------------
 CONFIG_DST="/etc/statnive-live/config.yaml"

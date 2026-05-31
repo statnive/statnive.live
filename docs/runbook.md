@@ -1879,8 +1879,25 @@ make release-iran-vps \
   SKIP_BUILD=1
 ```
 
-The courier prints every step. Exit code 0 = `/healthz` returned 200
-within 90 s. Non-zero exit triggers `# § Rollback` (below).
+The courier auto-detects whether the target VPS is already provisioned:
+
+- **First-install** (no `/opt/statnive-live/current` symlink): runs
+  `airgap-install.sh` to create the `statnive` user, lay out `/etc/`,
+  install systemd unit + iptables + chrony, and install both
+  `statnive-live` AND `statnive-deploy` to `/usr/local/bin/`.
+- **Re-deploy** (symlink exists): delegates to
+  `statnive-deploy deploy <version>` for atomic-swap, version history,
+  and auto-revert on `/healthz` failure. Provisioning steps don't
+  re-run. This is the steady-state monthly-release path.
+
+Exit code 0 = `/healthz` returned 200 within 90 s (first-install)
+OR `statnive-deploy deploy` returned 0 (re-deploy — its own internal
+healthz wait already passed). Exit codes 1–5 each trigger a different
+recovery — see `# § Rollback` (below). In re-deploy mode the courier
+installs the new license/cert/GeoIP **before** invoking
+`statnive-deploy deploy` so the swapped-in binary boots with the new
+files in one motion; same-version re-courier is a clean no-op (set
+`FORCE=1` on the box to force re-apply).
 
 ### Step 4 — Verify on the box
 
