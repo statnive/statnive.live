@@ -226,6 +226,28 @@ bench:
 load-test:
 	k6 run test/perf/load.js
 
+## perf-generator: Run the Phase 7e Go event generator against $STATNIVE_URL.
+## Prints the test_run_id at startup; pass it to `make oracle-scan` after
+## the run to compute loss / dupes / ordering / latency.
+##   make perf-generator EPS=500 DURATION=5m NODES=4 PROFILE=android-binge \
+##       [URL=...] [SITE_ID=...] [HOSTNAME=...]
+perf-generator:
+	@URL="$${URL:-http://127.0.0.1:8080}"; \
+	SITE_ID="$${SITE_ID:-1}"; \
+	HOSTNAME="$${HOSTNAME:-load-test.example.com}"; \
+	EPS="$${EPS:-100}"; \
+	DURATION="$${DURATION:-60s}"; \
+	NODES="$${NODES:-1}"; \
+	PROFILE="$${PROFILE:-android-short}"; \
+	$(GO) run -mod=vendor ./test/perf/generator/ \
+		--url="$${URL}" \
+		--site-id="$${SITE_ID}" \
+		--hostname="$${HOSTNAME}" \
+		--eps="$${EPS}" \
+		--duration="$${DURATION}" \
+		--nodes="$${NODES}" \
+		--profile="$${PROFILE}"
+
 ## oracle-scan: Run the 4 canonical Phase 7e gate queries against the
 ## production CH for one TEST_RUN_ID. Each query returns a one-line
 ## summary; reduce to pass/fail on the operator's side.
