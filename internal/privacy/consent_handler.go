@@ -8,7 +8,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/identity"
 )
 
 // LegacyConsentCookieName is the pre-Stage-4 single-cookie name.
@@ -54,18 +57,26 @@ type consentRequest struct {
 
 // Consent handles POST /api/privacy/consent. Body shape:
 //
-//	{"action": "give"}      → sets _statnive_consent=v1
+//	{"action": "give"}      → sets _statnive_consent_<site_id>=v1.
+//	                          Mints a fresh _statnive UUID if the
+//	                          visitor doesn't already carry one
+//	                          (hybrid pre-consent visitors arrive
+//	                          without an identifier — consent IS the
+//	                          act that creates it, Art. 6(1)(a)).
 //	{"action": "withdraw"}  → clears _statnive_consent + _statnive,
-//	                          adds the visitor to the suppression list
+//	                          adds the visitor to the suppression list.
+//	                          Requires _statnive as an identity anchor;
+//	                          401 otherwise.
 //
 // CSRF is enforced by middleware upstream of this handler. The
 // handler itself is response-shape stable so a misconfigured client
 // can't enumerate consent state by diffing response bodies — both
-// actions return 204.
+// actions return 204 on success.
 func (h *Handlers) Consent(w http.ResponseWriter, r *http.Request) {
-	siteID, hash, ok := h.resolveSiteAndCookie(w, r)
-	if !ok {
-		// resolveSiteAndCookie already wrote the error response.
+	siteID, status := h.resolveSiteID(r)
+	if status != 0 {
+		http.Error(w, http.StatusText(status), status)
+
 		return
 	}
 
@@ -87,6 +98,9 @@ func (h *Handlers) Consent(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Action {
 	case "give":
+		rawID := readOrMintStatnive(w, r, secure)
+		hash := identity.HexCookieIDHash(h.cfg.MasterSecret, siteID, rawID)
+
 		http.SetCookie(w, &http.Cookie{
 			Name:        consentCookieName(siteID),
 			Value:       consentCookieValue,
@@ -101,9 +115,15 @@ func (h *Handlers) Consent(w http.ResponseWriter, r *http.Request) {
 		h.emit(r.Context(), audit.EventConsentGiven, siteID, hash)
 
 	case "withdraw":
-		// Clear both the per-site consent marker and the legacy
-		// single cookie (defang any dual-read tokens). Identifier
-		// cookie also cleared.
+		cookie, cookieErr := r.Cookie("_statnive")
+		if cookieErr != nil || cookie.Value == "" {
+			http.Error(w, "no statnive cookie", http.StatusUnauthorized)
+
+			return
+		}
+
+		hash := identity.HexCookieIDHash(h.cfg.MasterSecret, siteID, cookie.Value)
+
 		expireCookie(w, consentCookieName(siteID), secure)
 		expireCookie(w, LegacyConsentCookieName, secure)
 		expireCookie(w, "_statnive", secure)
@@ -134,6 +154,33 @@ func (h *Handlers) Consent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// readOrMintStatnive returns the visitor's existing _statnive cookie
+// value, or mints a fresh UUIDv4 and writes it to w with the same
+// attributes the existing per-site consent/opt-out cookies use. The
+// mint path is the canonical hybrid pre-consent → post-consent
+// identifier upgrade — required when the ingest gate has refused to
+// set _statnive due to allowIdentity=false.
+func readOrMintStatnive(w http.ResponseWriter, r *http.Request, secure bool) string {
+	if c, err := r.Cookie("_statnive"); err == nil && c.Value != "" {
+		return c.Value
+	}
+
+	id := uuid.NewString()
+
+	http.SetCookie(w, &http.Cookie{
+		Name:        "_statnive",
+		Value:       id,
+		Path:        "/",
+		MaxAge:      consentCookieMaxAge,
+		HttpOnly:    true,
+		Secure:      secure,
+		SameSite:    http.SameSiteNoneMode,
+		Partitioned: true,
+	})
+
+	return id
 }
 
 func expireCookie(w http.ResponseWriter, name string, secure bool) {

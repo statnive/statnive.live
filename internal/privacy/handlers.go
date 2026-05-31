@@ -77,26 +77,34 @@ func NewHandlers(cfg Config) (*Handlers, error) {
 }
 
 // OptOut handles POST /api/privacy/opt-out. Writes the strictly-
-// necessary _statnive_optout cookie + a suppression-list entry keyed
-// by the visitor's hashed cookieID. Subsequent ingest events from
-// the same visitor are dropped at the ingest gate. Always returns
-// 204 — opt-out is idempotent and the visitor MUST NOT learn whether
-// they were already opted out.
+// necessary _statnive_optout_<site_id> cookie unconditionally so
+// even a fresh visitor (no prior _statnive) can opt out — the
+// per-site cookie itself is the suppression signal at the ingest
+// gate. When a _statnive cookie IS present its hash is also added
+// to the suppression list as a belt-and-braces anchor that survives
+// CHIPS partition resets. Always returns 204 — opt-out is
+// idempotent and the visitor MUST NOT learn whether they were
+// already opted out.
 func (h *Handlers) OptOut(w http.ResponseWriter, r *http.Request) {
-	siteID, hash, ok := h.resolveSiteAndCookie(w, r)
-	if !ok {
+	siteID, status := h.resolveSiteID(r)
+	if status != 0 {
+		http.Error(w, http.StatusText(status), status)
+
 		return
 	}
 
-	// Add() is idempotent on duplicates because the in-memory set
-	// is a hash-set, but every call still appends a new WAL line.
-	// For Stage 2 we accept the WAL bloat — Stage 3 adds a "do
-	// nothing if already suppressed" early-return when the volume
-	// matters.
-	if err := h.cfg.Suppression.Add(hash); err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+	// Hash + suppression-list anchor are optional: they only apply
+	// when the visitor already carries a _statnive identifier. The
+	// cookie-based ingest gate (handler.go:hasOptOutCookie) covers
+	// the no-identifier case.
+	var hash string
+	if c, err := r.Cookie("_statnive"); err == nil && c.Value != "" {
+		hash = identity.HexCookieIDHash(h.cfg.MasterSecret, siteID, c.Value)
+		if addErr := h.cfg.Suppression.Add(hash); addErr != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
 
-		return
+			return
+		}
 	}
 
 	http.SetCookie(w, &http.Cookie{

@@ -92,7 +92,7 @@ func TestOptOut_SetsCookieAndSuppresses(t *testing.T) {
 	}
 }
 
-func TestOptOut_RejectsRequestWithoutCookie(t *testing.T) {
+func TestOptOut_NoCookieStillSetsOptOut(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandlers(t)
@@ -102,8 +102,46 @@ func TestOptOut_RejectsRequestWithoutCookie(t *testing.T) {
 
 	h.OptOut(rec, req)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rec.Code)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (fresh-visitor opt-out)", rec.Code)
+	}
+
+	var optoutCookie *http.Cookie
+
+	wantName := optoutCookieName(42)
+
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == wantName {
+			optoutCookie = c
+			break
+		}
+	}
+
+	if optoutCookie == nil {
+		t.Fatalf("missing %s cookie in response", wantName)
+	}
+
+	if optoutCookie.Value != "v1" {
+		t.Errorf("cookie value = %q, want v1", optoutCookie.Value)
+	}
+
+	if !optoutCookie.HttpOnly {
+		t.Errorf("opt-out cookie should be HttpOnly")
+	}
+
+	if !optoutCookie.Partitioned {
+		t.Errorf("opt-out cookie should be Partitioned (CHIPS)")
+	}
+
+	if optoutCookie.SameSite != http.SameSiteNoneMode {
+		t.Errorf("SameSite = %v, want None", optoutCookie.SameSite)
+	}
+
+	// No _statnive cookie present → nothing to hash → suppression list
+	// stays empty. The cookie itself is the suppression signal at the
+	// ingest gate (handler.go::hasOptOutCookie).
+	if h.cfg.Suppression.Len() != 0 {
+		t.Errorf("suppression Len = %d, want 0 (no _statnive to anchor)", h.cfg.Suppression.Len())
 	}
 }
 
