@@ -14,19 +14,49 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/google/uuid"
 
 	"github.com/statnive/statnive.live/internal/ingest"
 )
 
-// 34-column INSERT — order MUST match ingest.EnrichedEvent field order
+// oracleUUID converts the load-gate's TestRunID string to a uuid.UUID
+// for the events_raw.test_run_id column. Empty / unparseable values
+// fall back to the all-zero UUID, which migration 018 treats as the
+// "not part of a load gate run" sentinel.
+func oracleUUID(s string) uuid.UUID {
+	if s == "" {
+		return uuid.Nil
+	}
+
+	u, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.Nil
+	}
+
+	return u
+}
+
+// oracleSendTS converts the generator's millisecond Unix timestamp to a
+// time.Time for the DateTime64(3) column. Zero stays zero (sentinel).
+func oracleSendTS(ms int64) time.Time {
+	if ms == 0 {
+		return time.Time{}
+	}
+
+	return time.UnixMilli(ms).UTC()
+}
+
+// 38-column INSERT — order MUST match ingest.EnrichedEvent field order
 // (PLAN.md:160). site_id is column 1 to match the events_raw ORDER BY.
+// Trailing 4 are the Phase 7e load-gate oracle columns (migration 018).
 const insertStmt = `INSERT INTO statnive.events_raw (
 	site_id, time, user_id_hash, cookie_id, visitor_hash, hostname, pathname,
 	title, referrer, referrer_name, channel, utm_source, utm_medium,
 	utm_campaign, utm_content, utm_term, province, city, country_code,
 	isp, carrier, os, browser, device_type, viewport_width, event_type,
 	event_name, event_value, is_goal, is_new, prop_keys, prop_vals,
-	user_segment, is_bot
+	user_segment, is_bot,
+	test_run_id, test_generator_seq, generator_node_id, send_ts
 )`
 
 // Config wires the ClickHouse driver. Audit-log path / DLQ are Phase 2.
@@ -187,6 +217,10 @@ func (s *ClickHouseStore) doInsert(ctx context.Context, events []ingest.Enriched
 			e.PropVals,
 			e.UserSegment,
 			e.IsBot,
+			oracleUUID(e.TestRunID),
+			e.TestGeneratorSeq,
+			e.GeneratorNodeID,
+			oracleSendTS(e.SendTSMilli),
 		); appendErr != nil {
 			return fmt.Errorf("append row %d: %w", i, appendErr)
 		}
