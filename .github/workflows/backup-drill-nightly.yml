@@ -3,14 +3,20 @@ name: backup-drill-nightly
 # Round-trip: seed → clickhouse-backup create+upload → wipe CH →
 # restore_remote → row-count parity + rollup mergeability.
 #
-# **workflow_dispatch only** until a CH 24.12-alpine Atomic-engine
-# gate on the force_drop_table flag is resolved (see
-# docs/runbook.md § Backup & restore / Known issues + PLAN.md
-# v1.1-ci-drill). The manual drill in docs/runbook.md:416-467 remains
-# the release-blocking source of truth; operators run it on their
-# drill host before each release + nightly via host-cron.
+# A3 (production-readiness) — re-enabled on nightly schedule after
+# adding the continuous force_drop_table-flag-touch background loop
+# (PLAN.md v1.1-ci-drill option (b)) which lets clickhouse-backup's
+# DROP IF EXISTS against MV inner-tables succeed under CH 24.12's
+# Atomic-engine.
+#
+# Schedule offset to 04:30 UTC so it doesn't pile docker pulls
+# against wal-killtest-nightly (03:00) + blackout-sim-nightly (03:30).
+# Host-side operator cron at the drill VPS remains the release-
+# blocking SoT per docs/runbook.md § Backup & restore.
 
 on:
+  schedule:
+    - cron: '30 4 * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -153,7 +159,25 @@ jobs:
         env:
           S3_ACCESS_KEY: ${{ env.MINIO_USER }}
           S3_SECRET_KEY: ${{ env.MINIO_PASSWORD }}
+        # CH 24.12 Atomic-engine requires the force_drop_table flag to
+        # be present BEFORE each DROP attempt against MV inner-tables,
+        # regardless of max_table_size_to_drop. clickhouse-backup's
+        # restore_remote issues N drops sequentially; the flag is
+        # consumed per drop. The background watch re-touches it every
+        # 50 ms so each successive drop in the restore sees a fresh
+        # flag. The loop runs INSIDE the container (docker exec -d
+        # detaches the inner shell); pkill in the trap stops it.
+        #
+        # PLAN.md v1.1-ci-drill option (b). Resolves A3.
         run: |
+          docker exec -d statnive-clickhouse-dev sh -c '
+            while true; do
+              touch /var/lib/clickhouse/flags/force_drop_table 2>/dev/null || true
+              sleep 0.05
+            done
+          '
+          trap "docker exec statnive-clickhouse-dev pkill -f 'force_drop_table' 2>/dev/null || true" EXIT
+
           EXPECT_ROWS="events_raw=${pre_events_raw},hourly_visitors=${pre_hourly_visitors},daily_pages=${pre_daily_pages},daily_sources=${pre_daily_sources}" \
           CLICKHOUSE_BACKUP="$(pwd)/deploy/backup/docker-wrapper.sh" \
           CH_PORT="${CH_HOST_PORT}" \
