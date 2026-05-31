@@ -1,0 +1,40 @@
+# Prometheus config for the outside-Iran observability VPS. Scrapes
+# production through the autossh tunnel; no direct internet calls to
+# Iran. STATNIVE_METRICS_TOKEN comes from the env file the docker
+# compose sources at boot.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout:  10s
+  external_labels:
+    cluster: 'statnive-asiatech-prod'
+
+scrape_configs:
+  # statnive-live binary /metrics (token-gated; Phase 7d).
+  - job_name: 'statnive-live'
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ['127.0.0.1:18080']
+    authorization:
+      type: Bearer
+      credentials_file: /etc/observability/.metrics-token
+
+  # Node Exporter on the Asiatech box → host metrics (cpu, mem, disk,
+  # net) for capacity planning during the gate.
+  - job_name: 'asiatech-node'
+    static_configs:
+      - targets: ['127.0.0.1:19100']
+
+  # ClickHouse exporter (operator runs ch-exporter alongside CH on prod
+  # and forwards via the same tunnel — see README.md tunnel list).
+  - job_name: 'asiatech-clickhouse'
+    static_configs:
+      - targets: ['127.0.0.1:19000']
+
+# Phase 7e SLO alert rules. The thresholds match CLAUDE.md
+# "Analytics Invariant Thresholds" exactly; recording rules
+# compute the windowed percentiles so alerts fire on the same
+# numbers Locust/k6 enforce at run-end.
+rule_files:
+  - /etc/prometheus/rules/*.yml

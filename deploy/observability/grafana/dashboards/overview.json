@@ -1,0 +1,55 @@
+{
+  "uid": "statnive-overview",
+  "title": "statnive-live — Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["statnive", "phase-7e", "overview"],
+  "timezone": "",
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Events ingested (1m EPS)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{"refId": "A", "expr": "sum(rate(statnive_events_ingested_total[1m]))"}]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Events dropped (1m rate)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [{"refId": "A", "expr": "sum(rate(statnive_events_dropped_total[1m]))"}]
+    },
+    {
+      "id": 3, "type": "stat", "title": "/healthz status",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [{"refId": "A", "expr": "up{job=\"statnive-live\"}"}]
+    },
+    {
+      "id": 4, "type": "stat", "title": "WAL fill ratio",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [{"refId": "A", "expr": "statnive:wal:fill_ratio"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.8}, {"color": "red", "value": 0.95}]}}}
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "/api/event p50 / p95 / p99 (5m)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {"refId": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(statnive_http_request_duration_seconds_bucket{route=\"POST /api/event\"}[5m])))", "legendFormat": "p50"},
+        {"refId": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(statnive_http_request_duration_seconds_bucket{route=\"POST /api/event\"}[5m])))", "legendFormat": "p95"},
+        {"refId": "p99", "expr": "statnive:http_request_duration_seconds:p99_5m{route=\"POST /api/event\"}", "legendFormat": "p99"}
+      ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "5xx error rate (5m)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [{"refId": "A", "expr": "statnive:http_requests:error_rate_5m", "legendFormat": "error rate"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}}
+    }
+  ]
+}

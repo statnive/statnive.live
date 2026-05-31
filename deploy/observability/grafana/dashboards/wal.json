@@ -1,0 +1,40 @@
+{
+  "uid": "statnive-wal",
+  "title": "statnive-live — WAL deep-dive",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["statnive", "phase-7e", "wal"],
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "WAL bytes written / sec",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{"refId": "A", "expr": "rate(statnive_wal_bytes_total[1m])"}],
+      "fieldConfig": {"defaults": {"unit": "Bps"}}
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "WAL fsync latency (histogram_quantile)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {"refId": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(statnive_wal_fsync_seconds_bucket[5m])))", "legendFormat": "p50"},
+        {"refId": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(statnive_wal_fsync_seconds_bucket[5m])))", "legendFormat": "p99"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "WAL replay rate (consumer)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{"refId": "A", "expr": "rate(statnive_wal_consumer_acked_total[1m])"}]
+    },
+    {
+      "id": 4, "type": "stat", "title": "WAL drop-oldest events (cumulative)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [{"refId": "A", "expr": "statnive_wal_drop_oldest_total"}]
+    }
+  ]
+}

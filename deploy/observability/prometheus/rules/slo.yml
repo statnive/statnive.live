@@ -1,0 +1,49 @@
+# SLO recording + alerting rules. Thresholds mirror CLAUDE.md
+# "Analytics Invariant Thresholds" and PLAN.md Phase 7e exit criteria.
+
+groups:
+  - name: statnive-slo
+    interval: 30s
+    rules:
+      # Recording: rolling 5m percentiles for the gate.
+      - record: statnive:http_request_duration_seconds:p99_5m
+        expr: histogram_quantile(0.99, sum by (le, route) (rate(statnive_http_request_duration_seconds_bucket[5m])))
+
+      - record: statnive:http_requests:error_rate_5m
+        expr: |
+          sum(rate(statnive_http_requests_total{code=~"5.."}[5m]))
+            /
+          sum(rate(statnive_http_requests_total[5m]))
+
+      - record: statnive:wal:fill_ratio
+        expr: statnive_wal_bytes_used / statnive_wal_bytes_max
+
+      # Alerts.
+      - alert: StatniveP99LatencyBreach
+        expr: statnive:http_request_duration_seconds:p99_5m{route="POST /api/event"} > 2.0
+        for: 2m
+        labels: { severity: critical, phase: 7e }
+        annotations:
+          summary: "p99 latency on /api/event exceeds 2000ms (5m avg)"
+          runbook: "docs/runbook.md § On-Call (A7) — p99 breach playbook"
+
+      - alert: StatniveErrorRateBreach
+        expr: statnive:http_requests:error_rate_5m > 0.005
+        for: 2m
+        labels: { severity: critical, phase: 7e }
+        annotations:
+          summary: "/api/event 5xx error rate > 0.5% (5m avg)"
+
+      - alert: StatniveWALHighFill
+        expr: statnive:wal:fill_ratio > 0.80
+        for: 1m
+        labels: { severity: warning, phase: 7e }
+        annotations:
+          summary: "WAL > 80% full — ClickHouse insert may be lagging"
+
+      - alert: StatniveWALCritical
+        expr: statnive:wal:fill_ratio > 0.95
+        for: 30s
+        labels: { severity: critical, phase: 7e }
+        annotations:
+          summary: "WAL > 95% — drop-oldest will engage; events at risk"

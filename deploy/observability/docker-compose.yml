@@ -1,0 +1,90 @@
+# observability — Phase 7e stack on the outside-Iran observability VPS.
+# See README.md for the full architecture. Scrapes production via the
+# autossh tunnel (127.0.0.1:18080 → asiatech-host:8080 etc.).
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: obs-prometheus
+    restart: unless-stopped
+    user: nobody
+    volumes:
+      - /etc/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - obs-prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=14d'
+      - '--web.listen-address=127.0.0.1:9090'
+    network_mode: host
+    env_file: /etc/observability/.env
+
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    container_name: obs-grafana
+    restart: unless-stopped
+    user: '472'
+    depends_on: [prometheus, pyroscope]
+    volumes:
+      - /etc/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - /etc/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - obs-grafana-data:/var/lib/grafana
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SECURITY_ADMIN_USER: admin
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    network_mode: host
+
+  pyroscope:
+    image: grafana/pyroscope:1.13.0
+    container_name: obs-pyroscope
+    restart: unless-stopped
+    volumes:
+      - obs-pyroscope-data:/data
+    command: ['server']
+    environment:
+      PYROSCOPE_HTTP_ADDRESS: '127.0.0.1:4040'
+    network_mode: host
+
+  vector:
+    image: timberio/vector:0.43.0-alpine
+    container_name: obs-vector
+    restart: unless-stopped
+    volumes:
+      - /etc/observability/vector/vector.toml:/etc/vector/vector.toml:ro
+      - obs-vector-data:/var/lib/vector
+    env_file: /etc/observability/.env
+    network_mode: host
+
+  parca:
+    image: ghcr.io/parca-dev/parca:v0.23.0
+    container_name: obs-parca
+    restart: unless-stopped
+    volumes:
+      - /etc/observability/parca/parca.yaml:/etc/parca/parca.yaml:ro
+      - obs-parca-data:/data
+    command: ['/parca', '--config-path=/etc/parca/parca.yaml', '--http-address=127.0.0.1:7070']
+    network_mode: host
+
+  falco:
+    image: falcosecurity/falco-no-driver:0.41.0
+    container_name: obs-falco
+    restart: unless-stopped
+    privileged: true
+    pid: host
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /etc/observability/falco/falco.yaml:/etc/falco/falco.yaml:ro
+    command:
+      - /usr/bin/falco
+      - --cri=/host/var/run/docker.sock
+    network_mode: host
+
+volumes:
+  obs-prometheus-data:
+  obs-grafana-data:
+  obs-pyroscope-data:
+  obs-vector-data:
+  obs-parca-data:

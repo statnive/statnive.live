@@ -1,0 +1,42 @@
+{
+  "uid": "statnive-clickhouse",
+  "title": "statnive-live — ClickHouse",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["statnive", "phase-7e", "clickhouse"],
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Active parts (events_raw)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "targets": [{"refId": "A", "expr": "ClickHouseMetrics_PartsActive{table=\"events_raw\"}"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 300}, {"color": "red", "value": 600}]}}}
+    },
+    {
+      "id": 2, "type": "stat", "title": "Inserts/sec",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+      "targets": [{"refId": "A", "expr": "rate(ClickHouseProfileEvents_InsertedRows[1m])"}]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Async-insert queue length",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+      "targets": [{"refId": "A", "expr": "ClickHouseAsyncMetrics_AsynchronousInsertQueueLength"}]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Merge backlog (parts pending)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [{"refId": "A", "expr": "ClickHouseMetrics_BackgroundPoolTask"}]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Replication lag (s)",
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [{"refId": "A", "expr": "ClickHouseAsyncMetrics_ReplicasMaxAbsoluteDelay"}]
+    }
+  ]
+}
