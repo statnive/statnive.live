@@ -202,6 +202,7 @@ func run(ctx context.Context, logger *slog.Logger, cfg genConfig) genSummary {
 
 		go func(nodeID uint16) {
 			defer wg.Done()
+
 			runNode(runCtx, logger, client, sem, cfg, nodeID, perNodeEPS, &sentOK, &sentFail)
 		}(uint16(nodeID)) //nolint:gosec // nodeID <= maxGeneratorNodes (256), validated above
 	}
