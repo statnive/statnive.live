@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps oracle-scan help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -225,6 +225,20 @@ bench:
 ## Pre-flight: seed the load-test site row (see test/perf/load.js header).
 load-test:
 	k6 run test/perf/load.js
+
+## oracle-scan: Run the 4 canonical Phase 7e gate queries against the
+## production CH for one TEST_RUN_ID. Each query returns a one-line
+## summary; reduce to pass/fail on the operator's side.
+##   make oracle-scan TEST_RUN_ID=01HZX9V0... [CH_HOST=...] [CH_PORT=9000]
+oracle-scan:
+	@if [ -z "$(TEST_RUN_ID)" ]; then \
+		echo "oracle-scan: TEST_RUN_ID required (uuid of the load run)"; exit 2; \
+	fi
+	@CH_HOST="$${CH_HOST:-127.0.0.1}"; CH_PORT="$${CH_PORT:-9000}"; \
+	echo "==> oracle scan for run $(TEST_RUN_ID) on $${CH_HOST}:$${CH_PORT}"; \
+	clickhouse-client --host "$${CH_HOST}" --port "$${CH_PORT}" \
+		--param_test_run_id="$(TEST_RUN_ID)" \
+		--multiquery --queries-file test/perf/oracle_queries.sql
 
 ## fast-probe: Phase 7e capacity-probe ramp (50→500 EPS over ~75 min)
 ## against $STATNIVE_URL. Default points at production app.statnive.live.
