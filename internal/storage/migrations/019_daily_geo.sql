@@ -16,6 +16,15 @@
 -- internal/enrich/geoip.go before any event reaches events_raw, so
 -- daily_geo inherits clean province / city values. Test guard at
 -- internal/storage/queries_test.go::TestGeo_NoLITESentinelLanding.
+--
+-- Numeric columns (views / goals / revenue) MUST be wrapped in
+-- SimpleAggregateFunction(sum, …) — migration 009 codified this rule
+-- after the v1 rollups initially shipped with plain UInt64, which
+-- AggregatingMergeTree silently collapses to a non-deterministic
+-- last-value-wins on merge. CH auto-wraps the MV's `count()` /
+-- `sum(...)` UInt64 expressions into the column's
+-- SimpleAggregateFunction type at INSERT time, so the MV SELECT
+-- doesn't change shape.
 
 CREATE TABLE IF NOT EXISTS statnive.daily_geo{{if .Cluster}} ON CLUSTER {{.Cluster}}{{end}} (
     site_id        UInt32,
@@ -23,10 +32,10 @@ CREATE TABLE IF NOT EXISTS statnive.daily_geo{{if .Cluster}} ON CLUSTER {{.Clust
     country_code   FixedString(2),
     province       LowCardinality(String),
     city           LowCardinality(String),
-    views          UInt64,
+    views          SimpleAggregateFunction(sum, UInt64),
     visitors_state AggregateFunction(uniqCombined64, FixedString(16)),
-    goals          UInt64,
-    revenue        UInt64
+    goals          SimpleAggregateFunction(sum, UInt64),
+    revenue        SimpleAggregateFunction(sum, UInt64)
 )
 ENGINE = {{if .Cluster}}ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/daily_geo', '{replica}'){{else}}AggregatingMergeTree(){{end}}
 PARTITION BY toYYYYMM(day)
