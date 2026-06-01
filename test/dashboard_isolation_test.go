@@ -173,11 +173,33 @@ func TestDashboard_MultitenantIsolation(t *testing.T) {
 		}
 	}
 
-	// --- ErrNotImplemented for v1.1+ endpoints ---
-	if _, err := queryStore.Geo(ctx, filter(siteA)); err != storage.ErrNotImplemented {
-		t.Errorf("Geo err = %v, want ErrNotImplemented", err)
+	// --- Geo (v1.1-geo) --- siteA's revenue (5000) must not appear in
+	// siteB's geo aggregate. The seed leaves country_code at the
+	// events_raw schema default ('IR'), so both sites land one row in
+	// daily_geo; the per-row revenue is what catches a leak.
+	geoB, err := queryStore.Geo(ctx, filter(siteB))
+	if err != nil {
+		t.Fatalf("geo siteB: %v", err)
 	}
 
+	for _, g := range geoB {
+		if g.Revenue == 5000 {
+			t.Errorf("CRITICAL: siteB Geo leaked siteA revenue %d in country %q", g.Revenue, g.CountryCode)
+		}
+	}
+
+	topB, err := queryStore.GeoTopCountries(ctx, filter(siteB))
+	if err != nil {
+		t.Fatalf("geo_top_countries siteB: %v", err)
+	}
+
+	for _, g := range topB {
+		if g.Revenue == 5000 {
+			t.Errorf("CRITICAL: siteB GeoTopCountries leaked siteA revenue %d in country %q", g.Revenue, g.CountryCode)
+		}
+	}
+
+	// --- ErrNotImplemented for the still-unbuilt v1.1+ endpoints ---
 	if _, err := queryStore.Devices(ctx, filter(siteA)); err != storage.ErrNotImplemented {
 		t.Errorf("Devices err = %v, want ErrNotImplemented", err)
 	}
