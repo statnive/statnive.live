@@ -149,5 +149,5 @@ sudo cryptsetup benchmark --cipher aes-xts-plain64 --key-size 512
 Encrypted backups are **mandatory even with LUKS enabled** — LUKS only
 protects against offline theft of the live disk. See
 [`docs/runbook.md`](runbook.md#backup--restore-phase-7b2) for the SOP
-and [CLAUDE.md Security #8](../CLAUDE.md#security-14-features-all-v1)
+and [CLAUDE.md Security #8](../CLAUDE.md#security-12-features-in-v1-2-phase-1011-deferred)
 for the threat-model reasoning. LUKS does not change the drill cadence.

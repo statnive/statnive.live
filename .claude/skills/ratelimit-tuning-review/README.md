@@ -1,8 +1,10 @@
 # ratelimit-tuning-review — full spec
 
+> **v1 enforcement status: ADVISORY ONLY.** The CGNAT-aware tiering design below is **not implemented in the v1 binary** — `internal/ratelimit/` ships with basic per-IP + `X-Forwarded-For` only, no ASN lookup, no `iptoasn.com` TSV loader, no compound `(ip, site_id)` keying. Per CLAUDE.md § Security, Rule 13 is **deferred to Phase 10**. This skill becomes a **hard CI gate only when `PHASE_10_GATE=1`** is set; in v1 it is the design spec for the cutover, not a fail-the-build rule. Don't trip CI on missing ASN tiering until the gate flips.
+
 ## Architecture rule
 
-Encodes **CLAUDE.md Security #5** (rate limiting per IP via `go-chi/httprate`, 100 req/s, burst 200, NAT-aware) plus the doc-27 addition that the plain flat-per-IP config is unsafe for Iranian CGNAT traffic. The skill is the **hard gate on Phase 10 (SamplePlatform Iranian VPS cutover)** — ASN tiering must ship before the first byte of SamplePlatform traffic routes through.
+Encodes **CLAUDE.md Security #5** (rate limiting per IP via `go-chi/httprate`, 100 req/s, burst 200, NAT-aware) and the **Phase 10 deferred Security #13** (CGNAT-aware tiering, per `docs/rules/security-detail.md` § Deferred to Phase 10 / Phase 11). Doc-27 reasoning: plain flat-per-IP is unsafe for Iranian CGNAT traffic. The skill is the **hard gate on Phase 10 (SamplePlatform Iranian VPS cutover)** — ASN tiering must ship before the first byte of SamplePlatform traffic routes through, but it is **not a v1 release blocker**.
 
 ## Research anchors
 
@@ -14,7 +16,8 @@ Encodes **CLAUDE.md Security #5** (rate limiting per IP via `go-chi/httprate`, 1
 ## Implementation phase
 
 - **Phase 2a** (already shipped in PR #6) — skill is a regression guard against any `middleware.RealIP` / XFF-left / flat-per-IP regression.
-- **Phase 10 (SamplePlatform cutover)** — **hard gate**. ASN tiering + compound-key + `iptoasn.com` TSV loader must ship before routing the first SamplePlatform pageview.
+- **v1 (current)** — **advisory only**. The skill documents the Phase 10 target; CI does not fail when ASN tiering is absent. Set `PHASE_10_GATE=1` to opt into the hard-gate semgrep + k6 checks for forward-looking PRs.
+- **Phase 10 (SamplePlatform cutover)** — **hard gate**. ASN tiering + compound-key + `iptoasn.com` TSV loader must ship before routing the first SamplePlatform pageview. `PHASE_10_GATE=1` is permanently on after the cutover.
 
 ## SamplePlatform P5 config (calibrated per doc 27 §line 63)
 
@@ -75,12 +78,22 @@ Behind a trusted edge:
 ## CI integration (TODO)
 
 ```makefile
+# v1: advisory only (skip unless PHASE_10_GATE=1)
 ratelimit-semgrep:
+ifeq ($(PHASE_10_GATE),1)
     semgrep --config=.claude/skills/ratelimit-tuning-review/semgrep internal/ cmd/
+else
+    @echo "ratelimit-semgrep: SKIPPED (Phase 10 gate not active — set PHASE_10_GATE=1 to enforce)"
+endif
 
 ratelimit-k6:
+ifeq ($(PHASE_10_GATE),1)
     k6 run .claude/skills/ratelimit-tuning-review/k6/scenarios.json
+else
+    @echo "ratelimit-k6: SKIPPED (Phase 10 gate not active)"
+endif
 
+# Permanent on at Phase 10 cutover
 release-gate-phase-10: lint test test-integration ratelimit-semgrep ratelimit-k6
 ```
 

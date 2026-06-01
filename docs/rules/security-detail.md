@@ -1,6 +1,6 @@
 # Security rule detail (reference)
 
-> Extended operational detail for [CLAUDE.md § Security](../../CLAUDE.md#security-12-features-all-v1). The 13 rules themselves stay inline in CLAUDE.md; this file holds the reference tables (fallback CAs, systemd hardening options, LUKS reasoning) that agents need only when provisioning new infrastructure or triaging a deployment mismatch.
+> Extended operational detail for [CLAUDE.md § Security](../../CLAUDE.md#security-12-features-in-v1-2-phase-1011-deferred). The 14 rules themselves (12 v1 + 2 Phase 10/11 deferred) stay inline in CLAUDE.md; this file holds the reference tables (fallback CAs, systemd hardening options, LUKS reasoning) that agents need only when provisioning new infrastructure or triaging a deployment mismatch.
 
 ## Rule 1 — TLS 1.3 via manual PEM files
 
@@ -84,21 +84,31 @@ RestartSec=5
 - `systemd-analyze security statnive-live.service` should report rating ≤ 1.5 ("OK, safe to deploy").
 - `deploy/systemd/harden-verify.sh` compares the unit file against this canonical list.
 
-## Rule 13 — CGNAT-aware rate-limit tiering (ASN list)
+## Deferred to Phase 10 / Phase 11
 
-Detail lives in the skill spec and `internal/ratelimit/asn.go`:
-- [`.claude/skills/ratelimit-tuning-review`](../../.claude/skills/ratelimit-tuning-review/README.md) — 10-item enforcement checklist
-- `iptoasn.com/data/ip2asn-v4.tsv.gz` — operator-downloaded monthly; hourly-reload via file-mtime check
+### Rule 13 — CGNAT-aware rate-limit tiering (Phase 10 cutover gate)
 
-**Iranian ASNs hardcoded for CGNAT treatment:**
+**Status:** Deferred to Phase 10 SamplePlatform cutover. v1's `internal/ratelimit/` has basic per-IP + X-Forwarded-For only; no ASN lookup code in the binary. The design below is the Phase 10 target spec.
+
+Target detail lives in the skill spec and (future) `internal/ratelimit/asn.go`:
+- [`.claude/skills/ratelimit-tuning-review`](../../.claude/skills/ratelimit-tuning-review/README.md) — 10-item enforcement checklist; **enforced only when `PHASE_10_GATE=1` env var is set**. Advisory in v1.
+- `iptoasn.com/data/ip2asn-v4.tsv.gz` — operator-downloaded monthly; hourly-reload via file-mtime check.
+
+**Iranian ASNs targeted for CGNAT treatment (Phase 10):**
 - AS44244 — Irancell (mobile)
 - AS197207 — MCI (mobile)
 - AS57218 — RighTel (mobile)
 - AS31549 — Shatel (fixed — residential fiber with CGNAT at peak)
 - AS43754 — Asiatech (business — may carry SamplePlatform employees behind NAT)
 
+### Rule 14 — Outbound allow-list / SSRF guard (Phase 11 gate)
+
+**Status:** Deferred to Phase 11 (when the first opt-in outbound feature ships — ACME, Polar.sh, IP2Location DB23 download, etc.). v1 ships zero outbound paths; `config.outbound.allowlist: []` is the air-gap default. The file `internal/httpclient/guarded.go` does NOT exist in v1 and is intentionally absent — there is nothing for it to guard.
+
+When the first opt-in outbound path lands, the guard MUST be wired before the path is mergeable. Enforcement: [`air-gap-validator`](../../.claude/skills/air-gap-validator/README.md) Semgrep rule `airgap-no-raw-httpclient`.
+
 ## Cross-references
 
-- [`CLAUDE.md § Security`](../../CLAUDE.md#security-12-features-all-v1) — rule list
+- [`CLAUDE.md § Security`](../../CLAUDE.md#security-12-features-in-v1-2-phase-1011-deferred) — rule list (12 v1 + 2 deferred)
 - [`docs/tooling.md § Doc 28 additions`](../tooling.md) — skill-roster evolution
 - [`.claude/skills/iranian-dc-deploy`](../../.claude/skills/iranian-dc-deploy/README.md) — blackout-sim CI gate
