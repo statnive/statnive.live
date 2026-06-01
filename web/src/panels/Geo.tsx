@@ -236,12 +236,16 @@ export default function Geo() {
       pick: (r: GeoTopRow) => number,
       total: number,
     ): PieSummaryRow[] =>
-      ranked.map((r, idx) => ({
-        channel: `${lookupCountry(r.country_code).flag} ${lookupCountry(r.country_code).name}`,
-        value: pick(r),
-        pct: total > 0 ? (pick(r) / total) * 100 : 0,
-        color: pieHueForChannel(r.country_code, idx, theme),
-      }));
+      ranked.map((r, idx) => {
+        const c = lookupCountry(r.country_code);
+        const rank = String(idx + 1).padStart(2, '0');
+        return {
+          channel: `${rank}  ${c.flag}  ${c.name}`,
+          value: pick(r),
+          pct: total > 0 ? (pick(r) / total) * 100 : 0,
+          color: pieHueForChannel(r.country_code, idx, theme),
+        };
+      });
 
     const visitorsList = buildSummary(
       [...top].sort((a, b) => b.visitors - a.visitors).slice(0, TOP_N),
@@ -352,34 +356,52 @@ export default function Geo() {
     expanded.value = next;
   }
 
+  const activeTotal = activeMetric === 'visitors' ? totals.visitors : totals.revenue;
+  const activeTotalText = activeMetric === 'visitors'
+    ? fmtInt(activeTotal)
+    : fmtMoney(activeTotal, currency);
+  const activeTotalLabel = activeMetric === 'visitors' ? 'Total visitors' : 'Total revenue';
+
   return (
-    <section class="statnive-section statnive-geo" data-testid="panel-geo">
+    <section class="statnive-section statnive-geo-stack" data-testid="panel-geo">
       <h2 class="statnive-h2">Geo</h2>
 
-      <div class="statnive-geo-headline">
-        <div data-testid="geo-top-visitors">
-          <h3 class="statnive-h3">Top countries by visitors</h3>
-          <PieSummaryList rows={visitorsList} formatValue={fmtInt} />
-        </div>
-        <div data-testid="geo-top-revenue">
-          <h3 class="statnive-h3">Top countries by revenue</h3>
-          <PieSummaryList
-            rows={revenueList}
-            formatValue={(n) => fmtMoney(n, currency)}
-          />
-        </div>
-      </div>
+      <article class="statnive-geo-box" data-testid="geo-headline">
+        <header class="statnive-geo-box-head">
+          <div class="statnive-geo-box-head-titles">
+            <p class="statnive-geo-kicker">Ranking</p>
+            <h3 class="statnive-geo-title">Top countries</h3>
+          </div>
+        </header>
 
-      <div class="statnive-geo-pie" data-testid="geo-pie">
-        <div class="statnive-geo-pie-header">
-          <h3 class="statnive-h3">Country share</h3>
+        <div class="statnive-geo-headline-grid">
+          <div class="statnive-geo-headline-column" data-testid="geo-top-visitors">
+            <p class="statnive-geo-headline-sublabel">By visitors</p>
+            <PieSummaryList rows={visitorsList} formatValue={fmtInt} />
+          </div>
+          <div class="statnive-geo-headline-column" data-testid="geo-top-revenue">
+            <p class="statnive-geo-headline-sublabel">By revenue</p>
+            <PieSummaryList
+              rows={revenueList}
+              formatValue={(n) => fmtMoney(n, currency)}
+            />
+          </div>
+        </div>
+      </article>
+
+      <article class="statnive-geo-box" data-testid="geo-pie">
+        <header class="statnive-geo-box-head">
+          <div class="statnive-geo-box-head-titles">
+            <p class="statnive-geo-kicker">Share</p>
+            <h3 class="statnive-geo-title">Country share</h3>
+          </div>
           <div class="statnive-geo-pie-toggle" role="group" aria-label="Pie metric">
             <button
               type="button"
               class={
-                'statnive-chip' + (metric.value === 'visitors' ? ' is-active' : '')
+                'statnive-chip' + (activeMetric === 'visitors' ? ' is-active' : '')
               }
-              aria-pressed={metric.value === 'visitors'}
+              aria-pressed={activeMetric === 'visitors'}
               data-testid="geo-pie-metric-toggle-visitors"
               onClick={() => {
                 metric.value = 'visitors';
@@ -390,9 +412,9 @@ export default function Geo() {
             <button
               type="button"
               class={
-                'statnive-chip' + (metric.value === 'revenue' ? ' is-active' : '')
+                'statnive-chip' + (activeMetric === 'revenue' ? ' is-active' : '')
               }
-              aria-pressed={metric.value === 'revenue'}
+              aria-pressed={activeMetric === 'revenue'}
               data-testid="geo-pie-metric-toggle"
               onClick={() => {
                 metric.value = 'revenue';
@@ -401,27 +423,40 @@ export default function Geo() {
               Revenue
             </button>
           </div>
-        </div>
+        </header>
+
         <div class="statnive-geo-pie-grid">
           <LazyChart option={pieEChartOption as never} height={PIE_HEIGHT} />
           <PieSummaryList
             rows={pieRowsForList}
             formatValue={(n) =>
-              metric.value === 'visitors' ? fmtInt(n) : fmtMoney(n, currency)
+              activeMetric === 'visitors' ? fmtInt(n) : fmtMoney(n, currency)
             }
           />
         </div>
-        <p class="statnive-sr-only">
-          {metric.value === 'visitors'
-            ? `Total ${fmtInt(totals.visitors)} visitors across ${pieRowsForList.length} countries`
-            : `Total ${fmtMoney(totals.revenue, currency)} revenue across ${pieRowsForList.length} countries`}
-        </p>
+
+        <div class="statnive-geo-pie-total" data-testid="geo-pie-total">
+          <span class="statnive-geo-pie-total-label">{activeTotalLabel}</span>
+          <span class="statnive-geo-pie-total-value">{activeTotalText}</span>
+          <span class="statnive-geo-pie-total-meta">
+            across {pieRowsForList.length} {pieRowsForList.length === 1 ? 'country' : 'countries'}
+          </span>
+        </div>
+
         <span class="statnive-sr-only" data-testid="geo-share-helper">
           {fmtSharePct(activeRows[0]?.pct ?? 0)}
         </span>
-      </div>
+      </article>
 
-      <table class="statnive-table">
+      <article class="statnive-geo-box" data-testid="geo-drilldown">
+        <header class="statnive-geo-box-head">
+          <div class="statnive-geo-box-head-titles">
+            <p class="statnive-geo-kicker">Drill-down</p>
+            <h3 class="statnive-geo-title">Country, region, city</h3>
+          </div>
+        </header>
+
+        <table class="statnive-table">
         <thead>
           <tr>
             <th>Country</th>
@@ -501,18 +536,18 @@ export default function Geo() {
         </tbody>
       </table>
 
-      {limit.value < 200 ? (
-        <button
-          type="button"
-          class="statnive-chip"
-          onClick={() => {
-            limit.value = 200;
-          }}
-          style={{ marginTop: 'var(--s-2)' }}
-        >
-          Show more (up to 200)
-        </button>
-      ) : null}
+        {limit.value < 200 ? (
+          <button
+            type="button"
+            class="statnive-chip statnive-geo-show-more"
+            onClick={() => {
+              limit.value = 200;
+            }}
+          >
+            Show more (up to 200)
+          </button>
+        ) : null}
+      </article>
     </section>
   );
 }

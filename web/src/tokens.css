@@ -134,6 +134,7 @@
   --text-title:       20px;   /* panel title `.statnive-h2` (unchanged) */
   --text-headline:    34px;   /* hero headline (unchanged) */
   --text-num-primary: 36px;   /* was 34px — KPI big numbers on Overview */
+  --text-num-hero:    32px;   /* in-card hero readouts (Geo pie total) */
 
   /* Numeric weight — used alongside `font-variant-numeric: tabular-nums`
      on `.statnive-num-cell` and KPI primary readouts. */
