@@ -15,7 +15,6 @@
 | ANEXIA Internetdienstleistungs GmbH | Infrastructure / personnel (Netcup Annex 2 inheritance) | AT (EEA) | 2026-04-24 (inherited) | Netcup Annex 2 | — | ISO 27001 + ISO 27701 (CIS) |
 | DATASIX Rechenzentrumsbetriebs GmbH | Data-center operations (Netcup Annex 2 inheritance) | DE | 2026-04-24 (inherited) | Netcup Annex 2 | — | ISO 27001 + ISO 27701 (CIS) |
 | ANX Holding GmbH | Support services (billing, regulatory) (Netcup Annex 2 inheritance) | AT (EEA) | 2026-04-24 (inherited) | Netcup Annex 2 | — | — |
-| ISRG / Let's Encrypt | TLS DV certificate issuance for `statnive.live` + `app.statnive.live` + `demo.statnive.live` (3-SAN cert via `certbot --dns-…`) | US (DPF) | _to be filled when first cert issues_ | n/a (public CA, no PII transfer in DV issuance) | — | WebTrust for CAs |
 | Cloudflare, Inc. | Authoritative DNS (DNS-only / grey-cloud) for `statnive.live` zone — no proxy, no Workers, no Analytics. EU visitors' DNS query metadata in Cloudflare's logs. | US (DPF) | _to be filled when zone delegated_ | [`deploy/dns/statnive.live.zone`](../../deploy/dns/statnive.live.zone) | abuse@cloudflare.com | SOC 2 Type II / ISO 27001 / DPF certified |
 | MailerLite Limited | Newsletter signup form on `https://statnive.live/` (pre-launch waitlist) and transactional + marketing email delivery to opted-in subscribers. Receives: subscriber email, IP at submission, browser UA, timestamp. Embed loads `assets.mlcdn.com` + `groot.mailerlite.com`; submit posts to `assets.mailerlite.com`. | EU (IE / LT) | _to be filled when DPA archived from MailerLite portal_ | [`internal/landing/index.html`](../../internal/landing/index.html), [`internal/landing/landing.go`](../../internal/landing/landing.go) | support@mailerlite.com | SOC 2 Type II / ISO 27001 / GDPR DPA template |
 
@@ -27,6 +26,7 @@
 
 | Name | Role | Country | Trigger | Disclosure due |
 |---|---|---|---|---|
+| ISRG / Let's Encrypt | TLS DV certificate issuance for `statnive.live` + `app.statnive.live` + `demo.statnive.live` (3-SAN cert via `certbot --dns-…`). **v1.1 planned** — v1 ships with manual PEM files only per `CLAUDE.md § Security #1`; no `certbot` / ACME outbound from the binary. | US (DPF) | First ACME issuance (v1.1 cutover) | Before v1.1 release |
 | Polar.sh | Merchant-of-record checkout + Polar webhook (Phase 11b) | US | First call to `POST /api/billing/checkout` | Before Phase 11b cutover |
 | Outside-Iran release bastion | Courier host bridging GitHub → Iranian VPS for `make release-iran-vps` (Phase 10 P1) | (host-dependent — register the actual provider) | First courier run | Before Phase 10 P1 cutover (per [`PLAN.md:358`](../../PLAN.md#L358)) |
 | IP2Location DB23 paid distribution endpoint | DB23 BIN download (replaces LITE at Phase 10) | US (DPF) | First paid DB23 download | Before Phase 10 procurement |

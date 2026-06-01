@@ -41,12 +41,14 @@ Processor will not process the data for any other purpose, including: targeted a
 
 | Category | Form stored | Retention |
 |---|---|---|
-| Visitor identifier (BLAKE3-128 hash of `master_secret \|\| site_id \|\| user_id`) | `FixedString(16)` | Raw event 30 days; rollups indefinite (HLL state, anonymous per Recital 26 + CJEU C-413/23) |
-| Source IP address | **Never persisted.** Used only for GeoIP lookup, then discarded before the batch writer sees the row. | Zero |
-| GeoIP-derived country / region / city | `LowCardinality(String)` | Raw event 30 days; rollup `daily_geo` indefinite |
-| User-agent string + parsed UA fields (browser, OS, device class) | `String` + `LowCardinality(String)` | Raw event 30 days; rollup `daily_devices` indefinite |
-| HTTP referrer + parsed channel grouping | `String` + `LowCardinality(String)` | Raw event 30 days; rollup `daily_sources` indefinite |
-| Custom event names + values (Customer-defined goals) | `String` + numeric | Raw event 30 days; rollup goal-state indefinite |
+| **Visitor hash** (BLAKE3-128 of `IP \|\| "\|" \|\| User-Agent` keyed by daily-rotating salt; salt = `HMAC-SHA256(master_secret, site_id \|\| YYYY-MM-DD IRST)`) | `FixedString(16)` | Raw event 180 days; rollups indefinite (HLL state — anonymous per Recital 26 + CJEU C-413/23) |
+| **User-ID hash** (SHA-256 of `master_secret \|\| site_id \|\| user_id` — populated only when the Customer's site calls `statnive.identify(user_id)`) | `String` (64-hex) | Raw event 180 days; rollups indefinite |
+| **Cookie identifier** (SHA-256 of `master_secret \|\| site_id \|\| UUID` with `h:` prefix — first-party `_statnive` cookie used to bind opt-in/opt-out + DSAR scope to the visitor) | `String` (66 chars: `h:` + 64-hex) | Raw event 180 days; deleted on DSAR erase |
+| Source IP address | **Never persisted.** Used only for GeoIP lookup (and the daily hash above), then discarded before the batch writer sees the row. | Zero |
+| GeoIP-derived country / region / city | `LowCardinality(String)` | Raw event 180 days; rollup `daily_geo` planned for v1.1 |
+| User-agent string + parsed UA fields (browser, OS, device class) | `String` + `LowCardinality(String)` | Raw event 180 days; rollup `daily_devices` planned for v1.1 |
+| HTTP referrer + parsed channel grouping | `String` + `LowCardinality(String)` | Raw event 180 days; rollup `daily_sources` indefinite |
+| Custom event names + values (Customer-defined goals) | `String` + numeric | Raw event 180 days; rollup goal-state indefinite |
 
 **No special categories (Art. 9)** are processed. The platform is architecturally incapable of processing race / religion / genetic / biometric / political / union / health / sex-life data.
 
@@ -85,10 +87,14 @@ Customer hereby gives general written authorisation for Processor to engage the 
 
 ### 5.5 Data Subject Rights (Art. 28(3)(e))
 
-Processor assists Customer in responding to data-subject requests under Arts. 15–22 by providing:
+Processor assists Customer in responding to data-subject requests under Arts. 15–22 by exposing the following visitor-facing endpoints. Each is scoped to the requester's first-party `_statnive` cookie, the resolved `site_id` (from the request `Host` header or the `X-Statnive-Site` override), and the per-tenant cookie-hash recipe in § 3 — so a visitor on Customer A's site cannot reach Customer B's data even with a forged request:
 
-- `GET /api/privacy/export?user_id=…` — visitor-scoped data export (CSV / JSON).
-- `DELETE /api/privacy/erase?user_id=…` — visitor-scoped erasure across raw + rollup tables (CASCADE), with `system.tables` enumerated dynamically so a forgotten table fails the integration test by construction (per [`PLAN.md:585`](../PLAN.md#L585) DSAR completeness gate).
+- `GET /api/privacy/access` (Art. 15) — visitor-scoped data export (JSON) for the cookie-bound rows on the resolved site.
+- `POST /api/privacy/erase` (Art. 17) — visitor-scoped erasure across every table containing a `cookie_id` column, enumerated dynamically against `system.columns` and tenancy-scoped to `WHERE cookie_id = ? AND site_id = ?` so a forgotten table fails the integration test by construction (per [`PLAN.md:585`](../PLAN.md#L585) DSAR completeness gate and the `TestDSAR_CrossTenantIsolation` integration test added in v0.0.36).
+- `POST /api/privacy/opt-out` (Art. 21) — sets a site-scoped `_statnive_optout_<site_id>` cookie that short-circuits tracker dispatch before any hash is computed.
+- `POST /api/privacy/consent` (Art. 7) — records explicit `give` / `withdraw` for the hybrid consent mode (`consent_mode=hybrid`) used in Path A deployments.
+
+Endpoints emit `privacy.dsar_*` audit-log entries (JSONL via `slog`) with the resolved `site_id`, the cookie hash, and the row count — so Customer can demonstrate compliance to its supervisory authority. Customer is responsible for surfacing the link to these endpoints (e.g. via the "Widerspruch / Tracking-Opt-Out" link in its privacy notice) per Art. 13(2)(b).
 
 ### 5.6 Assistance with Controller Obligations (Art. 28(3)(f))
 
@@ -96,7 +102,7 @@ Processor assists Customer with Art. 32 (security), Art. 33–34 (breach notific
 
 ### 5.7 Deletion or Return (Art. 28(3)(g))
 
-On termination of the subscription, Customer may export all data via the standard CSV/JSON export endpoint within 30 days. After 30 days, Processor deletes all Customer data from raw tables, rollup tables, backups (next backup cycle ≤ 24h), and audit logs, except where Union or Member State law requires retention.
+On termination of the subscription, Customer may export visitor-scoped data via the `GET /api/privacy/access` endpoint (§ 5.5). Site-wide deletion is **operator-initiated** via written request to `support@statnive.live` referencing the affected `site_id`(s); Processor commits to a **30-day SLA** for removal from raw tables, rollup tables, and the next backup cycle (≤ 24h after the deletion), except where Union or Member State law requires retention. Full automation of site-wide deletion is on the Phase 11b roadmap; until then the written-request path is the canonical mechanism. Visitor-scoped erasure (Art. 17) remains fully automated via `POST /api/privacy/erase` at any time during the subscription.
 
 ### 5.8 Audit Rights (Art. 28(3)(h))
 
@@ -108,8 +114,9 @@ All processing of EU personal data occurs in **Nuremberg, Germany** on the Netcu
 
 The following sub-processors are US-resident and are disclosed under EU-US Data Privacy Framework (DPF) adequacy (Art. 45):
 
-- **ISRG / Let's Encrypt** — TLS DV certificate issuance only. No personal data is transferred during ACME issuance (DNS-01 challenge).
 - **Cloudflare, Inc.** — authoritative DNS for the `statnive.live` zone in DNS-only / grey-cloud mode. Cloudflare receives DNS query metadata (resolver IP, queried name) but no application payload; no proxy, no Workers, no Cloudflare Analytics.
+
+ISRG / Let's Encrypt is **not yet** a sub-processor: v1 ships with manual PEM files only (no `certbot` / ACME outbound from the binary) per `CLAUDE.md § Security #1`. Let's Encrypt is queued in Schedule A's "Future sub-processors" table and will be re-disclosed before the v1.1 ACME cutover; in any case ACME DV issuance via DNS-01 challenge does not transfer personal data.
 
 EU-resident sub-processors (intra-EEA processing, no Chapter V transfer):
 
