@@ -41,6 +41,13 @@ type Deps struct {
 	Sites  SiteLister
 	Audit  *audit.Logger
 	Logger *slog.Logger
+	// GeoEnabled is the v1.1-geo feature flag mirror. When false the
+	// /api/stats/geo handler returns 501 (storage.ErrNotImplemented)
+	// before touching the store — same behavior as v1, so the SPA
+	// renders the Nav tab as "SOON". Flipped on by operator via
+	// dashboard.geo_enabled in config/statnive-live.yaml after the
+	// historical backfill in cmd/geo-backfill is verified.
+	GeoEnabled bool
 }
 
 // endpoint names — the strings that land in the audit log "endpoint"
@@ -212,13 +219,29 @@ func campaignsHandler(deps Deps) http.HandlerFunc {
 	}
 }
 
-// geoHandler currently passes through to Store.Geo which returns
-// ErrNotImplemented. The route is mounted in v1 so the dashboard SPA
-// can attach to a 501 response instead of a 404; v1.1 swaps the Store
-// implementation when the daily_geo rollup ships.
+// geoResponse is the envelope returned by /api/stats/geo. Top drives
+// the panel's "Top 10 by Visitors / Top 10 by Revenue" headline plus
+// the share-of-visitors donut; Rows drives the country → province →
+// city drill-down table. Two store calls run in parallel via errgroup
+// to halve cold-cache wall-clock latency (same pattern as Sources).
+type geoResponse struct {
+	Top  []storage.GeoTopRow `json:"top"`
+	Rows []storage.GeoRow    `json:"rows"`
+}
+
+// geoHandler answers GET /api/stats/geo (v1.1-geo). Gated by
+// deps.GeoEnabled — when false the handler returns 501 via the same
+// storage.ErrNotImplemented path the pre-v1.1 binary used, so flipping
+// the flag is a true rollback rather than a behavior change.
 func geoHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		const endpoint = "geo"
+		const endpoint = endpointGeo
+
+		if !deps.GeoEnabled {
+			writeError(w, r, deps, endpoint, errFeatureDisabled)
+
+			return
+		}
 
 		f, err := filterFromRequest(r, deps.Sites)
 		if err != nil {
@@ -227,14 +250,33 @@ func geoHandler(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		result, err := deps.Store.Geo(r.Context(), f)
-		if err != nil {
+		g, gctx := errgroup.WithContext(r.Context())
+
+		var (
+			rows []storage.GeoRow
+			top  []storage.GeoTopRow
+		)
+
+		g.Go(func() error {
+			out, gerr := deps.Store.Geo(gctx, f)
+			rows = out
+
+			return gerr
+		})
+		g.Go(func() error {
+			out, gerr := deps.Store.GeoTopCountries(gctx, f)
+			top = out
+
+			return gerr
+		})
+
+		if err := g.Wait(); err != nil {
 			writeError(w, r, deps, endpoint, err)
 
 			return
 		}
 
-		writeOK(w, r, deps, endpoint, result)
+		writeOK(w, r, deps, endpoint, geoResponse{Top: top, Rows: rows})
 	}
 }
 

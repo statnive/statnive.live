@@ -78,6 +78,10 @@ func (c *countingStore) Geo(_ context.Context, _ *storage.Filter) ([]storage.Geo
 	return nil, storage.ErrNotImplemented
 }
 
+func (c *countingStore) GeoTopCountries(_ context.Context, _ *storage.Filter) ([]storage.GeoTopRow, error) {
+	return nil, storage.ErrNotImplemented
+}
+
 func (c *countingStore) Devices(_ context.Context, _ *storage.Filter) ([]storage.DeviceRow, error) {
 	return nil, storage.ErrNotImplemented
 }

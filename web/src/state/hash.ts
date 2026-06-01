@@ -10,6 +10,7 @@ export type PanelName =
   | 'pages'
   | 'seo'
   | 'campaigns'
+  | 'geo'
   | 'realtime'
   | 'admin';
 
@@ -21,6 +22,7 @@ const VALID: ReadonlySet<string> = new Set<PanelName>([
   'pages',
   'seo',
   'campaigns',
+  'geo',
   'realtime',
   'admin',
 ]);

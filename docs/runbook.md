@@ -2693,3 +2693,67 @@ Mark all of these off the night the battery completes — any single line untick
 - [ ] **Sign-off** from at least one engineer who did NOT run the battery — they read the evidence pack cold and either approve graduation or flag a follow-up
 
 Once every line is checked: graduation. Real customer traffic can cut over per § Phase 10 / Phase 10b SOPs. Any failure resets the clock — run the full battery again after the fix lands.
+
+## Geo rollout (v1.1-geo)
+
+The Geo report (country / region / city visitor + revenue panel) ships behind the `dashboard.geo_enabled` config flag (default `false`). Migration 019 creates the `daily_geo` rollup table + `mv_daily_geo` materialized view at boot; the MV starts catching new events immediately, but historical `events_raw` rows must be loaded out-of-band via `cmd/geo-backfill` before the panel becomes useful. Customers see no change until the operator flips the flag.
+
+### Staged deploy (each step is a hard gate)
+
+1. **Baseline snapshot.** Capture pre-deploy row counts and SLO state so post-deploy drift is detectable:
+   ```sh
+   clickhouse-client --query "SELECT count() FROM statnive.events_raw"
+   clickhouse-client --query "SELECT sum(views) FROM statnive.hourly_visitors"
+   curl -fsS https://statnive.live/healthz | jq '.wal_pending, .wal_fsync_p99_ms'
+   ```
+   Save the four numbers to the release ticket.
+2. **Deploy** the new binary with `dashboard.geo_enabled: false` (default). Migration 019 runs at boot (sub-second). Healthz must return 200 within the normal ~50 s budget (LEARN.md Lesson 28 still applies).
+3. **Verify no existing-endpoint regression.** Run `make smoke` against the deployed binary — every probe (`/api/stats/overview`, `/api/stats/sources`, `/api/stats/pages`, `/api/stats/trend`, `/api/realtime/visitors`) must return its pre-deploy shape. `probe_geo` runs with the flag on in the smoke env; that's expected. On the production binary the flag is still false at this point, so a curl to `/api/stats/geo?site=...` with a bearer header should return 501.
+4. **Verify the MV is catching new events.** Wait 60 s of production traffic, then:
+   ```sh
+   clickhouse-client --query "SELECT count() FROM statnive.daily_geo WHERE day = today()"
+   ```
+   Non-zero on a live site = the MV is materializing.
+5. **Run the backfill, OFF-HOURS.** Off-hours is per-customer (low traffic window). On the production box:
+   ```sh
+   make geo-backfill CONFIG=/etc/statnive-live/config.yaml \
+                     FROM=<earliest events_raw date> \
+                     TO=$(date +%F)
+   ```
+   The binary chunks per-day; an idempotency check skips chunks whose `daily_geo.views` already matches `events_raw`. Safe to Ctrl-C and resume — re-running is a no-op on completed days. Use `nice -n 10 ionice -c2 -n6 make geo-backfill ...` if production ingest needs the CPU/disk priority.
+6. **Reconcile counts.** Compare raw vs rollup totals per day:
+   ```sh
+   clickhouse-client --query "
+     SELECT toDate(time) AS day, count() AS raw_events
+     FROM statnive.events_raw WHERE is_bot = 0
+     GROUP BY day ORDER BY day"
+   clickhouse-client --query "
+     SELECT day, sum(views) AS rollup_views
+     FROM statnive.daily_geo
+     GROUP BY day ORDER BY day"
+   ```
+   The two columns should match exactly per day (the MV filter is `is_bot = 0` on both sides). Any per-day delta > 0.1 % is a bug — investigate before flipping the flag.
+7. **Flip the flag.** Edit `/etc/statnive-live/config.yaml`: `dashboard.geo_enabled: true`. SIGHUP the binary (`systemctl reload statnive-live`). Verify `/api/stats/geo?site=...` returns 200 + `{ "top": [...], "rows": [...] }`. Open the dashboard at `/app/#geo`; confirm headline + pie + drill-down render.
+8. **24-h watch.** Monitor `wal_fsync_p99_ms`, ClickHouse disk growth, error logs. Run `make geo-backfill FROM=$(date -d 'yesterday' +%F) TO=$(date +%F)` once at 24 h to catch any race-window stragglers (the idempotency check makes this a no-op if there's nothing to backfill).
+
+### Rollback (in order of intrusiveness)
+
+- **Hide the panel without data loss.** Flip `dashboard.geo_enabled: false` + SIGHUP. The Nav tab keeps showing on the SPA but the panel renders a "coming soon" state; the endpoint returns 501. The MV keeps materializing in the background (cheap), so re-enabling later doesn't require another backfill.
+- **MV degrades ingest.** Drop the MV (the rollup table can stay; it's only reachable while the flag is off, and the MV is the only thing on the ingest hot path):
+  ```sql
+  DROP TABLE IF EXISTS statnive.mv_daily_geo;
+  ```
+  Re-create later by re-running migration 019's MV statement manually or by re-applying the migration after dropping its row from `schema_migrations`.
+- **Bad data in `daily_geo`.** TRUNCATE only the rollup, never `events_raw`:
+  ```sql
+  TRUNCATE TABLE statnive.daily_geo;
+  ```
+  Then re-run the backfill across the affected window. Existing dashboard endpoints (Sources / Pages / etc.) are unaffected throughout.
+
+### What can break (and what cannot)
+
+- ✅ Existing customers tracking via the JS snippet are unaffected — no tracker change, no payload contract change, no rate-limit change.
+- ✅ Existing dashboard endpoints (`/api/stats/overview`, `/api/stats/sources`, `/api/stats/pages`, `/api/stats/seo`, `/api/stats/trend`, `/api/stats/campaigns`, `/api/realtime/visitors`) return byte-identical payloads — the diff is greenfield (`/api/stats/geo` 501 → 200) plus one new MV in the ingest pipeline.
+- ✅ Rolling back the flag is a single config edit + SIGHUP. No PR revert, no data migration, no customer-visible churn.
+- ⚠️ The MV adds one GROUP-BY computation per insert block to the ingest pipeline. The release-gate bench (`make bench`) must show ≤ 5 % p99 regression; if it doesn't, drop the MV and the panel reads from a 1-hour-cached on-demand query against `events_raw` (carve-out under Architecture Rule 1) until the MV is tuned.
+- ⚠️ At country + region + city dimensions, `daily_geo` rollup size per day per site can hit ~ 400 KB for high-traffic, high-geo-diversity sites (SamplePlatform doc-30 numbers). That's 4× the 100 KB Architecture Rule 2 target — flag for re-evaluation if any single tenant exceeds 1 MB / day / site.

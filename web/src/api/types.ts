@@ -91,3 +91,37 @@ export interface RealtimeResponse {
   active_visitors: number;
   pageviews_last_hr: number;
 }
+
+// GeoRow is one (country, province, city) tuple from daily_geo.
+// CountryCode is ISO-3166 alpha-2; '--' marks unresolved GeoIP and
+// renders as "Unknown" with a placeholder flag in the panel.
+export interface GeoRow {
+  country_code: string;
+  province: string;
+  city: string;
+  views: number;
+  visitors: number;
+  goals: number;
+  revenue: number;
+  rpv: number;
+}
+
+// GeoTopRow is one country aggregate that drives the headline + pie.
+// Server caps GeoTopCountries at 25 rows; the panel slices to top-10
+// per axis and collapses the rest into "Other" in the donut.
+export interface GeoTopRow {
+  country_code: string;
+  views: number;
+  visitors: number;
+  goals: number;
+  revenue: number;
+  rpv: number;
+}
+
+// GeoResponse is the envelope /api/stats/geo returns. Top drives the
+// dual ranked-list headline and the share-of-visitors donut; rows
+// drives the country → province → city drill-down table.
+export interface GeoResponse {
+  top: GeoTopRow[];
+  rows: GeoRow[];
+}

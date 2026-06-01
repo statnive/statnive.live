@@ -48,6 +48,24 @@ build-linux: web-build
 statnive-license:
 	CGO_ENABLED=0 $(GO) build -mod=vendor -o $(BIN_DIR)/statnive-license ./cmd/statnive-license
 
+## geo-backfill: Build + invoke the v1.1-geo historical-rollup loader.
+## Operator runs this AFTER deploying the binary (migration 019 creates
+## the table + MV) but BEFORE flipping dashboard.geo_enabled. CONFIG /
+## FROM / TO are required; the binary chunks per-day and skips chunks
+## whose daily_geo.views already match events_raw.
+##
+##   make geo-backfill CONFIG=/etc/statnive-live/config.yaml \
+##                     FROM=2025-01-01 TO=2026-05-31
+geo-backfill: $(BIN_DIR)/geo-backfill
+	@if [ -z "$(CONFIG)" ] || [ -z "$(FROM)" ]; then \
+		echo "Usage: make geo-backfill CONFIG=<path> FROM=YYYY-MM-DD [TO=YYYY-MM-DD]"; \
+		exit 2; \
+	fi
+	$(BIN_DIR)/geo-backfill --config $(CONFIG) --from $(FROM) $(if $(TO),--to $(TO),)
+
+$(BIN_DIR)/geo-backfill:
+	CGO_ENABLED=0 $(GO) build -mod=vendor -o $(BIN_DIR)/geo-backfill ./cmd/geo-backfill
+
 ## test: Run unit tests with race detector (target <5s wall time)
 test:
 	$(GO) test -mod=vendor -race -timeout 60s ./...

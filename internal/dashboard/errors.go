@@ -26,6 +26,14 @@ type errorEnvelope struct {
 // dashboard-site-query-needs-authz blocks at CI time).
 var errForbiddenSite = errors.New("dashboard: forbidden site")
 
+// errFeatureDisabled is returned by handlers whose feature flag is off
+// (v1.1-geo: dashboard.geo_enabled). classifyError maps it to HTTP 501,
+// preserving the same wire shape v1 used so an operator's "flip the
+// flag back to false" rollback is byte-identical to the pre-v1.1
+// response. Distinct from storage.ErrNotImplemented, which is the
+// store-layer signal for genuinely-not-built methods.
+var errFeatureDisabled = errors.New("dashboard: feature disabled")
+
 // writeJSON marshals payload as JSON with the given status. Failure to
 // marshal collapses to a 500 with a generic message — handlers should
 // never see this branch since the result types are well-formed.
@@ -112,7 +120,8 @@ func classifyError(err error) (int, audit.EventName) {
 	case errors.Is(err, storage.ErrInvalidFilter),
 		errors.Is(err, errBadInput):
 		return http.StatusBadRequest, audit.EventDashboardBadRequest
-	case errors.Is(err, storage.ErrNotImplemented):
+	case errors.Is(err, storage.ErrNotImplemented),
+		errors.Is(err, errFeatureDisabled):
 		return http.StatusNotImplemented, audit.EventDashboardNotImplemented
 	default:
 		return http.StatusInternalServerError, audit.EventDashboardError

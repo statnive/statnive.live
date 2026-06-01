@@ -27,6 +27,8 @@ function renderPanel() {
       return <LazyPanel name="seo" />;
     case 'campaigns':
       return <LazyPanel name="campaigns" />;
+    case 'geo':
+      return <LazyPanel name="geo" />;
     case 'realtime':
       return <LazyPanel name="realtime" />;
     case 'admin':

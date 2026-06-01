@@ -5,7 +5,7 @@ import { LivePulse } from './LivePulse';
 import './Nav.css';
 
 interface TabDef {
-  id: PanelName | 'geo' | 'devices' | 'funnel';
+  id: PanelName | 'devices' | 'funnel';
   label: string;
   adminOnly?: boolean;
   soon?: boolean;
@@ -15,24 +15,28 @@ interface TabDef {
 // Hoisted outside component per `rendering-hoist-jsx` — static array
 // identity lets Preact's diff skip list rebuilds on every render.
 //
-// SOON tabs (geo / devices / funnel) are visual-only — zero backend,
-// zero route target, zero PanelName-union entry. Clicking is a no-op;
-// parseHash() falls through to 'overview' if someone pastes `#geo`.
+// SOON tabs (devices / funnel) are visual-only — zero backend, zero
+// route target, zero PanelName-union entry. Clicking is a no-op;
+// parseHash() falls through to 'overview' if someone pastes the hash.
+//
+// Geo graduated from SOON to a real panel in v1.1-geo. The Geo panel
+// itself renders a "coming soon" empty state when the binary's
+// dashboard.geo_enabled flag is false (API returns 501).
 const TABS: ReadonlyArray<TabDef> = [
   { id: 'overview', label: 'Overview' },
   { id: 'sources', label: 'Sources' },
   { id: 'pages', label: 'Pages' },
   { id: 'seo', label: 'SEO' },
   { id: 'campaigns', label: 'Campaigns' },
+  { id: 'geo', label: 'Geo' },
   { id: 'realtime', label: 'Realtime', live: true },
   { id: 'admin', label: 'Admin', adminOnly: true },
-  { id: 'geo', label: 'Geo', soon: true },
   { id: 'devices', label: 'Devices', soon: true },
   { id: 'funnel', label: 'Funnel', soon: true },
 ];
 
 function isRealPanel(id: TabDef['id']): id is PanelName {
-  return id !== 'geo' && id !== 'devices' && id !== 'funnel';
+  return id !== 'devices' && id !== 'funnel';
 }
 
 export function Nav() {

@@ -112,13 +112,32 @@ type RealtimeResult struct {
 	PageviewsLastHr uint64    `json:"pageviews_last_hr"`
 }
 
-// GeoRow + DeviceRow are interface placeholders — Geo and Devices Store
-// methods return ErrNotImplemented in v1 because the daily_geo /
-// daily_devices rollups are v1.1.
+// GeoRow is one (country, province, city) tuple of the daily_geo rollup.
+// The dashboard panel folds the flat row set into a country → province →
+// city tree at render time; empty province / city + sentinel "--"
+// country are rendered as "Unknown".
 type GeoRow struct {
-	Province string `json:"province"`
-	City     string `json:"city"`
-	Visitors uint64 `json:"visitors"`
+	CountryCode string  `json:"country_code"`
+	Province    string  `json:"province"`
+	City        string  `json:"city"`
+	Views       uint64  `json:"views"`
+	Visitors    uint64  `json:"visitors"`
+	Goals       uint64  `json:"goals"`
+	Revenue     uint64  `json:"revenue"`
+	RPV         float64 `json:"rpv"`
+}
+
+// GeoTopRow is one country aggregate that drives the panel's "Top 10 by
+// Visitors / Top 10 by Revenue" headline block and the share-of-visitors
+// donut. Distinct from GeoRow so the headline doesn't have to re-aggregate
+// across province / city on the client. Capped at 25 rows server-side.
+type GeoTopRow struct {
+	CountryCode string  `json:"country_code"`
+	Views       uint64  `json:"views"`
+	Visitors    uint64  `json:"visitors"`
+	Goals       uint64  `json:"goals"`
+	Revenue     uint64  `json:"revenue"`
+	RPV         float64 `json:"rpv"`
 }
 
 // DeviceRow is one row of the daily_devices rollup (v1.1 placeholder).
