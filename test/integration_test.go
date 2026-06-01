@@ -239,14 +239,15 @@ func waitForCount(t *testing.T, parent context.Context, store *storage.ClickHous
 // flow needs all three of (a) ingest /api/event, (b) privacy /opt-out
 // and /consent, and (c) the suppression list shared between them.
 type integrationStack struct {
-	t           *testing.T
-	ctx         context.Context
-	cancel      context.CancelFunc
-	store       *storage.ClickHouseStore
-	srv         *httptest.Server
-	consumerEnd <-chan struct{}
-	masterKey   []byte
-	suppression *privacy.SuppressionList
+	t            *testing.T
+	ctx          context.Context
+	cancel       context.CancelFunc
+	store        *storage.ClickHouseStore
+	srv          *httptest.Server
+	consumerEnd  <-chan struct{}
+	masterKey    []byte
+	suppression  *privacy.SuppressionList
+	privacyErase *privacy.EraseEnumerator
 }
 
 const stage4MasterSecret = "stage4-integration-master-secret-32"
@@ -396,14 +397,15 @@ func newIntegrationStack(t *testing.T, siteID uint32, hostname string) *integrat
 	t.Cleanup(srv.Close)
 
 	return &integrationStack{
-		t:           t,
-		ctx:         ctx,
-		cancel:      cancel,
-		store:       store,
-		srv:         srv,
-		consumerEnd: consumerDone,
-		masterKey:   masterKey,
-		suppression: suppression,
+		t:            t,
+		ctx:          ctx,
+		cancel:       cancel,
+		store:        store,
+		srv:          srv,
+		consumerEnd:  consumerDone,
+		masterKey:    masterKey,
+		suppression:  suppression,
+		privacyErase: privacy.NewEraseEnumerator(store.Conn(), testDatabase),
 	}
 }
 
@@ -711,6 +713,120 @@ func cookieByName(cookies []*http.Cookie, name string) *http.Cookie {
 	}
 
 	return nil
+}
+
+// TestDSAR_CrossTenantIsolation pins the security invariant fixed by
+// the v0.0.36 hot-fix: an Art. 17 erase request on site A MUST NOT
+// delete site B's rows even when both sites happen to carry the same
+// cookie_id hash (statistically impossible organically, but
+// constructible by an insider with master_secret access — see
+// audit/legal-vs-system-audit.md FAIL-1).
+func TestDSAR_CrossTenantIsolation(t *testing.T) {
+	const (
+		siteAID   uint32 = 4444
+		siteBID   uint32 = 4445
+		hostnameA        = "stage4-erase-a.example.com"
+		hostnameB        = "stage4-erase-b.example.com"
+	)
+
+	stack := newIntegrationStack(t, siteAID, hostnameA)
+	defer stack.shutdown()
+
+	// Seed site B in the same backing ClickHouse so both sites resolve.
+	if err := stack.store.Conn().Exec(stack.ctx,
+		`INSERT INTO statnive.sites (site_id, hostname, slug, enabled) VALUES (?, ?, ?, 1)`,
+		siteBID, hostnameB, hostnameB,
+	); err != nil {
+		t.Fatalf("seed site B: %v", err)
+	}
+
+	// Construct the cross-tenant collision: same cookie_id hash on
+	// rows for BOTH sites. Organic collisions are infeasible because
+	// HexCookieIDHash mixes site_id into SHA-256 input, so we insert
+	// raw events_raw rows with a hand-crafted hash to simulate the
+	// insider-attack scenario. Use a per-run unique hash so this test
+	// doesn't collide with other tests sharing the same ClickHouse.
+	sharedHash := fmt.Sprintf("h:test-cross-tenant-%d-%d", time.Now().UnixNano(), siteAID)
+
+	for _, rowSiteID := range []uint32{siteAID, siteBID} {
+		if err := stack.store.Conn().Exec(stack.ctx,
+			`INSERT INTO statnive.events_raw
+			   (site_id, time, hostname, pathname, event_type, event_name, cookie_id, visitor_hash)
+			 VALUES
+			   (?, now(), ?, '/', 'pageview', 'pageview', ?, unhex('00000000000000000000000000000000'))`,
+			rowSiteID, hostnameA, sharedHash,
+		); err != nil {
+			t.Fatalf("seed events_raw for site %d: %v", rowSiteID, err)
+		}
+	}
+
+	// Synchronously verify both rows landed before the erase.
+	var preCount uint64
+	if err := stack.store.Conn().QueryRow(stack.ctx,
+		`SELECT count() FROM statnive.events_raw WHERE cookie_id = ?`, sharedHash,
+	).Scan(&preCount); err != nil {
+		t.Fatalf("pre-erase count: %v", err)
+	}
+
+	if preCount != 2 {
+		t.Fatalf("pre-erase count = %d, want 2 (collision fixture broken)", preCount)
+	}
+
+	// Run the erase against site A only.
+	results, err := stack.privacyErase.EraseByCookieID(stack.ctx, siteAID, sharedHash)
+	if err != nil {
+		t.Fatalf("EraseByCookieID: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Fatalf("no tables erased")
+	}
+
+	// `mutations_sync` is NOT set; poll with timeout for the merge.
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var siteACount, siteBCount uint64
+
+		row := stack.store.Conn().QueryRow(stack.ctx,
+			`SELECT countIf(site_id = ?), countIf(site_id = ?) FROM statnive.events_raw WHERE cookie_id = ?`,
+			siteAID, siteBID, sharedHash,
+		)
+		if scanErr := row.Scan(&siteACount, &siteBCount); scanErr != nil {
+			t.Fatalf("post-erase scan: %v", scanErr)
+		}
+
+		if siteACount == 0 && siteBCount == 1 {
+			// Site A erased; site B's row survived. Invariant holds.
+			return
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Timed out — collect final state for diagnosis.
+	var siteACount, siteBCount uint64
+
+	_ = stack.store.Conn().QueryRow(stack.ctx,
+		`SELECT countIf(site_id = ?), countIf(site_id = ?) FROM statnive.events_raw WHERE cookie_id = ?`,
+		siteAID, siteBID, sharedHash,
+	).Scan(&siteACount, &siteBCount)
+
+	t.Fatalf("cross-tenant isolation invariant violated: site A count = %d (want 0), site B count = %d (want 1)",
+		siteACount, siteBCount)
+}
+
+// TestDSAR_EraseRejectsZeroSiteID confirms the new errEraseEmptySiteID
+// guard short-circuits before any mutation is dispatched.
+func TestDSAR_EraseRejectsZeroSiteID(t *testing.T) {
+	const siteID uint32 = 4446
+
+	stack := newIntegrationStack(t, siteID, "stage4-erase-zero.example.com")
+	defer stack.shutdown()
+
+	_, err := stack.privacyErase.EraseByCookieID(stack.ctx, 0, "h:cafebabe")
+	if err == nil {
+		t.Fatalf("EraseByCookieID with siteID=0 must error")
+	}
 }
 
 // TestMain is a placeholder — we don't need setup/teardown at the package

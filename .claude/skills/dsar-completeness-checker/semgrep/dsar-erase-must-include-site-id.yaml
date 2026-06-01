@@ -1,0 +1,17 @@
+rules:
+  - id: dsar-erase-must-include-site-id
+    patterns:
+      - pattern: 'ALTER TABLE $T DELETE WHERE cookie_id = ?'
+    paths:
+      include:
+        - 'internal/privacy/'
+    message: |
+      DSAR erase mutation MUST include "AND site_id = ?" to prevent cross-tenant
+      data destruction. An insider with master_secret access or a malicious
+      operator could craft a cookie_id collision and erase another tenant's
+      data with a single Art. 17 request. See LEARN.md Lesson 37 +
+      audit/legal-vs-system-audit.md FAIL-1.
+
+      Use buildEraseSQL(database, table) which embeds the per-tenant filter.
+    severity: ERROR
+    languages: [generic]

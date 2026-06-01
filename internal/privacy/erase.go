@@ -9,7 +9,10 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-var errEraseEmptyHash = errors.New("erase: empty cookie hash")
+var (
+	errEraseEmptyHash   = errors.New("erase: empty cookie hash")
+	errEraseEmptySiteID = errors.New("erase: site_id is 0")
+)
 
 // EraseEnumerator runs the visitor-erase mutation across every base
 // MergeTree table that carries a cookie_id column. Materialized views
@@ -45,16 +48,24 @@ type EraseResult struct {
 
 // EraseByCookieID enumerates every MergeTree base table in the
 // configured schema that has a cookie_id column, issues
-// `ALTER TABLE ... DELETE WHERE cookie_id = ?` against each, and
-// returns the per-table result. mutations_sync is NOT set — mutations
-// run in the background; the caller acks 202 after WAL drain and the
-// rows disappear at next merge.
+// `ALTER TABLE ... DELETE WHERE cookie_id = ? AND site_id = ?`
+// against each, and returns the per-table result. mutations_sync is
+// NOT set — mutations run in the background; the caller acks 202
+// after WAL drain and the rows disappear at next merge.
 //
-// cookieIDHash MUST be the "h:" + hex form that hits events_raw post-
-// Stage-1 PR #3. Empty hash is rejected (would match every visitor).
-func (e *EraseEnumerator) EraseByCookieID(ctx context.Context, cookieIDHash string) ([]EraseResult, error) {
+// cookieIDHash MUST be the "h:" + hex form that hits events_raw
+// post-Stage-1 PR #3. siteID MUST be the visitor's tenant; the
+// WHERE clause includes it so a malicious controlled-collision
+// attack or insider with master_secret access cannot trigger
+// cross-site data destruction (see audit/legal-vs-system-audit.md
+// FAIL-1). Empty hash or siteID=0 is rejected.
+func (e *EraseEnumerator) EraseByCookieID(ctx context.Context, siteID uint32, cookieIDHash string) ([]EraseResult, error) {
 	if cookieIDHash == "" {
 		return nil, errEraseEmptyHash
+	}
+
+	if siteID == 0 {
+		return nil, errEraseEmptySiteID
 	}
 
 	tables, err := e.discoverTablesWithCookieID(ctx)
@@ -67,12 +78,9 @@ func (e *EraseEnumerator) EraseByCookieID(ctx context.Context, cookieIDHash stri
 	for _, table := range tables {
 		result := EraseResult{Table: table}
 
-		stmt := fmt.Sprintf(
-			"ALTER TABLE %s.%s DELETE WHERE cookie_id = ?",
-			quoteIdent(e.database), quoteIdent(table),
-		)
+		stmt := buildEraseSQL(e.database, table)
 
-		if execErr := e.conn.Exec(ctx, stmt, cookieIDHash); execErr != nil {
+		if execErr := e.conn.Exec(ctx, stmt, cookieIDHash, siteID); execErr != nil {
 			result.Err = execErr.Error()
 		} else {
 			result.MutationSent = true
@@ -128,4 +136,17 @@ func (e *EraseEnumerator) discoverTablesWithCookieID(ctx context.Context) ([]str
 // e.database and we treat it as untrusted.
 func quoteIdent(s string) string {
 	return "`" + strings.ReplaceAll(s, "`", "``") + "`"
+}
+
+// buildEraseSQL produces the per-table erase mutation with the
+// site_id filter baked in. Extracted as a helper so tests can pin
+// the SQL shape without spinning up ClickHouse (the Exec call is
+// covered by integration tests). The two `?` placeholders bind
+// cookieIDHash then siteID in that order — Exec callers must pass
+// args in the same order.
+func buildEraseSQL(database, table string) string {
+	return fmt.Sprintf(
+		"ALTER TABLE %s.%s DELETE WHERE cookie_id = ? AND site_id = ?",
+		quoteIdent(database), quoteIdent(table),
+	)
 }

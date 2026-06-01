@@ -164,7 +164,7 @@ func (h *Handlers) Erase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := h.cfg.Erase.EraseByCookieID(r.Context(), hash)
+	results, err := h.cfg.Erase.EraseByCookieID(r.Context(), siteID, hash)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
