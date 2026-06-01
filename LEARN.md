@@ -54,6 +54,7 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
 - [L. Authorization & multi-tenant access](#l-authorization--multi-tenant-access)
   - [34 — `RequireSiteRole` must pass through when `?site_id` is absent on global admin routes](#lesson-34)
   - [35 — Dashboard read routes need their own per-site middleware, not just role-floor](#lesson-35)
+  - [37 — DSAR mutations must include `AND site_id = ?` — cross-tenant erase risk even when hash inputs are site-scoped](#lesson-37)
 
 ---
 
@@ -471,6 +472,30 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
    Sister rule for `web/dist/` (Preact SPA bundle): same shape, same risk class, same fix — `make web-dist-fresh`. Not yet observed in production but the bug class is identical and the gate is cheap.
 
    PR-review checklist: if a PR diff includes `tracker/src/*` OR `web/src/*`, the corresponding `dist/` file MUST also appear in the diff. Reviewer-side rule until the CI gate lands.
+
+### Lesson 37
+
+**`ALTER TABLE … DELETE WHERE cookie_id = ?` in `internal/privacy/erase.go` was missing `AND site_id = ?` — cross-tenant data destruction is possible even when the hash inputs include `site_id`, because the WHERE clause sees only the hash value at execution time. The Path A legal-validation audit (Stream A reviewer A3) caught this; v0.0.36 hot-fix added the filter + an integration test that pins the invariant.**
+
+1. **What we did** — Stage-2 (PR #109) introduced `internal/privacy/erase.go::EraseByCookieID(ctx, cookieIDHash)` to satisfy GDPR Art. 17. The function ran a discovery query against `system.tables` for any base MergeTree carrying a `cookie_id` column, then issued `ALTER TABLE statnive.<table> DELETE WHERE cookie_id = ?` per match. Test coverage was a single unit test asserting empty-hash rejection. No integration test, no cross-tenant test, no Semgrep gate on the WHERE clause. Shipped in v0.0.13; lived in production for ~6 weeks.
+2. **Why it broke** — The architecture-rule mental model said "tenancy choke point: every dashboard SQL goes through `whereTimeAndTenant()`" (CLAUDE.md Architecture Rule 8). Erase mutations are NOT dashboard reads — they're ALTER TABLE DELETE — so they bypassed that helper and nobody noticed. The implicit reasoning was "cookie_id hashes are per-(secret, site_id, uuid), so a collision across tenants is statistically impossible." True for organic traffic, false for two attack scenarios: (a) collision-by-construction — an insider with `master_secret` derives target hashes; (b) operator-malicious — a tenant submits an Art. 17 request after seeding events_raw rows on another tenant via API-key abuse. Either lets a single erase request delete data on N tenants. The discovery query filter (`engine LIKE '%MergeTree%' AND NOT 'Distributed%'`) was correct; the WHERE clause on the mutation was the gap.
+3. **The fix we applied** — Added `siteID uint32` to `EraseByCookieID` signature; added `errEraseEmptySiteID` sentinel; appended `AND site_id = ?` to the mutation SQL; updated `handlers.go::Erase` to pass `siteID` (already in scope from `resolveSiteAndCookie`). Extracted `buildEraseSQL(database, table)` helper so the SQL shape is unit-testable without spinning up ClickHouse. Added 4 unit tests (`TestEraseByCookieID_Rejects{EmptyHash,ZeroSiteID}`, `TestBuildEraseSQL_{IncludesSiteIDFilter,QuotesIdentifiersDefensively}`) + 1 integration test (`TestDSAR_CrossTenantIsolation`) that synthesises a cross-tenant hash collision via direct INSERT and proves the WHERE clause spares the other tenant's row. Forward-only safe: tighter WHERE narrows scope; cannot delete data the previous version didn't already delete. Tagged `v0.0.36`.
+4. **Preventive measure** — Semgrep rule `dsar-erase-must-include-site-id` at `.claude/skills/dsar-completeness-checker/semgrep/`:
+   ```yaml
+   rules:
+     - id: dsar-erase-must-include-site-id
+       patterns:
+         - pattern: 'ALTER TABLE $T DELETE WHERE cookie_id = ?'
+       paths:
+         include: ['internal/privacy/']
+       message: "DSAR mutation MUST include AND site_id = ? to prevent cross-tenant data destruction. See LEARN.md Lesson 37."
+       severity: ERROR
+   ```
+   The rule fails CI if the WHERE clause ever regresses (someone simplifies, refactors, or forgets the site_id filter). Wired into `make lint` via the existing skill's Semgrep invocation.
+
+   **Architecture-rule update:** treat Architecture Rule 8 (central tenancy choke point) as covering ALL multi-tenant queries — reads AND mutations — not just dashboard SELECTs. Any new mutation against `events_raw` (or any other tenanted table) needs `site_id` in the WHERE clause by default. Future reviewer must catch this even before the Semgrep rule runs.
+
+   **Audit trail:** the bug class was surfaced by Stream A reviewer A3 in the Path A legal-validation audit (`audit/legal-vs-system-audit.md` § FAIL-1); this lesson is the durable preventive measure so the next operator doesn't re-discover it the same way.
 
 ---
 
