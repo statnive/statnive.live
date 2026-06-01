@@ -74,7 +74,7 @@ Processor implements the technical and organisational measures detailed in [`doc
 - ClickHouse bound to `127.0.0.1`; never publicly exposed.
 - LUKS encryption of the ClickHouse data volume on the Netcup VPS (shared-tenant virt — required tier per [`docs/luks.md`](luks.md)).
 - Encrypted backups (`clickhouse-backup` + `age` + `zstd`) shipped to an EU-only second location; restore drill on every release.
-- Per-IP rate limiting, CGNAT-aware tiering, mass-assignment guards, OWASP A10 SSRF guard on all opt-in outbound paths.
+- Per-IP rate limiting (100 req/s sustained, 200 burst) and mass-assignment guards on all admin write endpoints. CGNAT-aware tiering is planned for Phase 10 cutover and is not enforced in v1; OWASP A10 SSRF guard is planned for Phase 11 when the first opt-in outbound feature ships (v1 has no outbound paths to guard).
 - BLAKE3-128 hashing of visitor identifiers with daily-rotating HMAC salt; raw IP never persisted.
 - systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`).
 - Append-only audit log with `chattr +a` discipline; logrotate `copytruncate=off`.

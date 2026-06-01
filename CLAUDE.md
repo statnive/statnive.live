@@ -54,9 +54,11 @@ Iran allows cookies + `user_id`; the EU/SaaS tier does not. Both code paths live
 8. **Salt rotation DELETES the previous salt file** — not overwrites (recoverability + Recital 26 — see [detail](docs/rules/privacy-detail.md#rule-8--salt-rotation-deletes-the-previous-salt-file)). Enforced by [`blake3-hmac-identity-review`](.claude/skills/blake3-hmac-identity-review/README.md) + [`gdpr-code-review`](.claude/skills/gdpr-code-review/README.md).
 9. **`Sec-GPC: 1` and consent-decline short-circuit BEFORE hash computation** — not after (GDPR Art. 4(2)). SaaS DPA legal chain in [detail](docs/rules/privacy-detail.md#rule-9--consent--gpc-short-circuit-before-hash-computation); draft at `docs/dpa-draft.md` (Phase 11).
 
-## Security (14 Features, All v1)
+## Security (12 Features in v1; 2 Phase 10/11 deferred)
 
 Extended operational detail (fallback CA list, full systemd option list, LUKS I/O reasoning, CGNAT ASN list) in [`docs/rules/security-detail.md`](docs/rules/security-detail.md).
+
+### v1 (shipped)
 
 1. TLS 1.3 via **manual PEM files** (`tls.cert_file` / `tls.key_file`) — Hetzner (LE cron), Iranian DC (internal CA / cert-forge rsync), enterprise (customer root CA). One code path, zero outbound. Autocert + LE slips to v1.1.
 2. ClickHouse localhost only (bound to 127.0.0.1, never exposed).
@@ -70,8 +72,11 @@ Extended operational detail (fallback CA list, full systemd option list, LUKS I/
 10. Audit log (JSONL via `slog`, append-only, **file sink only** in v1). Syslog / remote sinks = v1.1.
 11. User ID hashed before storage (SHA-256 of `master_secret || site_id || user_id`; never log raw user_id).
 12. systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`) + tracker via `go:embed` (first-party, no external CDN, ad-blocker-resistant).
-13. **CGNAT-aware rate-limit tiering** — Iranian ASN (AS44244 Irancell / AS197207 MCI / AS57218 RighTel) on compound `(ip, site_id)` key at 1 K req/s sustained / 2 K burst; default 100/s fallback elsewhere; per-`site_id` global cap at 25 K req/s. ASN DB is **`iptoasn.com`** public-domain TSV (MaxMind GeoLite2 + IPLocate are CC-BY-SA — rejected per § License Rules). Enforced by [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md); **hard gate on Phase 10 SamplePlatform cutover**.
-14. **Outbound allow-list for opt-in features** (OWASP A10 SSRF guard). When any opt-in outbound path is enabled (ACME/LE in v1.1, Polar.sh checkout in Phase 11, paid IP2Location DB23 download, license phone-home v2, Telegram, email SMTP), outbound `http.Client` / `net.Dialer` traffic routes through `internal/httpclient/guarded.go` which (a) rejects destinations not on the config-declared FQDN allow-list in `config.outbound.allowlist`, (b) rejects all RFC 1918 / loopback / link-local / CGNAT `100.64.0.0/10` ranges *after* DNS resolution (DNS-rebinding guard), (c) forces `https://` scheme. The air-gap default build keeps `config.outbound.allowlist: []`, so the Isolation invariant (§ Isolation / Air-Gapped) is unchanged — the allow-list only applies to operators who opt in. Enforced by [`air-gap-validator`](.claude/skills/air-gap-validator/README.md) Semgrep rule `airgap-no-raw-httpclient` + unit test in `internal/httpclient/`. Verification in PLAN.md §51.
+
+### Phase 10 / Phase 11 deferred (not in v1; documented for design continuity)
+
+13. **CGNAT-aware rate-limit tiering** — Iranian ASN (AS44244 Irancell / AS197207 MCI / AS57218 RighTel) on compound `(ip, site_id)` key at 1 K req/s sustained / 2 K burst; default 100/s fallback elsewhere; per-`site_id` global cap at 25 K req/s. ASN DB is **`iptoasn.com`** public-domain TSV (MaxMind GeoLite2 + IPLocate are CC-BY-SA — rejected per § License Rules). **Deferred to Phase 10 SamplePlatform cutover** — `internal/ratelimit/` currently has basic per-IP + X-Forwarded-For only; no ASN lookup code exists in v1. The [`ratelimit-tuning-review`](.claude/skills/ratelimit-tuning-review/README.md) skill enforces this design **only when `PHASE_10_GATE=1`** is set; advisory in v1.
+14. **Outbound allow-list for opt-in features** (OWASP A10 SSRF guard). When any opt-in outbound path is enabled (ACME/LE in v1.1, Polar.sh checkout in Phase 11, paid IP2Location DB23 download, license phone-home v2, Telegram, email SMTP), outbound `http.Client` / `net.Dialer` traffic would route through `internal/httpclient/guarded.go` which (a) rejects destinations not on the config-declared FQDN allow-list in `config.outbound.allowlist`, (b) rejects all RFC 1918 / loopback / link-local / CGNAT `100.64.0.0/10` ranges *after* DNS resolution (DNS-rebinding guard), (c) forces `https://` scheme. **The file `internal/httpclient/guarded.go` does NOT exist in v1**; it ships when the first opt-in outbound feature ships (Phase 11). The air-gap default build keeps `config.outbound.allowlist: []`, so the Isolation invariant (§ Isolation / Air-Gapped) is unchanged — there is currently nothing in v1 that needs the guard. Verification in PLAN.md §51 (Phase 11 gate).
 
 ## Isolation / Air-Gapped Capability (Non-Negotiable)
 
