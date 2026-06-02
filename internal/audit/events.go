@@ -99,9 +99,9 @@ const (
 // hashed visitor identifiers only. Privacy Rule 4 applies — raw visitor
 // user_id NEVER lands on these events.
 const (
-	EventSegmentsConsentGranted    EventName = "segments.consent.granted"
-	EventSegmentsConsentWithdrawn  EventName = "segments.consent.withdrawn"
-	EventSegmentsConsentDeferred   EventName = "segments.consent.deferred"
+	EventSegmentsConsentGranted   EventName = "segments.consent.granted"
+	EventSegmentsConsentWithdrawn EventName = "segments.consent.withdrawn"
+	EventSegmentsConsentDeferred  EventName = "segments.consent.deferred"
 )
 
 // Auth events. Emitted by internal/auth/* handlers + middleware.
