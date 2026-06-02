@@ -28,6 +28,19 @@ func TestCleanGeoField(t *testing.T) {
 		// Anchored full-equality match: a value starting with "This" must
 		// pass through, not be stripped by an over-broad prefix check.
 		{"prose starting with This is preserved", "This Mobile Co", "This Mobile Co"},
+		{
+			"ipv4-only-bin ipv6 sentinel",
+			"IPv6 address missing in IPv4 BIN.",
+			"",
+		},
+		{
+			"ipv4-only-bin ipv6 sentinel with trailing whitespace",
+			"IPv6 address missing in IPv4 BIN.   ",
+			"",
+		},
+		// Anchored full-equality on the IPv6 sentinel too — a real ISP
+		// name happening to mention "IPv6" must pass through.
+		{"prose containing IPv6 is preserved", "IPv6 Datacenter LLC", "IPv6 Datacenter LLC"},
 	}
 
 	for _, tc := range cases {
