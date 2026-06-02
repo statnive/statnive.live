@@ -105,10 +105,17 @@ async function blobText(blob) {
 
 // Reset navigator privacy flags to neutral defaults before every spec.
 // Tests that need a non-default value pass it via loadTracker(opts) below.
+// Also wipe consent / segment cookies + sessionStorage so each spec starts
+// in the 'idle' consent state.
 beforeEach(() => {
   Object.defineProperty(window.navigator, 'doNotTrack', { value: '0', configurable: true });
   Object.defineProperty(window.navigator, 'globalPrivacyControl', { value: false, configurable: true });
   Object.defineProperty(window.navigator, 'webdriver', { value: false, configurable: true });
+  // Clear segment + consent storage between tests.
+  for (const k of ['sn_consent', 'sn_user_props']) {
+    document.cookie = k + '=; Max-Age=0; Path=/';
+  }
+  try { window.sessionStorage.removeItem('sn_sess_props'); } catch (e) {}
 });
 
 describe('anti-automation short-circuit', () => {
@@ -188,7 +195,7 @@ describe('happy path', () => {
     expect(body.user_id).toBe('');
   });
 
-  it('track() emits a custom event with props + value', async () => {
+  it('track() emits a custom event with hit_props + value', async () => {
     const calls = loadTracker();
     window.statniveLive.track('signup', { plan: 'pro' }, 99);
     expect(calls).toHaveLength(2);
@@ -196,7 +203,12 @@ describe('happy path', () => {
     expect(body.event_type).toBe('custom');
     expect(body.event_name).toBe('signup');
     expect(body.event_value).toBe(99);
-    expect(body.props).toEqual({ plan: 'pro' });
+    // Phase 1 rename: `props` → `hit_props` envelope key. Server's
+    // RawEvent.Props alias-merges hit_props for one release for backward
+    // compatibility on customers running an older tracker.
+    expect(body.hit_props).toEqual({ plan: 'pro' });
+    expect(body.session_props).toEqual({});
+    expect(body.user_props).toEqual({});
   });
 
   it('history.pushState fires a pageview', async () => {
@@ -417,5 +429,180 @@ describe('consent helpers', () => {
     } finally {
       window.fetch = origFetch;
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 1 — Segments consent gate (Plan § 1 + § 11 deployment-mode matrix)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Three-state local machine: 'idle' | 'resolved' | 'withdrawn'. Reads from
+// the sn_consent cookie (absence == 'idle'). setSession / identify-with-
+// userProps are silent no-ops unless state === 'resolved'.
+
+describe('getConsent() state machine', () => {
+  it("returns 'idle' on a fresh page with no cookie", () => {
+    loadTracker();
+    expect(window.statniveLive.getConsent()).toBe('idle');
+  });
+
+  it("returns 'resolved' when sn_consent=resolved cookie is present", () => {
+    document.cookie = 'sn_consent=resolved; Path=/';
+    loadTracker();
+    expect(window.statniveLive.getConsent()).toBe('resolved');
+  });
+
+  it("returns 'withdrawn' when sn_consent=withdrawn cookie is present", () => {
+    document.cookie = 'sn_consent=withdrawn; Path=/';
+    loadTracker();
+    expect(window.statniveLive.getConsent()).toBe('withdrawn');
+  });
+
+  it("returns 'idle' on the anti-automation noop API (webdriver short-circuit)", () => {
+    loadTracker({ webdriver: true });
+    expect(window.statniveLive.getConsent()).toBe('idle');
+  });
+
+  it("returns 'withdrawn' on the honour-GPC short-circuit noop API", () => {
+    loadTracker({ honourGpc: true, gpc: true });
+    expect(window.statniveLive.getConsent()).toBe('withdrawn');
+  });
+});
+
+describe('setSession (session-scope props)', () => {
+  it('is a silent no-op when getConsent() === idle', async () => {
+    const calls = loadTracker();
+    window.statniveLive.setSession({ ab_variant: 'B' });
+    // Should not throw, should not persist.
+    expect(window.sessionStorage.getItem('sn_sess_props')).toBeNull();
+    window.statniveLive.track('event', {}, 0);
+    const body = JSON.parse(await blobText(calls[1].body));
+    expect(body.session_props).toEqual({});
+  });
+
+  it('persists to sessionStorage when getConsent() === resolved', async () => {
+    document.cookie = 'sn_consent=resolved; Path=/';
+    const calls = loadTracker();
+    window.statniveLive.setSession({ ab_variant: 'B', src: 'fb_ad' });
+    expect(JSON.parse(window.sessionStorage.getItem('sn_sess_props'))).toEqual({
+      ab_variant: 'B',
+      src: 'fb_ad',
+    });
+    window.statniveLive.track('event', {}, 0);
+    const body = JSON.parse(await blobText(calls[1].body));
+    expect(body.session_props).toEqual({ ab_variant: 'B', src: 'fb_ad' });
+  });
+
+  it('is a no-op after withdrawConsent (state === withdrawn)', () => {
+    document.cookie = 'sn_consent=withdrawn; Path=/';
+    loadTracker();
+    window.statniveLive.setSession({ ab_variant: 'B' });
+    expect(window.sessionStorage.getItem('sn_sess_props')).toBeNull();
+  });
+});
+
+describe('identify (user-scope props)', () => {
+  it('userProps arg is a silent no-op when getConsent() === idle', async () => {
+    const calls = loadTracker();
+    window.statniveLive.identify('user-42', { plan: 'pro' });
+    expect(document.cookie).not.toContain('sn_user_props');
+    window.statniveLive.track('event', {}, 0);
+    const body = JSON.parse(await blobText(calls[1].body));
+    expect(body.user_id).toBe('user-42');
+    expect(body.user_props).toEqual({});
+  });
+
+  it('persists userProps to sn_user_props cookie when consent is resolved', async () => {
+    document.cookie = 'sn_consent=resolved; Path=/';
+    const calls = loadTracker();
+    window.statniveLive.identify('user-42', { plan: 'pro', signup_year: '2026' });
+    expect(document.cookie).toContain('sn_user_props');
+    window.statniveLive.track('event', {}, 0);
+    const body = JSON.parse(await blobText(calls[1].body));
+    expect(body.user_props).toEqual({ plan: 'pro', signup_year: '2026' });
+  });
+
+  it('uid-only identify (no userProps arg) still works', async () => {
+    const calls = loadTracker();
+    window.statniveLive.identify('user-42');
+    window.statniveLive.track('event', {}, 0);
+    const body = JSON.parse(await blobText(calls[1].body));
+    expect(body.user_id).toBe('user-42');
+  });
+});
+
+describe('consent state transitions', () => {
+  it('acceptConsent success sets sn_consent=resolved cookie', async () => {
+    const origFetch = window.fetch;
+    window.fetch = () => Promise.resolve({ ok: true, status: 204 });
+    try {
+      loadTracker();
+      expect(window.statniveLive.getConsent()).toBe('idle');
+      await window.statniveLive.acceptConsent('csrf-abc');
+      expect(window.statniveLive.getConsent()).toBe('resolved');
+    } finally {
+      window.fetch = origFetch;
+    }
+  });
+
+  it('acceptConsent does NOT flip cookie when the POST fails', async () => {
+    const origFetch = window.fetch;
+    window.fetch = () => Promise.resolve({ ok: false, status: 500 });
+    try {
+      loadTracker();
+      await window.statniveLive.acceptConsent('csrf-abc');
+      expect(window.statniveLive.getConsent()).toBe('idle');
+    } finally {
+      window.fetch = origFetch;
+    }
+  });
+
+  it('withdrawConsent clears sn_user_props cookie + sn_sess_props storage + flips state', async () => {
+    // Seed resolved state with both stores populated.
+    document.cookie = 'sn_consent=resolved; Path=/';
+    document.cookie = 'sn_user_props=' + encodeURIComponent(JSON.stringify({ plan: 'pro' })) + '; Path=/';
+    window.sessionStorage.setItem('sn_sess_props', JSON.stringify({ ab_variant: 'B' }));
+    const origFetch = window.fetch;
+    window.fetch = () => Promise.resolve({ ok: true, status: 204 });
+    try {
+      loadTracker();
+      await window.statniveLive.withdrawConsent('csrf-xyz');
+      expect(window.statniveLive.getConsent()).toBe('withdrawn');
+      expect(document.cookie).not.toContain('sn_user_props=');
+      expect(window.sessionStorage.getItem('sn_sess_props')).toBeNull();
+    } finally {
+      window.fetch = origFetch;
+    }
+  });
+});
+
+describe('wire envelope consent gating', () => {
+  it('hit_props always travels (carries no persistent identifier)', async () => {
+    const calls = loadTracker();
+    window.statniveLive.track('cta', { button: 'hero' }, 0);
+    const body = JSON.parse(await blobText(calls[1].body));
+    expect(body.hit_props).toEqual({ button: 'hero' });
+  });
+
+  it('session_props + user_props are empty in idle state, even if storage is populated', async () => {
+    // Force storage population WITHOUT a resolved consent cookie. This
+    // simulates a partial-state edge case (e.g., operator wiped sn_consent
+    // but left the other cookies). Behavior: ignore them.
+    document.cookie = 'sn_user_props=' + encodeURIComponent(JSON.stringify({ plan: 'pro' })) + '; Path=/';
+    window.sessionStorage.setItem('sn_sess_props', JSON.stringify({ ab_variant: 'B' }));
+    const calls = loadTracker();
+    const body = JSON.parse(await blobText(calls[0].body));
+    expect(body.user_props).toEqual({});
+    expect(body.session_props).toEqual({});
+  });
+
+  it('session_props + user_props populate in resolved state', async () => {
+    document.cookie = 'sn_consent=resolved; Path=/';
+    document.cookie = 'sn_user_props=' + encodeURIComponent(JSON.stringify({ plan: 'pro' })) + '; Path=/';
+    window.sessionStorage.setItem('sn_sess_props', JSON.stringify({ ab_variant: 'B' }));
+    const calls = loadTracker();
+    const body = JSON.parse(await blobText(calls[0].body));
+    expect(body.user_props).toEqual({ plan: 'pro' });
+    expect(body.session_props).toEqual({ ab_variant: 'B' });
   });
 });

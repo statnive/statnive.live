@@ -101,7 +101,11 @@ describe('tracker payload golden (regression contract)', () => {
     const requiredFields = [
       'hostname', 'pathname', 'title', 'referrer',
       'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
-      'event_type', 'event_name', 'event_value', 'user_id', 'props',
+      'event_type', 'event_name', 'event_value', 'user_id',
+      // Phase 1: `props` renamed to `hit_props`; `session_props` + `user_props`
+      // added for session + user scope. Server's RawEvent.Props alias-merges
+      // `hit_props` for one release for backward compatibility.
+      'hit_props', 'session_props', 'user_props',
     ];
 
     for (const { name, body } of fired) {
