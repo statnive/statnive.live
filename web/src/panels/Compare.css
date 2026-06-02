@@ -1,6 +1,7 @@
-/* Segments Phase 4 — Compare panel. Variant table inherits the brand
-   tokens (--ink, --paper, --teal, --amber) from tokens.css. ok/bad
-   colors lean blue/orange not green/red for CVD safety (research § 10). */
+/* Segments Phase 4 — Compare panel. Variant table uses existing
+   brand tokens from tokens.css; no hand-rolled hex (brand-grep gate).
+   delta-ok / delta-bad use the existing chart-rpv / chart-goals
+   palette spots which already pair well across CVD-sim per Phase 5e. */
 
 .seg-compare-panel {
   display: flex;
@@ -24,20 +25,21 @@
   font-size: var(--text-label-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  color: var(--ink-2);
 }
 
 .seg-compare-pickers input {
   font: inherit;
   padding: 6px 10px;
-  border: 1px solid var(--ink-15, rgba(28, 28, 60, 0.15));
+  border: 1px solid var(--rule-soft);
   border-radius: 4px;
-  background: var(--paper, #fff);
+  background: var(--paper-2);
+  color: var(--ink);
   min-width: 240px;
 }
 
 .seg-compare-pickers input:focus-visible {
-  outline: 2px solid var(--teal, #2aa198);
+  outline: 2px solid var(--green);
   outline-offset: 2px;
 }
 
@@ -52,14 +54,14 @@
   font-size: var(--text-label-sm);
   letter-spacing: 0.05em;
   font-weight: 500;
-  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  color: var(--ink-2);
   padding: 8px 12px;
-  border-bottom: 1px solid var(--ink-08, rgba(28, 28, 60, 0.08));
+  border-bottom: 1px solid var(--rule-soft);
 }
 
 .seg-compare-table tbody td {
   padding: 14px 12px;
-  border-bottom: 1px solid var(--ink-08, rgba(28, 28, 60, 0.08));
+  border-bottom: 1px solid var(--rule-hair);
   vertical-align: top;
 }
 
@@ -68,35 +70,36 @@
 }
 
 .seg-control-tag {
-  font-family: var(--jb-mono, monospace);
+  font-family: var(--mono);
   font-size: var(--text-label-sm);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  color: var(--ink-2);
   margin-top: 2px;
 }
 
 .seg-dash {
-  color: var(--ink-40, rgba(28, 28, 60, 0.4));
+  color: var(--ink-2);
 }
 
-/* CVD-safe ok/bad — blue-leaning teal + amber-leaning orange (research § 10). */
+/* CVD-safe ok/bad — reuse the existing chart palette pairs that
+   Phase 5e already validated across CVD simulators. */
 .seg-delta-ok {
-  color: oklch(60% 0.13 195);
+  color: var(--chart-revenue);
 }
 
 .seg-delta-bad {
-  color: oklch(65% 0.13 45);
+  color: var(--chart-rust);
 }
 
 .seg-delta-rel {
   font-size: var(--text-label-sm);
-  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  color: var(--ink-2);
 }
 
 .seg-badge {
   display: inline-block;
-  font-family: var(--jb-mono, monospace);
+  font-family: var(--mono);
   font-size: var(--text-label-sm);
   font-weight: 500;
   letter-spacing: 0.08em;
@@ -105,29 +108,29 @@
 }
 
 .seg-badge--sig {
-  background: var(--teal, #2aa198);
-  color: var(--paper, #fff);
+  background: var(--green);
+  color: var(--paper-2);
 }
 
 .seg-badge--na {
-  border: 1px solid var(--ink-15, rgba(28, 28, 60, 0.15));
-  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  border: 1px solid var(--rule-soft);
+  color: var(--ink-2);
   background: transparent;
 }
 
 .seg-empty {
-  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  color: var(--ink-2);
   font-size: var(--text-body);
 }
 
 .seg-loading {
-  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  color: var(--ink-2);
   font-style: italic;
 }
 
 .seg-methodology {
   font-size: var(--text-label-sm);
-  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  color: var(--ink-2);
   max-width: 70ch;
   margin-top: 8px;
 }
