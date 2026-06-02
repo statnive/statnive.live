@@ -367,7 +367,7 @@ func (s *clickhouseStore) overviewFromRaw(ctx context.Context, f *Filter) (*Over
 			toUInt64(uniqCombined64(visitor_hash))       AS visitors,
 			toUInt64(sumIf(1, is_goal = 1))              AS goals,
 			toUInt64(sumIf(event_value, is_goal = 1))    AS revenue
-		FROM statnive.events_raw %s
+		FROM statnive.events_raw %s -- raw-fallback OK (overviewFromRaw, segments prop filter)
 		SETTINGS max_execution_time = 30, max_memory_usage = 8589934592
 	`, where), args...)
 
