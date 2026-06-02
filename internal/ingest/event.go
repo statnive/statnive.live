@@ -10,21 +10,21 @@ import "time"
 // Only fields a browser can supply belong here; server-side context is filled
 // in by the handler before the event enters the pipeline.
 type RawEvent struct {
-	Hostname      string            `json:"hostname"`
-	Pathname      string            `json:"pathname"`
-	Title         string            `json:"title"`
-	Referrer      string            `json:"referrer"`
-	UTMSource     string            `json:"utm_source"`
-	UTMMedium     string            `json:"utm_medium"`
-	UTMCampaign   string            `json:"utm_campaign"`
-	UTMContent    string            `json:"utm_content"`
-	UTMTerm       string            `json:"utm_term"`
-	ViewportWidth uint16            `json:"viewport_width"`
-	EventType     string            `json:"event_type"`
-	EventName     string            `json:"event_name"`
-	EventValue    float64           `json:"event_value"`
-	IsGoal        bool              `json:"is_goal"`
-	UserSegment   string            `json:"user_segment"`
+	Hostname      string  `json:"hostname"`
+	Pathname      string  `json:"pathname"`
+	Title         string  `json:"title"`
+	Referrer      string  `json:"referrer"`
+	UTMSource     string  `json:"utm_source"`
+	UTMMedium     string  `json:"utm_medium"`
+	UTMCampaign   string  `json:"utm_campaign"`
+	UTMContent    string  `json:"utm_content"`
+	UTMTerm       string  `json:"utm_term"`
+	ViewportWidth uint16  `json:"viewport_width"`
+	EventType     string  `json:"event_type"`
+	EventName     string  `json:"event_name"`
+	EventValue    float64 `json:"event_value"`
+	IsGoal        bool    `json:"is_goal"`
+	UserSegment   string  `json:"user_segment"`
 	// Props is the legacy hit-scope field accepted as a deprecated alias
 	// for HitProps so customers running a pre-Phase-1 tracker against a
 	// new server still attribute correctly. The handler merges Props

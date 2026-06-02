@@ -89,8 +89,10 @@ func appendPropPredicates(where string, args []any, scope string, props map[stri
 	sort.Strings(keys)
 
 	for _, k := range keys {
+		v := props[k]
 		where += fmt.Sprintf(" AND has(%s, ?) AND %s[?] = ?", scope, scope)
-		args = append(args, k, k, props[k])
+
+		args = append(args, k, k, v)
 	}
 
 	return where, args
@@ -189,6 +191,22 @@ var (
 	// Sources / Pages panels instead).
 	dailyGeoCols = map[string]bool{
 		"country_code": true,
+	}
+	// eventsRawCols enumerates the columns the raw-fallback path can
+	// filter on. Used by handlers that route through whereWithProps
+	// when Filter.HasPropFilter() is true (Phase 2 of segments).
+	// Map columns (hit_props/session_props/user_props) are not in this
+	// set because they're predicated separately via appendPropPredicates.
+	eventsRawCols = map[string]bool{
+		"channel":       true,
+		"referrer_name": true,
+		"utm_source":    true,
+		"utm_medium":    true,
+		"utm_campaign":  true,
+		"utm_content":   true,
+		"utm_term":      true,
+		"pathname":      true,
+		"country_code":  true,
 	}
 
 	// Whitelist values MUST be bare columns or expressions valid in an
@@ -302,6 +320,10 @@ func (s *clickhouseStore) Overview(ctx context.Context, f *Filter) (*OverviewRes
 		return nil, err
 	}
 
+	if f.HasPropFilter() {
+		return s.overviewFromRaw(ctx, f)
+	}
+
 	where, args := whereTimeAndTenant(f, "hour")
 	where, args = applyFilters(f, where, args, hourlyVisitorsCols)
 
@@ -317,6 +339,41 @@ func (s *clickhouseStore) Overview(ctx context.Context, f *Filter) (*OverviewRes
 	var out OverviewResult
 	if err := row.Scan(&out.Pageviews, &out.Visitors, &out.Goals, &out.Revenue); err != nil {
 		return nil, fmt.Errorf("overview query: %w", err)
+	}
+
+	out.RPV = rpv(out.Revenue, out.Visitors)
+
+	return &out, nil
+}
+
+// overviewFromRaw is the raw-fallback variant of Overview, invoked when
+// Filter.HasPropFilter() is true. Scans events_raw directly using the
+// segments Map columns (migration 020) — the rollup tables have no
+// Map columns and can't answer prop-filtered queries. The range cap
+// (Filter.Validate enforces 90 days) bounds the scan; the CachedStore
+// wrapper holds results for 1h to absorb repeat queries (Phase 3 wires
+// the TTL switch).
+//
+// Architecture Rule 1 ("raw is WRITE-ONLY except funnels cached 1h")
+// gains a second carve-out documented in the plan § 4 — prop-filtered
+// queries cached 1h. The `clickhouse-operations-review` Semgrep rule
+// allowlists this single call site via the helper's recognisable name.
+func (s *clickhouseStore) overviewFromRaw(ctx context.Context, f *Filter) (*OverviewResult, error) {
+	where, args := whereWithProps(f, "time", eventsRawCols)
+
+	row := s.conn.QueryRow(ctx, fmt.Sprintf(`
+		SELECT
+			toUInt64(countIf(event_type = 'pageview'))   AS pageviews,
+			toUInt64(uniqCombined64(visitor_hash))       AS visitors,
+			toUInt64(sumIf(1, is_goal = 1))              AS goals,
+			toUInt64(sumIf(event_value, is_goal = 1))    AS revenue
+		FROM statnive.events_raw %s
+		SETTINGS max_execution_time = 30, max_memory_usage = 8589934592
+	`, where), args...)
+
+	var out OverviewResult
+	if err := row.Scan(&out.Pageviews, &out.Visitors, &out.Goals, &out.Revenue); err != nil {
+		return nil, fmt.Errorf("overview-raw query: %w", err)
 	}
 
 	out.RPV = rpv(out.Revenue, out.Visitors)

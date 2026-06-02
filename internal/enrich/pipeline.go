@@ -151,15 +151,7 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 		eventName = eventType
 	}
 
-	// Segments Phase 2: HitProps is the canonical hit-scope envelope.
-	// Old trackers still send `props` — alias-merge it into HitProps when
-	// HitProps is empty. If both are populated, the new field wins (the
-	// tracker is responsible for not double-sending). One release after
-	// Phase 1 GA, drop the Props alias entirely.
-	hitProps := raw.HitProps
-	if len(hitProps) == 0 && len(raw.Props) > 0 {
-		hitProps = raw.Props
-	}
+	hitProps := mergeHitProps(raw)
 	keys, vals := flattenProps(hitProps)
 
 	ev := ingest.EnrichedEvent{
@@ -283,6 +275,19 @@ func encodeHashPrefix(h [16]byte) string {
 	}
 
 	return string(out[:])
+}
+
+// mergeHitProps resolves the hit-scope props envelope. Segments Phase 2
+// renamed the wire field `props` → `hit_props`; for one release the
+// server accepts the old field as a deprecated alias. New HitProps
+// wins; legacy Props is consulted only when HitProps is empty. Drops
+// the Props alias one release after Phase 1 GA.
+func mergeHitProps(raw *ingest.RawEvent) map[string]string {
+	if len(raw.HitProps) > 0 {
+		return raw.HitProps
+	}
+
+	return raw.Props
 }
 
 func flattenProps(props map[string]string) (keys, vals []string) {

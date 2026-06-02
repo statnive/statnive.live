@@ -318,7 +318,7 @@ func TestFilter_Validate_PropFilterCount(t *testing.T) {
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	make31 := func() map[string]string {
 		m := make(map[string]string, 31)
-		for i := 0; i < 31; i++ {
+		for i := range 31 {
 			m[string(rune('a'+i))+"-key"] = "value"
 		}
 
