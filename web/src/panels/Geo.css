@@ -146,10 +146,15 @@
   color: var(--ink);
   font-variant-numeric: tabular-nums;
   text-align: right;
+  white-space: nowrap;
 }
 
+/* Raw value alongside the percentage — "59% (30)" — so the operator
+ * sees both the share and the absolute count without scanning the
+ * pie. Base panels.css sets color: var(--ink-2) + font-weight: 400 so
+ * the percentage stays the dominant figure. */
 #statnive-app .statnive-geo-headline-column .statnive-pie-summary-raw {
-  display: none;
+  margin-left: 4px;
 }
 
 #statnive-app .statnive-geo-pie-grid {
