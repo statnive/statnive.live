@@ -1,8 +1,8 @@
 [
   {
-    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login + multi-metric chart wiring + ECharts theme reader (token resolution at mount). Bumped 18→19 KB when DatePicker gained the Custom popover (mode toggle + outside-click/Escape close + From/To echo + Apply button + IRST addDayIRST helper). LazyChart + LazyCally keep ECharts and Cally out of the initial bundle.",
+    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login + multi-metric chart wiring + ECharts theme reader. Bumped 19→20 KB when filters.ts gained the segments Phase-3 scope-prop maps (HitProps/SessionProps/UserProps + setPropFilter/removePropFilter/hasAnyPropFilter helpers + filtersToQuery handling of repeated <scope>_prop URL params). +45 B gz net; budget headroom kept. Compare panel itself ships in its own lazy chunk.",
     "path": "../internal/dashboard/spa/dist/assets/index-*.js",
-    "limit": "19 KB",
+    "limit": "20 KB",
     "gzip": true
   },
   {
