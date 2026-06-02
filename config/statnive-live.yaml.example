@@ -164,6 +164,10 @@ auth:
 # been removed.
 consent:
   required:    true    # STATNIVE_CONSENT_REQUIRED
+  # Segments-feature flags (Phase 1). See appConfig.Consent docstring in
+  # cmd/statnive-live/main.go for the full rationale.
+  require_for_segments: true    # STATNIVE_CONSENT_REQUIRE_FOR_SEGMENTS
+  queue_until_resolved: false   # STATNIVE_CONSENT_QUEUE_UNTIL_RESOLVED
   # api_tokens: list of {token_hash_hex, site_id, label, role}; populate
   # via `statnive-live admin token issue ...` rather than editing here.
   # api_tokens:

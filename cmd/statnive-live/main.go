@@ -1246,6 +1246,22 @@ type appConfig struct {
 		// an explicit X-Statnive-Consent: given header. Default true on
 		// the SaaS binary; self-hosted Iran tier flips to false.
 		Required bool
+		// RequireForSegments gates session-scope + user-scope custom
+		// property persistence on the tracker (sn_user_props cookie +
+		// sn_sess_props sessionStorage) behind acceptConsent(). The
+		// tracker reads its own sn_consent cookie; this server-side
+		// flag is currently advisory — the handler will validateProps
+		// and accept empty maps regardless. Default true (SaaS-safe).
+		// Self-hosted Iran tier may flip to false for permissive
+		// segments without consent ceremony per CLAUDE.md Privacy
+		// Rule 5 + plan § Deployment-mode behavior matrix.
+		RequireForSegments bool
+		// QueueUntilResolved is a hint for future tracker versions to
+		// buffer setSession / identify(uid, userProps) calls made
+		// before acceptConsent() resolves and replay them post-consent.
+		// In v1 the tracker drops silently — this flag is schema-only
+		// and not yet load-bearing. Default false.
+		QueueUntilResolved bool
 		// Note: respect_gpc + respect_dnt are now per-site columns in
 		// statnive.sites (migration 006), not global cfg flags. The
 		// admin UI at /admin/sites toggles them per tenant. PR D2.
@@ -1421,6 +1437,9 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	// PR D2) so multi-tenant operators can serve EU + non-EU customers
 	// from the same binary without re-editing config.
 	v.SetDefault("consent.required", true)
+	// Defaults align with the Consent struct docstring above.
+	v.SetDefault("consent.require_for_segments", true)
+	v.SetDefault("consent.queue_until_resolved", false)
 
 	// Auth (Phase 2b). Secure defaults: 14-day cookie, SameSite=Lax,
 	// bcrypt cost 12, 10 login attempts / min / IP, 10 fails / 15 min →
@@ -1525,6 +1544,8 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.Dashboard.GeoEnabled = v.GetBool("dashboard.geo_enabled")
 
 	cfg.Consent.Required = v.GetBool("consent.required")
+	cfg.Consent.RequireForSegments = v.GetBool("consent.require_for_segments")
+	cfg.Consent.QueueUntilResolved = v.GetBool("consent.queue_until_resolved")
 
 	cfg.Auth.Session.TTL = v.GetDuration("auth.session.ttl")
 	cfg.Auth.Session.CookieName = v.GetString("auth.session.cookie_name")

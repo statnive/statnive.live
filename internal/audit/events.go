@@ -89,6 +89,21 @@ const (
 	EventDashboardForbidden EventName = "dashboard.forbidden"
 )
 
+// Segments-feature consent events (Phase 1 of the segments + A/B compare
+// rollout). Emitted by internal/privacy/handler.go on the consent POST
+// path AND by internal/ingest/handler.go when a tracker sends segment
+// envelopes (session_props/user_props) without resolved consent — the
+// envelopes are dropped silently with a deferred-event audit row so the
+// operator can detect mis-wired CMP banners. No PII in field shapes:
+// site_id, actor_user_id (operator's UUID for the consent record), and
+// hashed visitor identifiers only. Privacy Rule 4 applies — raw visitor
+// user_id NEVER lands on these events.
+const (
+	EventSegmentsConsentGranted    EventName = "segments.consent.granted"
+	EventSegmentsConsentWithdrawn  EventName = "segments.consent.withdrawn"
+	EventSegmentsConsentDeferred   EventName = "segments.consent.deferred"
+)
+
 // Auth events. Emitted by internal/auth/* handlers + middleware.
 // Raw password / raw session token / raw email MUST NOT appear as attrs
 // on any of these — emitters hash email (SHA-256 of lowercase trim) and
