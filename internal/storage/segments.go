@@ -51,6 +51,10 @@ func (s *clickhouseStore) PropNames(ctx context.Context, f *Filter, scope string
 		limit = 100
 	}
 
+	// events_raw has no sampling key in v1, so SAMPLE clause is omitted.
+	// 7-day window + LIMIT keeps the scan bounded; v1.1's prop_name_cache
+	// MV will replace this with a precomputed lookup once operator
+	// traffic justifies the materialization cost.
 	q := fmt.Sprintf(`
 		SELECT
 			name,
@@ -61,10 +65,9 @@ func (s *clickhouseStore) PropNames(ctx context.Context, f *Filter, scope string
 				time,
 				arrayJoin(mapKeys(%s)) AS name,
 				%s[arrayJoin(mapKeys(%s))] AS value
-			FROM statnive.events_raw
+			FROM statnive.events_raw -- raw-fallback OK (segments PropNames)
 			WHERE site_id = ?
 			  AND time >= now() - INTERVAL 7 DAY
-			SAMPLE 0.1
 		)
 		GROUP BY name
 		ORDER BY last_seen DESC
