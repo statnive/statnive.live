@@ -119,6 +119,7 @@ STATNIVE_AUDIT_PATH="${AUDIT_PATH}" \
 STATNIVE_CLICKHOUSE_ADDR="${CH_ADDR}" \
 STATNIVE_DASHBOARD_SPA_ENABLED=true \
 STATNIVE_DASHBOARD_BEARER_TOKEN="${TOKEN}" \
+STATNIVE_DASHBOARD_GEO_ENABLED=true \
 STATNIVE_DEV=1 \
 STATNIVE_AUTH_SESSION_SECURE=false \
 STATNIVE_BOOTSTRAP_ADMIN_EMAIL="${LOGIN_EMAIL}" \
@@ -721,6 +722,40 @@ probe_per_site_authz() {
     rm -f "$admin_cookies" "$alpha_cookies" "$beta_cookies"
 }
 
+# probe_geo: v1.1-geo end-to-end. Verifies bearer auth + the combined
+# envelope {top, rows} the panel consumes.
+#   - No header → 401 (auth middleware still in front of the route)
+#   - Bearer header → 200 + JSON has both "top" and "rows" keys
+#   - jq -e confirms 'top' and 'rows' are arrays (not scalars / nulls)
+#
+# Pre-conditions: probe_ingest already seeded EVENT_COUNT events, all
+# with country_code derived from the synthetic IPs (the smoke uses
+# 127.0.0.1 which IP2Location maps to '--' — that's fine; we don't
+# pin the country code value, only the envelope shape).
+probe_geo() {
+    local url="http://127.0.0.1:${PORT}/api/stats/geo?site=${SITE_ID}"
+
+    local status_no
+    status_no=$(curl -sS -o /dev/null -w '%{http_code}' "$url")
+    local cond=1
+    [ "$status_no" = "401" ] && cond=0
+    _assert "stats/geo without bearer: 401" "$cond" "got status=${status_no}"
+
+    local tmp status_yes body
+    tmp=$(mktemp)
+    status_yes=$(curl -sS -o "$tmp" -w '%{http_code}' -H "Authorization: Bearer ${TOKEN}" "$url")
+    body=$(cat "$tmp")
+    rm -f "$tmp"
+    cond=1
+    if [ "$status_yes" = "200" ] \
+        && echo "$body" | grep -q '"top"' \
+        && echo "$body" | grep -q '"rows"'; then
+        cond=0
+    fi
+    _assert "stats/geo with bearer: 200 + {top, rows} envelope" "$cond" \
+        "status=${status_yes} body=${body}"
+}
+
 # ---------- Run the probe matrix ----------
 
 log "probing /healthz + /tracker.js + /app/ + /app/assets/"
@@ -747,6 +782,9 @@ probe_admin_flow
 
 log "probing per-site dashboard authz (Lesson 35 — OWASP A01:2021)"
 probe_per_site_authz
+
+log "probing /api/stats/geo (v1.1-geo: bearer auth + combined envelope)"
+probe_geo
 
 log "=== all probes green ==="
 exit 0

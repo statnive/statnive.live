@@ -1,0 +1,314 @@
+/* Geo.css — v1.1-geo panel-specific layout. Editorial-card register:
+ * three discrete report boxes (Headline / Share / Drill-down), each
+ * with a kicker + display title in the Stripe-Dashboard idiom.
+ * Tokens only (var(--*) — `make brand-grep` rejects literal hex).
+ * Every selector descends from #statnive-app per CLAUDE.md Admin
+ * Asset Scoping Rule.
+ */
+
+#statnive-app .statnive-geo-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-5);
+}
+
+#statnive-app .statnive-geo-box {
+  background: var(--paper-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+  padding: var(--s-4) var(--s-4) var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+@media (min-width: 880px) {
+  #statnive-app .statnive-geo-box {
+    padding: var(--s-4) var(--s-5);
+  }
+}
+
+/* Two-tier title: small mono caps kicker, larger Space Grotesk
+ * display title. The kicker carries operator vocabulary
+ * (RANKING / SHARE / DRILL-DOWN); the title reads to a non-technical
+ * viewer. Same pattern Stripe Dashboard uses on report cards.
+ *
+ * Three label variants in this file share the same mono-caps-ink-2
+ * recipe; the `-kicker`, `-headline-sublabel`, `-pie-total-label`
+ * classes all build on this base and only override letter-spacing
+ * (and the sublabel adds a hairline divider). */
+#statnive-app .statnive-geo-kicker,
+#statnive-app .statnive-geo-headline-sublabel,
+#statnive-app .statnive-geo-pie-total-label {
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin: 0;
+  font-weight: 500;
+}
+
+#statnive-app .statnive-geo-kicker {
+  letter-spacing: 0.12em;
+}
+
+#statnive-app .statnive-geo-title {
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  margin: 2px 0 0;
+  line-height: 1.15;
+}
+
+#statnive-app .statnive-geo-box-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+
+#statnive-app .statnive-geo-box-head-titles {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Headline box — two side-by-side ranked lists. The grid columns
+ * collapse to a single column under 720px so the lists stack rather
+ * than crush. */
+#statnive-app .statnive-geo-headline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--s-5);
+}
+
+#statnive-app .statnive-geo-headline-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+#statnive-app .statnive-geo-headline-sublabel {
+  letter-spacing: 0.08em;
+  padding-bottom: var(--s-1);
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+/* Ranked-list row reshape — boldens the shared PieSummaryList only
+ * when nested inside a geo headline column. Bigger weights, mono
+ * tabular numerals, sturdier vertical rhythm. */
+#statnive-app .statnive-geo-headline-column .statnive-pie-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+#statnive-app .statnive-geo-headline-column .statnive-pie-summary-row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+#statnive-app .statnive-geo-headline-column .statnive-pie-summary-row:last-child {
+  border-bottom: 0;
+}
+
+#statnive-app .statnive-geo-headline-column .statnive-pie-summary-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+#statnive-app .statnive-geo-headline-column .statnive-pie-summary-name {
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#statnive-app .statnive-geo-headline-column .statnive-pie-summary-bar {
+  display: none;
+}
+
+#statnive-app .statnive-geo-headline-column .statnive-pie-summary-pct {
+  font-family: var(--mono);
+  font-size: var(--text-num-cell);
+  font-weight: 500;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+#statnive-app .statnive-geo-headline-column .statnive-pie-summary-raw {
+  display: none;
+}
+
+#statnive-app .statnive-geo-pie-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: var(--s-4);
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  #statnive-app .statnive-geo-pie-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+#statnive-app .statnive-geo-pie-toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+}
+
+#statnive-app .statnive-geo-pie-toggle .statnive-chip {
+  font-family: var(--sans);
+  font-size: var(--text-meta);
+  font-weight: 500;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: transparent;
+  border: 0;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+#statnive-app .statnive-geo-pie-toggle .statnive-chip.is-active {
+  background: var(--ink);
+  color: var(--paper-2);
+}
+
+#statnive-app .statnive-geo-pie-total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--s-2);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--rule-hair);
+}
+
+#statnive-app .statnive-geo-pie-total-label {
+  letter-spacing: 0.1em;
+}
+
+#statnive-app .statnive-geo-pie-total-value {
+  font-family: var(--mono);
+  font-size: var(--text-num-hero);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+#statnive-app .statnive-geo-pie-total-meta {
+  font-family: var(--sans);
+  font-size: var(--text-meta);
+  color: var(--ink-2);
+}
+
+/* Drill-down box — table inside. Bolder thead, sturdier row dividers,
+ * country-aggregate rows visually heavier than expanded children. */
+#statnive-app .statnive-geo-box .statnive-table {
+  width: 100%;
+}
+
+#statnive-app .statnive-geo-box .statnive-table thead th {
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  font-weight: 500;
+  padding: var(--s-2) var(--s-2) var(--s-2) 0;
+  border-bottom: 1px solid var(--rule-soft);
+  text-align: right;
+}
+
+#statnive-app .statnive-geo-box .statnive-table thead th:first-child {
+  text-align: left;
+}
+
+#statnive-app .statnive-geo-box .statnive-table tbody td {
+  padding: 10px var(--s-2) 10px 0;
+  border-bottom: 1px solid var(--rule-hair);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#statnive-app .statnive-geo-box .statnive-table tbody td:first-child {
+  text-align: left;
+}
+
+#statnive-app .statnive-geo-row-country td {
+  font-family: var(--mono);
+  font-size: var(--text-num-cell);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+#statnive-app .statnive-geo-row-country td:first-child {
+  font-family: var(--sans);
+  font-weight: 500;
+}
+
+#statnive-app .statnive-geo-row-child td {
+  background: var(--paper);
+  font-family: var(--mono);
+  font-size: var(--text-meta);
+  color: var(--ink-2);
+}
+
+#statnive-app .statnive-geo-row-child td:first-child {
+  font-family: var(--sans);
+}
+
+#statnive-app .statnive-geo-row-child .statnive-geo-child-label {
+  padding-left: var(--s-4);
+  color: var(--ink-2);
+}
+
+#statnive-app .statnive-geo-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+#statnive-app .statnive-geo-expand[aria-expanded='true'] {
+  color: var(--ink);
+}
+
+#statnive-app .statnive-geo-expand:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+#statnive-app .statnive-geo-flag {
+  font-size: 1.25em;
+  line-height: 1;
+}
+
+#statnive-app .statnive-geo-show-more {
+  align-self: flex-start;
+  margin-top: var(--s-2);
+}

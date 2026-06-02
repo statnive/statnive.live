@@ -15,9 +15,9 @@ import (
 // driver error. Realtime ignores f.From / f.To (it always reads the
 // current hour) but still requires SiteID and respects f.Channel.
 //
-// Geo, Devices, and Funnel return ErrNotImplemented in v1: Geo + Devices
-// wait for the daily_geo + daily_devices rollups (v1.1), Funnel waits
-// for windowFunnel implementation (v2).
+// Devices returns ErrNotImplemented in v1; it waits on the daily_devices
+// rollup which ships in a separate v1.1-devices phase. Funnel returns
+// ErrNotImplemented until v2 (windowFunnel).
 type Store interface {
 	Overview(ctx context.Context, f *Filter) (*OverviewResult, error)
 	Sources(ctx context.Context, f *Filter) ([]SourceRow, error)
@@ -28,8 +28,14 @@ type Store interface {
 	Trend(ctx context.Context, f *Filter) ([]DailyPoint, error)
 	Realtime(ctx context.Context, f *Filter) (*RealtimeResult, error)
 
-	// v1.1 — wait on daily_geo / daily_devices rollups.
+	// Geo (v1.1-geo) reads daily_geo. Drill-down rows + top-country
+	// aggregate are separate methods so the handler can fan out two
+	// short SELECTs against the same rollup without smearing the
+	// SQL templates together.
 	Geo(ctx context.Context, f *Filter) ([]GeoRow, error)
+	GeoTopCountries(ctx context.Context, f *Filter) ([]GeoTopRow, error)
+
+	// v1.1 — wait on daily_devices rollup.
 	Devices(ctx context.Context, f *Filter) ([]DeviceRow, error)
 
 	// v2 — wait on windowFunnel implementation.

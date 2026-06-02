@@ -139,11 +139,21 @@ func (c *CachedStore) Realtime(ctx context.Context, f *Filter) (*RealtimeResult,
 	return out, nil
 }
 
-// Geo / Devices / Funnel pass through to the inner Store, which
-// returns ErrNotImplemented in v1. Caching the not-implemented error
-// would be wasteful; the inner call is cheap.
+// Geo caches the daily_geo drill-down rollup under ResolveTTL rules,
+// matching Sources / Pages / Campaigns. v1.1-geo: the rollup is small
+// (~5 K rows/day/site for SamplePlatform's geo distribution) so the
+// cache exists only to absorb dashboard fanout on the same time window.
 func (c *CachedStore) Geo(ctx context.Context, f *Filter) ([]GeoRow, error) {
-	return c.inner.Geo(ctx, f)
+	return wrapFiltered(c, "geo", f, func() ([]GeoRow, error) { return c.inner.Geo(ctx, f) })
+}
+
+// GeoTopCountries caches the country-only aggregate under ResolveTTL
+// rules. Distinct cache namespace from Geo so the panel's headline /
+// pie surfaces don't fight the drill-down table for the same key.
+func (c *CachedStore) GeoTopCountries(ctx context.Context, f *Filter) ([]GeoTopRow, error) {
+	return wrapFiltered(c, "geo_top_countries", f, func() ([]GeoTopRow, error) {
+		return c.inner.GeoTopCountries(ctx, f)
+	})
 }
 
 // Devices passes through to the inner Store (v1 stub).

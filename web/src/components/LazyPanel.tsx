@@ -27,6 +27,8 @@ function loaderFor(name: string): () => Promise<LazyModule> {
       return () => import('../panels/SEO');
     case 'campaigns':
       return () => import('../panels/Campaigns');
+    case 'geo':
+      return () => import('../panels/Geo');
     case 'realtime':
       return () => import('../panels/Realtime');
     case 'admin':

@@ -564,10 +564,11 @@ func run() error {
 	}
 
 	dashboardDeps := dashboard.Deps{
-		Store:  cachedStore,
-		Sites:  registry,
-		Audit:  auditLog,
-		Logger: logger,
+		Store:      cachedStore,
+		Sites:      registry,
+		Audit:      auditLog,
+		Logger:     logger,
+		GeoEnabled: cfg.Dashboard.GeoEnabled,
 	}
 
 	// Dashboard listing — session OR api-token auth, admin+viewer+api
@@ -1201,6 +1202,13 @@ type appConfig struct {
 		// Phase 2b (this file) now supplies session + RBAC auth, so the
 		// hard gate is lifted — operators may enable SPA in production.
 		SPAEnabled bool
+		// GeoEnabled gates /api/stats/geo (v1.1-geo). Default false —
+		// migration 019 creates the rollup + MV at boot, then the
+		// operator runs cmd/geo-backfill to load historical data and
+		// flips this to true before promoting the Nav tab off SOON.
+		// Kept on the binary side (not the SPA build) so rollback is a
+		// SIGHUP, not a redeploy.
+		GeoEnabled bool
 	}
 	Auth struct {
 		Session struct {
@@ -1404,6 +1412,7 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("ratelimit.requests_per_minute", 6000)
 	v.SetDefault("dashboard.bearer_token", "")
 	v.SetDefault("dashboard.spa_enabled", false)
+	v.SetDefault("dashboard.geo_enabled", false)
 
 	// Consent posture (CLAUDE.md Privacy Rules 5 + 9).
 	// `consent.required` stays a global flag (cookie + identity gate is
@@ -1513,6 +1522,7 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 
 	cfg.Dashboard.BearerToken = v.GetString("dashboard.bearer_token")
 	cfg.Dashboard.SPAEnabled = v.GetBool("dashboard.spa_enabled")
+	cfg.Dashboard.GeoEnabled = v.GetBool("dashboard.geo_enabled")
 
 	cfg.Consent.Required = v.GetBool("consent.required")
 

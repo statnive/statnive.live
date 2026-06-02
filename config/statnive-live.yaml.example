@@ -115,6 +115,13 @@ ratelimit:
 dashboard:
   bearer_token: ""        # STATNIVE_DASHBOARD_BEARER_TOKEN
   spa_enabled:  true      # STATNIVE_DASHBOARD_SPA_ENABLED
+  # geo_enabled gates /api/stats/geo (v1.1-geo). Migration 019 creates
+  # the daily_geo table + MV at boot regardless of this flag — the MV
+  # starts catching new events immediately. Flip this to true ONLY
+  # after running `make geo-backfill FROM=<earliest> TO=<today>` so
+  # historical data is loaded, then SIGHUP. When false the endpoint
+  # returns 501 and the SPA's Geo panel renders a "coming soon" state.
+  geo_enabled:  false     # STATNIVE_DASHBOARD_GEO_ENABLED
 
 # ─── Auth (Phase 2b: sessions, RBAC, lockout) ──────────────────────────
 # First-run bootstrap reads STATNIVE_BOOTSTRAP_ADMIN_{EMAIL,PASSWORD,USERNAME}

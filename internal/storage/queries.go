@@ -26,6 +26,13 @@ func rpv(revenue, visitors uint64) float64 {
 	return float64(revenue) / float64(visitors)
 }
 
+// trimCountryCode strips clickhouse-go's `FixedString(2)` padding off
+// the country_code column. Centralized here so a future GeoIP encoding
+// change is a single edit, not a grep across Store methods.
+func trimCountryCode(cc string) string {
+	return strings.TrimSpace(strings.Trim(cc, "\x00"))
+}
+
 // NewClickhouseQueryStore wraps an existing ClickHouseStore connection
 // (the same pool main.go opens for ingest) and exposes the read-only
 // Store interface. We deliberately reuse the ingest pool rather than
@@ -89,6 +96,7 @@ func applyFilters(f *Filter, where string, args []any, cols map[string]bool) (st
 		{"utm_content", f.UTMContent},
 		{"utm_term", f.UTMTerm},
 		{"pathname", f.Path},
+		{"country_code", f.Country},
 	}
 
 	for _, c := range candidates {
@@ -124,6 +132,13 @@ var (
 	hourlyVisitorsCols = map[string]bool{
 		"channel": true,
 	}
+	// daily_geo carries only the three geo dimensions — no channel /
+	// referrer / utm columns on this rollup, by design (v1.1-geo: keep
+	// the rollup narrow; cross-dimensional filters route through the
+	// Sources / Pages panels instead).
+	dailyGeoCols = map[string]bool{
+		"country_code": true,
+	}
 
 	// Whitelist values MUST be bare columns or expressions valid in an
 	// outer ORDER BY against the SELECT list — no aggregates, no AS
@@ -153,6 +168,13 @@ var (
 	// sourcesSortable.
 	sourcesByChannelSortable = sortableExtending(metricsSortable, map[string]string{
 		"channel": "channel",
+	})
+	// geoSortable extends the shared metric sorts with the three geo
+	// dimensions so the Sources-style sort=country chip works.
+	geoSortable = sortableExtending(metricsSortable, map[string]string{
+		"country":  "country_code",
+		"province": "province",
+		"city":     "city",
 	})
 )
 
@@ -626,9 +648,120 @@ func (s *clickhouseStore) Realtime(ctx context.Context, f *Filter) (*RealtimeRes
 	return &out, nil
 }
 
-// Geo is reserved — the daily_geo rollup ships in v1.1.
-func (s *clickhouseStore) Geo(_ context.Context, _ *Filter) ([]GeoRow, error) {
-	return nil, ErrNotImplemented
+// geoTopCountriesLimit caps GeoTopCountries server-side. The dashboard
+// slices to top-10 per axis (visitors / revenue) and rolls everything
+// past the 10th into an "Other" slice in the pie. 25 is the smallest
+// constant that always covers both top-10 lists even when the two
+// rankings overlap minimally; bumping it costs nothing because the
+// outer LIMIT runs after the GROUP BY.
+const geoTopCountriesLimit = 25
+
+// Geo reads daily_geo, GROUP BY (country_code, province, city). Drives
+// the panel's drill-down table; the headline + pie come from
+// GeoTopCountries below. ORDER BY revenue DESC, visitors DESC matches
+// Sources / Campaigns' RPV-first sort (CLAUDE.md Project Goal #1).
+//
+// applyFilters keeps the filter surface bounded to dimensions that
+// actually live on daily_geo (country_code only — province / city are
+// drill-down dimensions, not chips). Other filter fields are silently
+// ignored here, mirroring the Sources behavior for path / device.
+func (s *clickhouseStore) Geo(ctx context.Context, f *Filter) ([]GeoRow, error) {
+	if err := f.Validate(); err != nil {
+		return nil, err
+	}
+
+	where, args := whereTimeAndTenant(f, "day")
+	where, args = applyFilters(f, where, args, dailyGeoCols)
+
+	rows, err := s.conn.Query(ctx, fmt.Sprintf(`
+		SELECT
+			country_code,
+			province,
+			city,
+			toUInt64(sum(views))                AS views,
+			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
+			toUInt64(sum(goals))                AS goals,
+			toUInt64(sum(revenue))              AS revenue
+		FROM statnive.daily_geo %s
+		GROUP BY country_code, province, city
+		%s
+		LIMIT ?
+	`, where, orderClause(f, geoSortable, "revenue DESC, visitors DESC")), append(args, f.EffectiveLimit())...)
+	if err != nil {
+		return nil, fmt.Errorf("geo query: %w", err)
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	out := []GeoRow{}
+
+	for rows.Next() {
+		var (
+			r  GeoRow
+			cc string
+		)
+
+		if err := rows.Scan(&cc, &r.Province, &r.City, &r.Views, &r.Visitors, &r.Goals, &r.Revenue); err != nil {
+			return nil, fmt.Errorf("geo scan: %w", err)
+		}
+
+		r.CountryCode = trimCountryCode(cc)
+		r.RPV = rpv(r.Revenue, r.Visitors)
+		out = append(out, r)
+	}
+
+	return out, rows.Err()
+}
+
+// GeoTopCountries reads daily_geo, GROUP BY country_code only — the
+// country-level aggregate that drives the "Top 10 by Visitors / Top 10
+// by Revenue" headline + the share-of-visitors donut. Capped at 25
+// rows (geoTopCountriesLimit); the panel sorts client-side on both
+// axes and collapses everything past the 10th into "Other" in the pie.
+func (s *clickhouseStore) GeoTopCountries(ctx context.Context, f *Filter) ([]GeoTopRow, error) {
+	if err := f.Validate(); err != nil {
+		return nil, err
+	}
+
+	where, args := whereTimeAndTenant(f, "day")
+	where, args = applyFilters(f, where, args, dailyGeoCols)
+
+	rows, err := s.conn.Query(ctx, fmt.Sprintf(`
+		SELECT
+			country_code,
+			toUInt64(sum(views))                AS views,
+			toUInt64(uniqCombined64Merge(visitors_state)) AS visitors,
+			toUInt64(sum(goals))                AS goals,
+			toUInt64(sum(revenue))              AS revenue
+		FROM statnive.daily_geo %s
+		GROUP BY country_code
+		ORDER BY visitors DESC
+		LIMIT ?
+	`, where), append(args, uint32(geoTopCountriesLimit))...)
+	if err != nil {
+		return nil, fmt.Errorf("geo_top_countries query: %w", err)
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	out := []GeoTopRow{}
+
+	for rows.Next() {
+		var (
+			r  GeoTopRow
+			cc string
+		)
+
+		if err := rows.Scan(&cc, &r.Views, &r.Visitors, &r.Goals, &r.Revenue); err != nil {
+			return nil, fmt.Errorf("geo_top_countries scan: %w", err)
+		}
+
+		r.CountryCode = trimCountryCode(cc)
+		r.RPV = rpv(r.Revenue, r.Visitors)
+		out = append(out, r)
+	}
+
+	return out, rows.Err()
 }
 
 // Devices is reserved — the daily_devices rollup ships in v1.1.
