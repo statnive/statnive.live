@@ -15,7 +15,9 @@
       "event_name": "pageview",
       "event_value": 0,
       "user_id": "",
-      "props": {}
+      "hit_props": {},
+      "session_props": {},
+      "user_props": {}
     }
   },
   {
@@ -34,10 +36,12 @@
       "event_name": "signup",
       "event_value": 99,
       "user_id": "",
-      "props": {
+      "hit_props": {
         "plan": "pro",
         "source": "header"
-      }
+      },
+      "session_props": {},
+      "user_props": {}
     }
   },
   {
@@ -56,9 +60,11 @@
       "event_name": "purchase",
       "event_value": 199.5,
       "user_id": "user_phase7b2_42",
-      "props": {
+      "hit_props": {
         "sku": "sku-001"
-      }
+      },
+      "session_props": {},
+      "user_props": {}
     }
   },
   {
@@ -77,7 +83,9 @@
       "event_name": "pageview",
       "event_value": 0,
       "user_id": "",
-      "props": {}
+      "hit_props": {},
+      "session_props": {},
+      "user_props": {}
     }
   }
 ]

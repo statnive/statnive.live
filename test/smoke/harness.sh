@@ -194,15 +194,16 @@ probe_tracker() {
     nosniff=$(_header_value "${tmp}.h" "x-content-type-options")
     size=$(wc -c < "$tmp" | tr -d ' ')
 
-    # Tracker bundle ceiling bumped to 2100 in Stage 3 alongside
-    # Makefile tracker-size + internal/tracker/tracker_test.go (the GPC
-    # client-probe + statniveLive.acceptConsent/withdrawConsent helpers
-    # added ~500 B).
+    # Tracker bundle ceiling bumped to 3400 in Phase 1 of segments
+    # alongside Makefile tracker-size + internal/tracker/tracker_test.go
+    # (.setSession + .identify(uid,userProps) + .getConsent + three-state
+    # local machine + cookie/sessionStorage helpers + 3-scope envelope
+    # added ~860 B min).
     local cond=1
     if [ "$status" = "200" ] \
         && echo "$ctype" | grep -q 'application/javascript' \
         && echo "$nosniff" | grep -q 'nosniff' \
-        && [ "$size" -gt 0 ] && [ "$size" -le 2100 ] \
+        && [ "$size" -gt 0 ] && [ "$size" -le 3400 ] \
         && head -c 10 "$tmp" | grep -q '^!function'; then
         cond=0
     fi
