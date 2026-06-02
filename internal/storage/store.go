@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // Store is the read-only contract every dashboard surface (HTTP handlers
@@ -40,6 +41,70 @@ type Store interface {
 
 	// v2 — wait on windowFunnel implementation.
 	Funnel(ctx context.Context, f *Filter, steps []string) (*FunnelResult, error)
+
+	// Segments Phase 3 — autocomplete + comparison surfaces.
+	//
+	// PropNames returns up to `limit` distinct prop names observed in the
+	// given scope ('hit', 'session', or 'user') over the last 7 days for
+	// the site. Powers /api/props/list and the dashboard's prop-filter
+	// chip autocomplete. Backed by a live scan against events_raw with
+	// a tight SAMPLE rate; v1.1 promotes this to a nightly-refreshed
+	// prop_name_cache MV once operator traffic justifies the build.
+	PropNames(ctx context.Context, f *Filter, scope string, limit int) ([]PropNameRow, error)
+
+	// Compare pivots the variant-comparison table for an A/B style
+	// experiment. dimension is a "<scope>:<name>" string (e.g.
+	// "session:ab_variant"). goal is an event_name to count conversions
+	// for. Returns one VariantRow per distinct value of the dimension,
+	// already ranked by visitor count (so the natural control is
+	// rows[0] unless the caller overrides).
+	//
+	// Phase 4 of segments — runs pooled-variance two-proportion z-test
+	// + Wilson confidence intervals per variant vs the control row.
+	// Withholds significance when any variant fails n>=100 AND k>=25
+	// (Optimizely / VWO consensus); see internal/storage/segments.go.
+	Compare(ctx context.Context, f *Filter, dimension, goal string) (*CompareResult, error)
+}
+
+// PropNameRow is one entry in /api/props/list. SampleValues holds up to
+// 50 distinct values for the prop_name (UI uses these to populate the
+// chip's value-picker autocomplete). LastSeen is the most recent
+// observation time for the name; the UI sorts by it so stale prop
+// names sink to the bottom of the autocomplete.
+type PropNameRow struct {
+	Name         string    `json:"name"`
+	SampleValues []string  `json:"sample_values"`
+	LastSeen     time.Time `json:"last_seen"`
+}
+
+// CompareResult is the /api/stats/compare envelope. Control is the
+// variant value chosen as the reference; usually rows[0] (highest
+// visitor count) unless the caller passed an explicit override.
+type CompareResult struct {
+	Dimension string       `json:"dimension"`
+	Goal      string       `json:"goal"`
+	Control   string       `json:"control"`
+	Variants  []VariantRow `json:"variants"`
+}
+
+// VariantRow is one row of the variant-comparison table. Conversion
+// math runs server-side so the dashboard ships zero stats logic.
+//
+// Nullable-by-pointer in JSON: when the sample-size guard withholds
+// significance (n<100 OR conversions<25 per variant), DeltaPP, DeltaRel,
+// PValue, Significant, CILow, CIHigh are all null. The UI inspects
+// them and renders the warning row + "n/a" badge per § 11.4 of the plan.
+type VariantRow struct {
+	Value           string   `json:"value"`
+	Visitors        uint64   `json:"visitors"`
+	GoalCompletions uint64   `json:"goal_completions"`
+	ConversionRate  float64  `json:"conversion_rate"`
+	DeltaPP         *float64 `json:"delta_pp,omitempty"`
+	DeltaRel        *float64 `json:"delta_rel,omitempty"`
+	PValue          *float64 `json:"p_value,omitempty"`
+	Significant     *bool    `json:"significant,omitempty"`
+	CILow           *float64 `json:"ci_low,omitempty"`
+	CIHigh          *float64 `json:"ci_high,omitempty"`
 }
 
 // ErrNotImplemented is returned by Store methods that are reserved in

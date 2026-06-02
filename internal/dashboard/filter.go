@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/statnive/statnive.live/internal/auth"
@@ -99,26 +100,29 @@ func filterFromRequest(r *http.Request, lister SiteLister) (*storage.Filter, err
 	}
 
 	f := &storage.Filter{
-		SiteID:      siteID,
-		From:        from,
-		To:          to,
-		Path:        q.Get("path"),
-		Referrer:    q.Get("referrer"),
-		Channel:     q.Get("channel"),
-		UTMSource:   q.Get("utm_source"),
-		UTMMedium:   q.Get("utm_medium"),
-		UTMCampaign: q.Get("utm_campaign"),
-		UTMContent:  q.Get("utm_content"),
-		UTMTerm:     q.Get("utm_term"),
-		Country:     q.Get("country"),
-		Browser:     q.Get("browser"),
-		OS:          q.Get("os"),
-		Device:      q.Get("device"),
-		Sort:        q.Get("sort"),
-		Dir:         q.Get("dir"),
-		Search:      q.Get("search"),
-		Limit:       limit,
-		Offset:      offset,
+		SiteID:       siteID,
+		From:         from,
+		To:           to,
+		Path:         q.Get("path"),
+		Referrer:     q.Get("referrer"),
+		Channel:      q.Get("channel"),
+		UTMSource:    q.Get("utm_source"),
+		UTMMedium:    q.Get("utm_medium"),
+		UTMCampaign:  q.Get("utm_campaign"),
+		UTMContent:   q.Get("utm_content"),
+		UTMTerm:      q.Get("utm_term"),
+		Country:      q.Get("country"),
+		Browser:      q.Get("browser"),
+		OS:           q.Get("os"),
+		Device:       q.Get("device"),
+		Sort:         q.Get("sort"),
+		Dir:          q.Get("dir"),
+		Search:       q.Get("search"),
+		Limit:        limit,
+		Offset:       offset,
+		HitProps:     parseScopedProps(q["hit_prop"]),
+		SessionProps: parseScopedProps(q["session_prop"]),
+		UserProps:    parseScopedProps(q["user_prop"]),
 	}
 
 	if err := f.Validate(); err != nil {
@@ -126,6 +130,36 @@ func filterFromRequest(r *http.Request, lister SiteLister) (*storage.Filter, err
 	}
 
 	return f, nil
+}
+
+// parseScopedProps decodes repeated `?<scope>_prop=name:value` query
+// values into a map. Phase 3 of segments. The dashboard frontend sends
+// one parameter per prop filter; this helper extracts the name/value
+// pair on the server. Empty value or missing colon → skipped silently
+// (validateProps on the server side enforces stricter rules later).
+// Char caps mirror the Phase 2 ingest cap (200 char names, 1000 char
+// values) so a malicious URL can't push past the Filter.Validate cap.
+func parseScopedProps(values []string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(values))
+
+	for _, v := range values {
+		k, val, ok := strings.Cut(v, ":")
+		if !ok || k == "" {
+			continue
+		}
+
+		if len(k) > 200 || len(val) > 1000 {
+			continue
+		}
+
+		out[k] = val
+	}
+
+	return out
 }
 
 // parseSiteID extracts a uint32 site_id from a query value. Empty or

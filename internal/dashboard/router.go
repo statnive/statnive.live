@@ -55,6 +55,10 @@ func MountSiteScoped(r chi.Router, deps Deps) {
 	r.Method(http.MethodGet, "/api/stats/funnel", funnelHandler(deps))
 
 	r.Method(http.MethodGet, "/api/realtime/visitors", realtimeHandler(deps))
+
+	// Segments — Phase 3 (props autocomplete) + Phase 4 (variant pivot).
+	r.Method(http.MethodGet, "/api/props/list", propsListHandler(deps))
+	r.Method(http.MethodGet, "/api/stats/compare", compareHandler(deps))
 }
 
 // Mount preserves the legacy single-group entry point for callers that

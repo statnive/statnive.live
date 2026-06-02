@@ -165,3 +165,54 @@ func (c *CachedStore) Devices(ctx context.Context, f *Filter) ([]DeviceRow, erro
 func (c *CachedStore) Funnel(ctx context.Context, f *Filter, steps []string) (*FunnelResult, error) {
 	return c.inner.Funnel(ctx, f, steps)
 }
+
+// PropNames caches the prop-name autocomplete. Underlying scan against
+// events_raw is over a 7-day rolling window and the chip-autocomplete
+// list doesn't churn during a session, so the standard ResolveTTL is
+// fine. Key partitions on (site_id, scope, limit). Phase 3 of segments.
+func (c *CachedStore) PropNames(ctx context.Context, f *Filter, scope string, limit int) ([]PropNameRow, error) {
+	if f == nil {
+		return nil, errors.New("cached_store: prop_names requires non-nil filter")
+	}
+
+	key := fmt.Sprintf("propnames:%d:%s:%d", f.SiteID, scope, limit)
+
+	v, err := c.cache.Wrap(key, cache.TTLHistorical, func() (any, error) {
+		return c.inner.PropNames(ctx, f, scope, limit)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out, ok := v.([]PropNameRow)
+	if !ok {
+		return nil, fmt.Errorf("cached_store: prop_names cache value has unexpected type %T", v)
+	}
+
+	return out, nil
+}
+
+// Compare caches the variant-comparison pivot. Phase 4 of segments.
+// Key includes the dimension + goal + Filter hash so different
+// dashboard surfaces with overlapping filters get distinct entries.
+func (c *CachedStore) Compare(ctx context.Context, f *Filter, dimension, goal string) (*CompareResult, error) {
+	if f == nil {
+		return nil, errors.New("cached_store: compare requires non-nil filter")
+	}
+
+	key := fmt.Sprintf("compare:%s:%s:%s", dimension, goal, f.Hash())
+
+	v, err := c.cache.Wrap(key, cache.TTLHistorical, func() (any, error) {
+		return c.inner.Compare(ctx, f, dimension, goal)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out, ok := v.(*CompareResult)
+	if !ok {
+		return nil, fmt.Errorf("cached_store: compare cache value has unexpected type %T", v)
+	}
+
+	return out, nil
+}

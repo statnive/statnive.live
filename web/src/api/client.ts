@@ -1,6 +1,6 @@
 import { siteSignal, activeSiteSignal, sitesSignal, STORAGE_KEY } from '../state/site';
 import { authSignal } from '../state/auth';
-import { filtersSignal } from '../state/filters';
+import { filtersSignal, filtersToQuery } from '../state/filters';
 
 // apiGet is the single entry point for SPA → server reads. Adds the
 // active site_id from siteSignal, Authorization: Bearer from authSignal,
@@ -23,11 +23,14 @@ export async function apiGet<T>(
   const url = new URL(path, window.location.origin);
   url.searchParams.set('site', String(siteSignal.value));
 
-  // Merge non-empty filters from filtersSignal. Explicit params win so
-  // a panel can override (e.g. a panel-specific `from`/`to`).
-  const f = filtersSignal.value;
-  for (const [k, v] of Object.entries(f)) {
-    if (v) url.searchParams.set(k, v);
+  // Merge non-empty filters from filtersSignal via the canonical
+  // filtersToQuery serializer — it handles the scoped-prop Maps
+  // (Phase 3 of segments) by appending repeated `hit_prop` /
+  // `session_prop` / `user_prop` URL params. Explicit params win.
+  for (const [k, v] of filtersToQuery(filtersSignal.value).entries()) {
+    if (!params[k]) {
+      url.searchParams.append(k, v);
+    }
   }
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.set(k, v);

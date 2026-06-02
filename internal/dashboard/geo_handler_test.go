@@ -76,6 +76,14 @@ func (*geoFake) Funnel(context.Context, *storage.Filter, []string) (*storage.Fun
 	panic("geoFake.Funnel")
 }
 
+func (*geoFake) PropNames(context.Context, *storage.Filter, string, int) ([]storage.PropNameRow, error) {
+	return nil, nil
+}
+
+func (*geoFake) Compare(context.Context, *storage.Filter, string, string) (*storage.CompareResult, error) {
+	panic("geoFake.Compare")
+}
+
 // TestGeoHandler_FeatureFlagOff_Returns501 — when dashboard.geo_enabled
 // is false, the handler short-circuits to 501 BEFORE touching the
 // store. Same behavior as the pre-v1.1 binary, so the operator's
