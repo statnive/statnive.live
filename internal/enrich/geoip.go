@@ -245,10 +245,20 @@ func probeDB(db *ip2location.DB) error {
 // seeing junk in events_raw.isp instead of silently over-matching.
 const ip2locationUnavailableSentinel = "This parameter is unavailable for selected data file. Please upgrade the data file."
 
-// cleanGeoField returns "" for IP2Location's two missing-value sentinels.
+// ip2locationIPv6MissingSentinel is the library's response when an IPv6
+// address is queried against an IPv4-only BIN. It leaked into production
+// events_raw.isp / .carrier (and made every IPv6 visitor land as
+// country_code='--') for ~5 weeks until the v4+v6-combined BIN was
+// installed on 2026-06-02. The IPv4-only BIN ships in IP2Location's free
+// LITE downloads alongside the combined one; the install runbook now
+// mandates the combined variant, but stripping the sentinel keeps a
+// stray re-install from quietly degrading enrichment again.
+const ip2locationIPv6MissingSentinel = "IPv6 address missing in IPv4 BIN."
+
+// cleanGeoField returns "" for IP2Location's missing-value sentinels.
 func cleanGeoField(s string) string {
 	s = strings.TrimSpace(s)
-	if s == "-" || s == ip2locationUnavailableSentinel {
+	if s == "-" || s == ip2locationUnavailableSentinel || s == ip2locationIPv6MissingSentinel {
 		return ""
 	}
 
