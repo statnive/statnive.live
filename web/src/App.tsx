@@ -33,6 +33,8 @@ function renderPanel() {
       return <LazyPanel name="realtime" />;
     case 'admin':
       return <LazyPanel name="admin" />;
+    case 'compare':
+      return <LazyPanel name="compare" />;
     default:
       return <Overview />;
   }

@@ -1,0 +1,133 @@
+/* Segments Phase 4 — Compare panel. Variant table inherits the brand
+   tokens (--ink, --paper, --teal, --amber) from tokens.css. ok/bad
+   colors lean blue/orange not green/red for CVD safety (research § 10). */
+
+.seg-compare-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.seg-compare-pickers {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.seg-compare-pickers label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.seg-compare-pickers span {
+  font-size: var(--text-label-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+}
+
+.seg-compare-pickers input {
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid var(--ink-15, rgba(28, 28, 60, 0.15));
+  border-radius: 4px;
+  background: var(--paper, #fff);
+  min-width: 240px;
+}
+
+.seg-compare-pickers input:focus-visible {
+  outline: 2px solid var(--teal, #2aa198);
+  outline-offset: 2px;
+}
+
+.seg-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.seg-compare-table thead th {
+  text-align: left;
+  font-size: var(--text-label-sm);
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ink-08, rgba(28, 28, 60, 0.08));
+}
+
+.seg-compare-table tbody td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--ink-08, rgba(28, 28, 60, 0.08));
+  vertical-align: top;
+}
+
+.seg-num {
+  text-align: right;
+}
+
+.seg-control-tag {
+  font-family: var(--jb-mono, monospace);
+  font-size: var(--text-label-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  margin-top: 2px;
+}
+
+.seg-dash {
+  color: var(--ink-40, rgba(28, 28, 60, 0.4));
+}
+
+/* CVD-safe ok/bad — blue-leaning teal + amber-leaning orange (research § 10). */
+.seg-delta-ok {
+  color: oklch(60% 0.13 195);
+}
+
+.seg-delta-bad {
+  color: oklch(65% 0.13 45);
+}
+
+.seg-delta-rel {
+  font-size: var(--text-label-sm);
+  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+}
+
+.seg-badge {
+  display: inline-block;
+  font-family: var(--jb-mono, monospace);
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.seg-badge--sig {
+  background: var(--teal, #2aa198);
+  color: var(--paper, #fff);
+}
+
+.seg-badge--na {
+  border: 1px solid var(--ink-15, rgba(28, 28, 60, 0.15));
+  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  background: transparent;
+}
+
+.seg-empty {
+  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  font-size: var(--text-body);
+}
+
+.seg-loading {
+  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  font-style: italic;
+}
+
+.seg-methodology {
+  font-size: var(--text-label-sm);
+  color: var(--ink-60, rgba(28, 28, 60, 0.6));
+  max-width: 70ch;
+  margin-top: 8px;
+}

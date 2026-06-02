@@ -96,6 +96,14 @@ func (c *countingStore) Realtime(_ context.Context, _ *storage.Filter) (*storage
 	return &storage.RealtimeResult{}, nil
 }
 
+func (c *countingStore) PropNames(_ context.Context, _ *storage.Filter, _ string, _ int) ([]storage.PropNameRow, error) {
+	return nil, nil
+}
+
+func (c *countingStore) Compare(_ context.Context, _ *storage.Filter, _, _ string) (*storage.CompareResult, error) {
+	return nil, storage.ErrNotImplemented
+}
+
 func newSilentAudit(t *testing.T) *audit.Logger {
 	t.Helper()
 
