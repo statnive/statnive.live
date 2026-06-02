@@ -689,15 +689,19 @@ tracker-test: tracker-install
 ## Bumped again 1500 → 2100 / 750 → 1000 in Stage 3: the consent-free
 ## flow added a GPC client-probe (gated by data-statnive-honour-gpc=1)
 ## plus statniveLive.acceptConsent / withdrawConsent helpers that POST
-## to /api/privacy/consent. ~500 B min / ~190 B gz net. Revisit in v1.1
-## if the bundle keeps growing — gating the consent helpers behind a
-## second data attribute would let permissive sites stay smaller.
+## to /api/privacy/consent. ~500 B min / ~190 B gz net.
+##
+## Bumped again 2100 → 3400 / 1000 → 1500 in Phase 1 of segments:
+## .setSession() + .identify(uid, userProps) + .getConsent() + three-
+## state local machine (idle/resolved/withdrawn) + cookie/sessionStorage
+## helpers + hit_props/session_props/user_props envelope keys. Net
+## ~860 B min / ~390 B gz. Revisit if /simplify finds easy wins.
 tracker-size:
 	@SIZE=$$(stat -f%z internal/tracker/dist/tracker.js 2>/dev/null || stat -c%s internal/tracker/dist/tracker.js); \
 	GZIP=$$(gzip -c -9 internal/tracker/dist/tracker.js | wc -c | tr -d ' '); \
-	echo "tracker.js: $$SIZE B min / $$GZIP B gz (budget: 2100 / 1000)"; \
-	if [ $$SIZE -gt 2100 ] || [ $$GZIP -gt 1000 ]; then \
-	  echo "FAIL: tracker bundle over budget (2100 B min / 1000 B gz)"; exit 1; \
+	echo "tracker.js: $$SIZE B min / $$GZIP B gz (budget: 3400 / 1500)"; \
+	if [ $$SIZE -gt 3400 ] || [ $$GZIP -gt 1500 ]; then \
+	  echo "FAIL: tracker bundle over budget (3400 B min / 1500 B gz)"; exit 1; \
 	fi
 
 ## airgap-test: MANUAL — run the binary under iptables OUTPUT DROP and
