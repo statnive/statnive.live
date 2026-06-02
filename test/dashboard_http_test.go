@@ -593,10 +593,14 @@ func TestDashboardHTTP_OverviewChannelFilter(t *testing.T) {
 		{SiteID: dashboardSiteA, Time: now, Pathname: "/d", Referrer: "https://google.com/", ReferrerName: "google", Channel: "Organic Search", VisitorHash: [16]byte{4}},
 	})
 
+	// Site TZ is Asia/Tehran (IRST = UTC+3:30). UTC-formatted dates
+	// parse as IRST midnights, so the UTC→IRST boundary can shift up
+	// to ~3.5h. Widen the range by one day on the past side and two
+	// on the future side to cover any CI time-of-day.
 	url := fmt.Sprintf("%s/api/stats/overview?site=%d&channel=Direct&from=%s&to=%s",
 		srv.URL, dashboardSiteA,
-		now.Format("2006-01-02"),
-		now.Add(24*time.Hour).Format("2006-01-02"))
+		now.Add(-24*time.Hour).Format("2006-01-02"),
+		now.Add(48*time.Hour).Format("2006-01-02"))
 
 	resp := getJSON(t, url, "")
 	if resp.StatusCode != http.StatusOK {
