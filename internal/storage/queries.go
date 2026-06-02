@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 	"time"
 
@@ -60,6 +61,56 @@ func whereTimeAndTenant(f *Filter, timeColumn string) (string, []any) {
 		timeColumn, timeColumn)
 
 	return clause, []any{f.SiteID, f.From, f.To}
+}
+
+// appendPropPredicates appends scoped Map[String,String] equality
+// predicates to a WHERE clause + args slice and returns the result.
+// Each predicate emits TWO parameterised placeholders so clickhouse-go
+// binds the prop name and value as separate parameters (defense
+// against any future SQL-injection seam — names + values arrive from
+// untrusted URL query strings).
+//
+// Used by the raw-fallback query path (Filter.HasPropFilter() == true)
+// against the events_raw Map columns introduced by migration 020. The
+// rollup path does not call this — rollup tables have no Map columns.
+//
+// The function intentionally iterates in key-sorted order so two
+// callers building the same filter generate byte-identical SQL.
+func appendPropPredicates(where string, args []any, scope string, props map[string]string) (string, []any) {
+	if len(props) == 0 {
+		return where, args
+	}
+
+	keys := make([]string, 0, len(props))
+	for k := range props {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		where += fmt.Sprintf(" AND has(%s, ?) AND %s[?] = ?", scope, scope)
+		args = append(args, k, k, props[k])
+	}
+
+	return where, args
+}
+
+// whereWithProps wraps whereTimeAndTenant + applyFilters and appends
+// the three scoped prop predicates. Used by the raw-fallback handlers
+// when Filter.HasPropFilter() == true.
+//
+// Architecture Rule 8 invariant: whereTimeAndTenant is still the
+// first call, so site_id pruning runs before any prop check.
+func whereWithProps(f *Filter, timeColumn string, cols map[string]bool) (string, []any) {
+	where, args := whereTimeAndTenant(f, timeColumn)
+	where, args = applyFilters(f, where, args, cols)
+
+	where, args = appendPropPredicates(where, args, "hit_props", f.HitProps)
+	where, args = appendPropPredicates(where, args, "session_props", f.SessionProps)
+	where, args = appendPropPredicates(where, args, "user_props", f.UserProps)
+
+	return where, args
 }
 
 // applyFilters extends a base WHERE clause with rollup-supported filter

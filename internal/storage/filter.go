@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
@@ -38,6 +39,17 @@ type Filter struct {
 	OS          string
 	Device      string
 
+	// Segments Phase 2 — custom-dimension filters keyed at hit / session /
+	// user scope. Empty map (or nil) means no constraint; HasPropFilter()
+	// reports whether ANY scope carries a key. When at least one prop
+	// filter is active, dashboard handlers route to the events_raw
+	// raw-fallback path (cached 1h, range capped at 90 days) instead of
+	// the rollup. Rollup queries stay byte-identical when all three
+	// maps are empty.
+	HitProps     map[string]string
+	SessionProps map[string]string
+	UserProps    map[string]string
+
 	// UI knobs.
 	Sort   string // "views" | "visitors" | "goals" | "revenue" | "rpv" | <dim col> | ""
 	Dir    string // "asc" | "desc" | "" → defaults to "desc" when Sort is set
@@ -55,6 +67,20 @@ const DefaultLimit = 50
 // year-over-year compare); refusing keeps an accidental "give me 5
 // years of pages" from sweeping the cluster.
 const MaxRange = 365 * 24 * time.Hour
+
+// MaxPropFilterRange is the longest [From, To) span we accept when ANY
+// prop filter is active (Filter.HasPropFilter() == true). The raw-
+// fallback query path scans events_raw directly, so the range cap is
+// tighter than the rollup default — the plan's § 4 cost-guardrail
+// budget pegs P5 worst-case at ~18B rows over 90 days, with the bloom
+// indexes (deferred to a follow-up migration) bringing that down ~100×
+// in practice.
+const MaxPropFilterRange = 90 * 24 * time.Hour
+
+// MaxPropFiltersTotal caps the combined entries across HitProps,
+// SessionProps, UserProps. Plausible-precedent; aligns with the
+// /api/event server-side validator cap.
+const MaxPropFiltersTotal = 30
 
 // ErrInvalidFilter is the umbrella error returned by Validate; callers
 // can errors.Is against it to distinguish bad input from infra failure.
@@ -84,6 +110,20 @@ func (f *Filter) Validate() error {
 		return fmt.Errorf("%w: range %s exceeds max %s", ErrInvalidFilter, f.To.Sub(f.From), MaxRange)
 	}
 
+	if f.HasPropFilter() {
+		if span := f.To.Sub(f.From); span > MaxPropFilterRange {
+			return fmt.Errorf("%w: range %s exceeds prop-filter cap %s (raw-fallback path is range-bounded)",
+				ErrInvalidFilter, span, MaxPropFilterRange)
+		}
+
+		if len(f.HitProps)+len(f.SessionProps)+len(f.UserProps) > MaxPropFiltersTotal {
+			return fmt.Errorf("%w: %d prop filters exceeds cap %d",
+				ErrInvalidFilter,
+				len(f.HitProps)+len(f.SessionProps)+len(f.UserProps),
+				MaxPropFiltersTotal)
+		}
+	}
+
 	if f.Limit < 0 || f.Offset < 0 {
 		return fmt.Errorf("%w: limit and offset must be >= 0", ErrInvalidFilter)
 	}
@@ -104,6 +144,19 @@ func (f *Filter) EffectiveLimit() int {
 	}
 
 	return f.Limit
+}
+
+// HasPropFilter reports whether any of the three scoped prop maps
+// carries a constraint. When true, dashboard handlers must route the
+// query through the raw-fallback path (cached 1h, range-bounded by
+// MaxPropFilterRange) instead of the static-schema rollup. When false,
+// the rollup path runs byte-identical to pre-Phase-2 behaviour.
+func (f *Filter) HasPropFilter() bool {
+	if f == nil {
+		return false
+	}
+
+	return len(f.HitProps)+len(f.SessionProps)+len(f.UserProps) > 0
 }
 
 // Hash returns a stable BLAKE3-128 hex digest of the Filter's fields.
@@ -135,9 +188,40 @@ func (f *Filter) Hash() string {
 	writeInt(h, "limit", f.EffectiveLimit())
 	writeInt(h, "offset", f.Offset)
 
+	// Segments Phase 2 — three scoped prop maps. Sort keys so the same
+	// filter from two callers hashes to the same value regardless of
+	// map-iteration order. Scope prefix prevents key collisions between
+	// scopes (e.g. hit:plan vs user:plan are distinct constraints).
+	writePropMap(h, "h", f.HitProps)
+	writePropMap(h, "s", f.SessionProps)
+	writePropMap(h, "u", f.UserProps)
+
 	sum := h.Sum(nil)
 
 	return hex.EncodeToString(sum)
+}
+
+// writePropMap hashes a scoped prop map in key-sorted order so the
+// cache key is independent of map-iteration order. Empty maps still
+// emit the scope marker so two filters that differ only by an empty
+// scope hash identically (a non-issue in practice).
+func writePropMap(h *blake3.Hasher, scope string, m map[string]string) {
+	if len(m) == 0 {
+		writeStr(h, "prop:"+scope, "")
+
+		return
+	}
+
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		writeStr(h, "prop:"+scope+":"+k, m[k])
+	}
 }
 
 func writeStr(h *blake3.Hasher, key, val string) {

@@ -151,7 +151,16 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 		eventName = eventType
 	}
 
-	keys, vals := flattenProps(raw.Props)
+	// Segments Phase 2: HitProps is the canonical hit-scope envelope.
+	// Old trackers still send `props` — alias-merge it into HitProps when
+	// HitProps is empty. If both are populated, the new field wins (the
+	// tracker is responsible for not double-sending). One release after
+	// Phase 1 GA, drop the Props alias entirely.
+	hitProps := raw.HitProps
+	if len(hitProps) == 0 && len(raw.Props) > 0 {
+		hitProps = raw.Props
+	}
+	keys, vals := flattenProps(hitProps)
 
 	ev := ingest.EnrichedEvent{
 		SiteID:      raw.SiteID,
@@ -198,6 +207,13 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 		TestGeneratorSeq: raw.TestGeneratorSeq,
 		GeneratorNodeID:  raw.GeneratorNodeID,
 		SendTSMilli:      raw.SendTSMilli,
+
+		// Segments Phase 2 — three scopes flow through unchanged. The
+		// validator at /api/event already capped each scope at 30 keys
+		// / 200 char names / 1000 char values; nothing to enrich here.
+		HitProps:     hitProps,
+		SessionProps: raw.SessionProps,
+		UserProps:    raw.UserProps,
 	}
 
 	// Stage 7 — goal matching. Server-authoritative on event_value when
