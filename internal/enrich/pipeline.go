@@ -151,7 +151,8 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 		eventName = eventType
 	}
 
-	keys, vals := flattenProps(raw.Props)
+	hitProps := mergeHitProps(raw)
+	keys, vals := flattenProps(hitProps)
 
 	ev := ingest.EnrichedEvent{
 		SiteID:      raw.SiteID,
@@ -198,6 +199,13 @@ func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 		TestGeneratorSeq: raw.TestGeneratorSeq,
 		GeneratorNodeID:  raw.GeneratorNodeID,
 		SendTSMilli:      raw.SendTSMilli,
+
+		// Segments Phase 2 — three scopes flow through unchanged. The
+		// validator at /api/event already capped each scope at 30 keys
+		// / 200 char names / 1000 char values; nothing to enrich here.
+		HitProps:     hitProps,
+		SessionProps: raw.SessionProps,
+		UserProps:    raw.UserProps,
 	}
 
 	// Stage 7 — goal matching. Server-authoritative on event_value when
@@ -267,6 +275,19 @@ func encodeHashPrefix(h [16]byte) string {
 	}
 
 	return string(out[:])
+}
+
+// mergeHitProps resolves the hit-scope props envelope. Segments Phase 2
+// renamed the wire field `props` → `hit_props`; for one release the
+// server accepts the old field as a deprecated alias. New HitProps
+// wins; legacy Props is consulted only when HitProps is empty. Drops
+// the Props alias one release after Phase 1 GA.
+func mergeHitProps(raw *ingest.RawEvent) map[string]string {
+	if len(raw.HitProps) > 0 {
+		return raw.HitProps
+	}
+
+	return raw.Props
 }
 
 func flattenProps(props map[string]string) (keys, vals []string) {

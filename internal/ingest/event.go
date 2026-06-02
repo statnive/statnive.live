@@ -10,22 +10,31 @@ import "time"
 // Only fields a browser can supply belong here; server-side context is filled
 // in by the handler before the event enters the pipeline.
 type RawEvent struct {
-	Hostname      string            `json:"hostname"`
-	Pathname      string            `json:"pathname"`
-	Title         string            `json:"title"`
-	Referrer      string            `json:"referrer"`
-	UTMSource     string            `json:"utm_source"`
-	UTMMedium     string            `json:"utm_medium"`
-	UTMCampaign   string            `json:"utm_campaign"`
-	UTMContent    string            `json:"utm_content"`
-	UTMTerm       string            `json:"utm_term"`
-	ViewportWidth uint16            `json:"viewport_width"`
-	EventType     string            `json:"event_type"`
-	EventName     string            `json:"event_name"`
-	EventValue    float64           `json:"event_value"`
-	IsGoal        bool              `json:"is_goal"`
-	UserSegment   string            `json:"user_segment"`
-	Props         map[string]string `json:"props"`
+	Hostname      string  `json:"hostname"`
+	Pathname      string  `json:"pathname"`
+	Title         string  `json:"title"`
+	Referrer      string  `json:"referrer"`
+	UTMSource     string  `json:"utm_source"`
+	UTMMedium     string  `json:"utm_medium"`
+	UTMCampaign   string  `json:"utm_campaign"`
+	UTMContent    string  `json:"utm_content"`
+	UTMTerm       string  `json:"utm_term"`
+	ViewportWidth uint16  `json:"viewport_width"`
+	EventType     string  `json:"event_type"`
+	EventName     string  `json:"event_name"`
+	EventValue    float64 `json:"event_value"`
+	IsGoal        bool    `json:"is_goal"`
+	UserSegment   string  `json:"user_segment"`
+	// Props is the legacy hit-scope field accepted as a deprecated alias
+	// for HitProps so customers running a pre-Phase-1 tracker against a
+	// new server still attribute correctly. The handler merges Props
+	// into HitProps when HitProps is empty; if both are populated, the
+	// new HitProps wins. Will be removed one release after Phase 1
+	// goes GA. Tracked under tracker bundle Lesson 21 follow-up.
+	Props        map[string]string `json:"props,omitempty"`
+	HitProps     map[string]string `json:"hit_props,omitempty"`
+	SessionProps map[string]string `json:"session_props,omitempty"`
+	UserProps    map[string]string `json:"user_props,omitempty"`
 
 	// UserID is the raw, customer-supplied identifier sent by the tracker
 	// via statniveLive.identify(). The handler hashes it via
@@ -111,4 +120,16 @@ type EnrichedEvent struct {
 	TestGeneratorSeq uint64
 	GeneratorNodeID  uint16
 	SendTSMilli      int64 // millisecond Unix; 0 → DateTime64(3) sentinel
+
+	// Phase 2 of segments (migration 020). Three Map columns carry
+	// custom dimensions at hit / session / user scope. >90 % of events
+	// ship empty maps in the steady state — ClickHouse's sparse
+	// serialisation handles this at ~zero disk cost. The existing
+	// prop_keys / prop_vals arrays stay populated from HitProps for one
+	// release for backward-compat with consumers reading the legacy
+	// columns. Filter / queries layer reads from these Map columns
+	// directly via mapKeys() + indexed map[key] access.
+	HitProps     map[string]string
+	SessionProps map[string]string
+	UserProps    map[string]string
 }

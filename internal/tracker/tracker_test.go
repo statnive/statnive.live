@@ -26,10 +26,16 @@ import (
 // Bumped again 1500 → 2100 / 750 → 1000 in Stage 3: the consent-free
 // flow added a GPC client-probe (gated by data-statnive-honour-gpc=1)
 // plus statniveLive.acceptConsent / withdrawConsent helpers. ~500 B
-// min / ~190 B gz net. Matches the Makefile tracker-size gate.
+// min / ~190 B gz net.
+//
+// Bumped again 2100 → 3400 / 1000 → 1500 in Phase 1 of segments:
+// .setSession() + .identify(uid, userProps) + .getConsent() + three-
+// state local machine (idle/resolved/withdrawn) + cookie/sessionStorage
+// helpers + hit_props/session_props/user_props envelope keys. Net
+// ~860 B min / ~390 B gz. Matches the Makefile tracker-size gate.
 const (
-	maxMinifiedBytes = 2100
-	maxGzippedBytes  = 1000
+	maxMinifiedBytes = 3400
+	maxGzippedBytes  = 1500
 )
 
 func TestHandler_ServesEmbeddedTracker(t *testing.T) {
@@ -98,6 +104,13 @@ func TestBundleSize_GzippedWithinBudget(t *testing.T) {
 // TestNoExternalReferences enforces the air-gap-validator invariant —
 // the embedded tracker must not contain any string that would cause a
 // browser to dial out to a non-loopback host.
+//
+// Phase 1 of segments legitimately uses sessionStorage + document.cookie
+// for operator-driven setSession + identify(uid, userProps) state. Those
+// are gated client-side behind .acceptConsent() per the deployment-mode
+// matrix in the plan's § Context, so they're allowed. localStorage +
+// indexedDB stay banned — they were never used and aren't part of the
+// segments feature.
 func TestNoExternalReferences(t *testing.T) {
 	t.Parallel()
 
@@ -112,9 +125,7 @@ func TestNoExternalReferences(t *testing.T) {
 		"XMLHttpRequest",     // sendBeacon + fetch keepalive only
 		"new XMLHttpRequest", // belt + suspenders
 		"localStorage",       // Privacy Rule — no client-side storage
-		"sessionStorage",
 		"indexedDB",
-		"document.cookie", // tracker doesn't read or write cookies
 	}
 
 	for _, needle := range forbidden {

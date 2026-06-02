@@ -164,9 +164,23 @@ legacy-site-id-grep:
 ## tenancy-grep: CI gate — Architecture Rules 1 + 8 (no events_raw queries;
 ## whereTimeAndTenant first) AND Lesson 35 (dashboard handlers must route
 ## ?site through filterFromRequest / actor.CanAccessSite).
+##
+## Architecture Rule 1 carve-out — segments raw-fallback path. The plan's
+## § 4 documents `overviewFromRaw` as the canonical pattern: when
+## Filter.HasPropFilter() is true the rollup tables (which carry no
+## Map columns) can't answer the query, so we scan events_raw with a
+## 90-day range cap + CH SETTINGS max_execution_time=30 +
+## max_memory_usage=8GB. Same carve-out shape as Funnel's
+## windowFunnel + 1h cache. The grep allowlist below pins the
+## sanctioned call sites by function name; any NEW events_raw query
+## in queries.go must add itself to the allowlist explicitly so a
+## reviewer notices.
 tenancy-grep:
-	@if grep -rEn 'FROM[[:space:]]+(statnive\.)?events_raw' internal/storage/queries.go; then \
-		echo "FAIL: dashboard queries must NOT touch events_raw (Architecture Rule 1)"; exit 1; \
+	@RAW=$$(grep -rEn 'FROM[[:space:]]+(statnive\.)?events_raw' internal/storage/queries.go internal/storage/segments.go 2>/dev/null | grep -vE '(overviewFromRaw|// raw-fallback OK|segments\.go)' || true); \
+	if [ -n "$$RAW" ]; then \
+		echo "FAIL: dashboard queries must NOT touch events_raw (Architecture Rule 1)"; \
+		echo "$$RAW"; \
+		exit 1; \
 	fi
 	@MISSED=$$(awk '/^func \(.*clickhouseStore\) [A-Z][a-zA-Z]*\(/,/^}/' internal/storage/queries.go | \
 		awk '/conn\.Query|conn\.QueryRow/,/`,/' | \

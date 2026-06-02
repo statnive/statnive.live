@@ -214,3 +214,179 @@ func TestFilter_Hash_NoIPField(t *testing.T) {
 		t.Errorf("hash must be lowercase hex: %s", hash)
 	}
 }
+
+// TestFilter_HasPropFilter covers the routing flag every dashboard
+// handler reads in Phase 2 (rollup path vs raw-fallback). Empty maps
+// + nil filter return false; any non-empty scope returns true.
+func TestFilter_HasPropFilter(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		f    *storage.Filter
+		want bool
+	}{
+		{name: "nil filter", f: nil, want: false},
+		{name: "empty filter", f: &storage.Filter{}, want: false},
+		{name: "hit only", f: &storage.Filter{HitProps: map[string]string{"button": "hero"}}, want: true},
+		{name: "session only", f: &storage.Filter{SessionProps: map[string]string{"ab_variant": "B"}}, want: true},
+		{name: "user only", f: &storage.Filter{UserProps: map[string]string{"plan": "pro"}}, want: true},
+		{name: "all three", f: &storage.Filter{
+			HitProps:     map[string]string{"button": "hero"},
+			SessionProps: map[string]string{"ab_variant": "B"},
+			UserProps:    map[string]string{"plan": "pro"},
+		}, want: true},
+		{name: "empty maps still false", f: &storage.Filter{
+			HitProps:     map[string]string{},
+			SessionProps: map[string]string{},
+			UserProps:    map[string]string{},
+		}, want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tc.f.HasPropFilter(); got != tc.want {
+				t.Errorf("HasPropFilter() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFilter_Validate_PropFilterRange rejects ranges past the 90-day
+// raw-fallback cap when ANY prop filter is active (plan § 4 cost
+// guardrail). The 365-day cap still applies on the rollup path.
+func TestFilter_Validate_PropFilterRange(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	t.Run("90d with prop filter passes", func(t *testing.T) {
+		t.Parallel()
+
+		f := &storage.Filter{
+			SiteID:       1,
+			From:         now.Add(-90 * 24 * time.Hour),
+			To:           now,
+			SessionProps: map[string]string{"ab_variant": "B"},
+		}
+		if err := f.Validate(); err != nil {
+			t.Errorf("Validate() = %v, want nil", err)
+		}
+	})
+
+	t.Run("91d with prop filter fails", func(t *testing.T) {
+		t.Parallel()
+
+		f := &storage.Filter{
+			SiteID:       1,
+			From:         now.Add(-91 * 24 * time.Hour),
+			To:           now,
+			SessionProps: map[string]string{"ab_variant": "B"},
+		}
+
+		err := f.Validate()
+		if err == nil || !errors.Is(err, storage.ErrInvalidFilter) {
+			t.Errorf("Validate() = %v, want ErrInvalidFilter", err)
+		}
+
+		if !strings.Contains(err.Error(), "prop-filter cap") {
+			t.Errorf("Validate() error %q missing 'prop-filter cap' marker", err)
+		}
+	})
+
+	t.Run("365d without prop filter still passes", func(t *testing.T) {
+		t.Parallel()
+
+		f := &storage.Filter{
+			SiteID: 1,
+			From:   now.Add(-365 * 24 * time.Hour),
+			To:     now,
+		}
+		if err := f.Validate(); err != nil {
+			t.Errorf("Validate() = %v, want nil (rollup-path range)", err)
+		}
+	})
+}
+
+// TestFilter_Validate_PropFilterCount rejects > 30 total prop entries
+// across all three scopes — Plausible-precedent + Phase 2 plan cap.
+func TestFilter_Validate_PropFilterCount(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	make31 := func() map[string]string {
+		m := make(map[string]string, 31)
+		for i := range 31 {
+			m[string(rune('a'+i))+"-key"] = "value"
+		}
+
+		return m
+	}
+
+	f := &storage.Filter{
+		SiteID:   1,
+		From:     now.Add(-7 * 24 * time.Hour),
+		To:       now,
+		HitProps: make31(),
+	}
+
+	err := f.Validate()
+	if err == nil {
+		t.Fatal("Validate() = nil, want error")
+	}
+
+	if !strings.Contains(err.Error(), "exceeds cap 30") {
+		t.Errorf("Validate() error %q missing 'exceeds cap 30' marker", err)
+	}
+}
+
+// TestFilter_Hash_StableAcrossPropOrder defends the sort.Strings()
+// inside writePropMap — two filters whose prop maps were inserted in
+// different program order must hash identically (Go maps have no
+// guaranteed iteration order).
+func TestFilter_Hash_StableAcrossPropOrder(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	base := storage.Filter{
+		SiteID: 1,
+		From:   now.Add(-24 * time.Hour),
+		To:     now,
+	}
+
+	fa := base
+	fa.HitProps = map[string]string{"a": "1", "b": "2", "c": "3"}
+
+	fb := base
+	fb.HitProps = map[string]string{"c": "3", "b": "2", "a": "1"}
+
+	if fa.Hash() != fb.Hash() {
+		t.Errorf("Hash() differs across map insertion order: fa=%s fb=%s", fa.Hash(), fb.Hash())
+	}
+}
+
+// TestFilter_Hash_ScopeDistinguishes asserts the cache key changes
+// when the SAME prop key moves between scopes — hit:plan and
+// user:plan must be distinct constraints in the CachedStore.
+func TestFilter_Hash_ScopeDistinguishes(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	base := storage.Filter{
+		SiteID: 1,
+		From:   now.Add(-24 * time.Hour),
+		To:     now,
+	}
+
+	fa := base
+	fa.HitProps = map[string]string{"plan": "pro"}
+
+	fb := base
+	fb.UserProps = map[string]string{"plan": "pro"}
+
+	if fa.Hash() == fb.Hash() {
+		t.Errorf("Hash() does not distinguish hit:plan from user:plan (both %s)", fa.Hash())
+	}
+}

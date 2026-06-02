@@ -46,9 +46,22 @@ func oracleSendTS(ms int64) time.Time {
 	return time.UnixMilli(ms).UTC()
 }
 
-// 38-column INSERT — order MUST match ingest.EnrichedEvent field order
+// nonNilMap returns m or an empty map. clickhouse-go's Append for a
+// Map(LowCardinality(String), String) column rejects nil maps with
+// "expected Map but got *<nil>" — passing an explicit empty map makes
+// the >90 % steady-state empty-prop case zero-allocation safe.
+func nonNilMap(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+
+	return m
+}
+
+// 41-column INSERT — order MUST match ingest.EnrichedEvent field order
 // (PLAN.md:160). site_id is column 1 to match the events_raw ORDER BY.
-// Trailing 4 are the Phase 7e load-gate oracle columns (migration 018).
+// Columns 35–38 are the Phase 7e load-gate oracle columns (migration 018).
+// Columns 39–41 are the Phase 2 segments props maps (migration 020).
 const insertStmt = `INSERT INTO statnive.events_raw (
 	site_id, time, user_id_hash, cookie_id, visitor_hash, hostname, pathname,
 	title, referrer, referrer_name, channel, utm_source, utm_medium,
@@ -56,7 +69,8 @@ const insertStmt = `INSERT INTO statnive.events_raw (
 	isp, carrier, os, browser, device_type, viewport_width, event_type,
 	event_name, event_value, is_goal, is_new, prop_keys, prop_vals,
 	user_segment, is_bot,
-	test_run_id, test_generator_seq, generator_node_id, send_ts
+	test_run_id, test_generator_seq, generator_node_id, send_ts,
+	hit_props, session_props, user_props
 )`
 
 // Config wires the ClickHouse driver. Audit-log path / DLQ are Phase 2.
@@ -221,6 +235,9 @@ func (s *ClickHouseStore) doInsert(ctx context.Context, events []ingest.Enriched
 			e.TestGeneratorSeq,
 			e.GeneratorNodeID,
 			oracleSendTS(e.SendTSMilli),
+			nonNilMap(e.HitProps),
+			nonNilMap(e.SessionProps),
+			nonNilMap(e.UserProps),
 		); appendErr != nil {
 			return fmt.Errorf("append row %d: %w", i, appendErr)
 		}
