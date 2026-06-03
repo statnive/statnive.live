@@ -27,6 +27,8 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-chi/chi/v5"
 
+	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/audit/audittest"
 	"github.com/statnive/statnive.live/internal/enrich"
 	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/ingest"
@@ -249,6 +251,7 @@ type integrationStack struct {
 	suppression   *privacy.SuppressionList
 	privacyErase  *privacy.EraseEnumerator
 	privacyExport *privacy.VisitorExporter
+	auditPath     string
 }
 
 const stage4MasterSecret = "stage4-integration-master-secret-32"
@@ -369,10 +372,26 @@ func newIntegrationStack(t *testing.T, siteID uint32, hostname string) *integrat
 
 	registry := sites.New(store.Conn())
 
+	auditPath := filepath.Join(walDir, "audit.jsonl")
+
+	auditLog, err := audit.New(auditPath)
+	if err != nil {
+		cancel()
+		t.Fatalf("audit log: %v", err)
+	}
+
+	t.Cleanup(func() { _ = auditLog.Close() })
+
+	privacyErase := privacy.NewEraseEnumerator(store.Conn(), testDatabase)
+	privacyExport := privacy.NewVisitorExporter(store.Conn(), testDatabase)
+
 	privacyHandlers, err := privacy.NewHandlers(privacy.Config{
 		Sites:        registry,
 		MasterSecret: masterKey,
 		Suppression:  suppression,
+		Erase:        privacyErase,
+		Export:       privacyExport,
+		Audit:        auditLog,
 	})
 	if err != nil {
 		cancel()
@@ -393,6 +412,8 @@ func newIntegrationStack(t *testing.T, siteID uint32, hostname string) *integrat
 	})
 	router.Method(http.MethodPost, "/api/privacy/opt-out", http.HandlerFunc(privacyHandlers.OptOut))
 	router.Method(http.MethodPost, "/api/privacy/consent", http.HandlerFunc(privacyHandlers.Consent))
+	router.Method(http.MethodPost, "/api/privacy/erase", http.HandlerFunc(privacyHandlers.Erase))
+	router.Method(http.MethodGet, "/api/privacy/access", http.HandlerFunc(privacyHandlers.Access))
 
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
@@ -406,8 +427,9 @@ func newIntegrationStack(t *testing.T, siteID uint32, hostname string) *integrat
 		consumerEnd:   consumerDone,
 		masterKey:     masterKey,
 		suppression:   suppression,
-		privacyErase:  privacy.NewEraseEnumerator(store.Conn(), testDatabase),
-		privacyExport: privacy.NewVisitorExporter(store.Conn(), testDatabase),
+		privacyErase:  privacyErase,
+		privacyExport: privacyExport,
+		auditPath:     auditPath,
 	}
 }
 
@@ -942,6 +964,82 @@ func TestDSAR_Access_ReturnsVisitorRows(t *testing.T) {
 		if r.Pathname == "/leaked" {
 			t.Errorf("row pathname = /leaked (cross-tenant row leaked)")
 		}
+	}
+}
+
+// TestDSAR_Erase_EmitsCompletedEvent asserts the goroutine spawned
+// by the erase handler polls system.mutations and emits
+// privacy.dsar_erase_completed after the ALTER ... DELETE lands.
+// Pre-fix the audit log only carried privacy.dsar_erase_requested,
+// leaving Art. 5(2) DSGVO accountability unfalsifiable from the
+// audit file alone.
+func TestDSAR_Erase_EmitsCompletedEvent(t *testing.T) {
+	const (
+		siteID   uint32 = 4451
+		hostname        = "stage4-erase-completed.example.com"
+	)
+
+	stack := newIntegrationStack(t, siteID, hostname)
+	defer stack.shutdown()
+
+	// Seed one row so the erase has real work to do — guarantees a
+	// system.mutations row appears with create_time >= dispatchedAt.
+	stamp := time.Now().UnixNano()
+	visitorCookie := fmt.Sprintf("erase-completed-%d", stamp)
+	visitorHash := identity.HexCookieIDHash(stack.masterKey, siteID, visitorCookie)
+
+	if err := stack.store.Conn().Exec(stack.ctx,
+		`INSERT INTO statnive.events_raw
+		   (site_id, time, hostname, pathname, event_type, event_name, cookie_id, visitor_hash)
+		 VALUES
+		   (?, now(), ?, '/', 'pageview', 'pageview', ?, unhex('00000000000000000000000000000000'))`,
+		siteID, hostname, visitorHash,
+	); err != nil {
+		t.Fatalf("seed events_raw: %v", err)
+	}
+
+	// Fire the erase via the HTTP route so the handler's
+	// spawnCompletionWatcher goroutine actually runs (calling
+	// EraseByCookieID directly bypasses the audit-event path).
+	resp := postJSON(t, stack.srv, "/api/privacy/erase", "{}", []*http.Cookie{
+		{Name: "_statnive", Value: visitorCookie},
+	}, hostname)
+
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("erase status = %d, want 202", resp.StatusCode)
+	}
+
+	// The completion event lands once the CH mutation finishes. On a
+	// fresh docker CH a single-row DELETE finishes in <500ms; 15s
+	// gives plenty of headroom for CI noise.
+	if !audittest.WaitForEvent(t, stack.auditPath, string(audit.EventDSAREraseCompleted), 15*time.Second) {
+		t.Fatalf("dsar_erase_completed event not emitted within 15s — got events: %v",
+			audittest.ReadEventNames(t, stack.auditPath))
+	}
+
+	// All three privacy events MUST appear in order. Timeout MUST NOT.
+	events := audittest.ReadEventNames(t, stack.auditPath)
+
+	requested := false
+	completed := false
+
+	for _, name := range events {
+		switch name {
+		case string(audit.EventDSAREraseRequested):
+			requested = true
+		case string(audit.EventDSAREraseCompleted):
+			completed = true
+		case string(audit.EventDSAREraseTimeout):
+			t.Errorf("unexpected dsar_erase_timeout event — mutation should have completed")
+		}
+	}
+
+	if !requested {
+		t.Errorf("missing privacy.dsar_erase_requested event in %v", events)
+	}
+
+	if !completed {
+		t.Errorf("missing privacy.dsar_erase_completed event in %v", events)
 	}
 }
 

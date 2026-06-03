@@ -170,7 +170,10 @@ func (h *Handlers) Access(w http.ResponseWriter, r *http.Request) {
 // ... DELETE across every base MergeTree table that carries cookie_id;
 // returns 202 (mutations run in the background). Failure of any
 // per-table mutation is surfaced in the response so the operator can
-// re-issue.
+// re-issue. A detached goroutine polls system.mutations and emits
+// EventDSAREraseCompleted (or EventDSAREraseTimeout) when the mutations
+// land — gives Art. 5(2) accountability a 1-grep audit check rather
+// than an SSH-to-CH correlation query.
 func (h *Handlers) Erase(w http.ResponseWriter, r *http.Request) {
 	siteID, hash, ok := h.resolveSiteAndCookie(w, r)
 	if !ok {
@@ -182,6 +185,8 @@ func (h *Handlers) Erase(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	dispatchedAt := h.cfg.Now()
 
 	results, err := h.cfg.Erase.EraseByCookieID(r.Context(), siteID, hash)
 	if err != nil {
@@ -203,6 +208,8 @@ func (h *Handlers) Erase(w http.ResponseWriter, r *http.Request) {
 		slog.Int("tables", len(results)),
 	)
 
+	h.spawnCompletionWatcher(siteID, hash, results, dispatchedAt)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusAccepted)
@@ -211,6 +218,55 @@ func (h *Handlers) Erase(w http.ResponseWriter, r *http.Request) {
 		"tables":  results,
 		"site_id": siteID,
 	})
+}
+
+// completionWatchTimeout caps how long the background goroutine waits
+// for ALTER ... DELETE mutations to land. 5 minutes is well above the
+// p99 mutation latency for events_raw on the design-ceiling cluster
+// (8c/32GB, 200M events/day) — anything that takes longer indicates
+// merge backlog or an unrelated incident the operator needs to see.
+const completionWatchTimeout = 5 * time.Minute
+
+// spawnCompletionWatcher launches the background poll. Detached from
+// the request context so the audit event still fires after the HTTP
+// 202 response closes. Skipped entirely when no mutations were
+// dispatched (every result has MutationSent=false) — emitting a
+// Completed event for zero work would be misleading.
+func (h *Handlers) spawnCompletionWatcher(
+	siteID uint32,
+	hash string,
+	results []EraseResult,
+	dispatchedAt time.Time,
+) {
+	tables := make([]string, 0, len(results))
+
+	for _, r := range results {
+		if r.MutationSent {
+			tables = append(tables, r.Table)
+		}
+	}
+
+	if len(tables) == 0 {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), completionWatchTimeout)
+		defer cancel()
+
+		h.cfg.Erase.WaitForCompletion(ctx, tables, dispatchedAt,
+			func(mutationCount int) {
+				h.emit(context.Background(), audit.EventDSAREraseCompleted, siteID, hash,
+					slog.Int("mutation_count", mutationCount),
+				)
+			},
+			func(pendingCount int) {
+				h.emit(context.Background(), audit.EventDSAREraseTimeout, siteID, hash,
+					slog.Int("pending_count", pendingCount),
+				)
+			},
+		)
+	}()
 }
 
 // resolveSiteAndCookie does the shared prelude:
