@@ -81,6 +81,7 @@ func goalsListHandler(deps Deps) http.HandlerFunc {
 		}
 
 		out := []GoalSummary{}
+
 		if deps.Goals != nil {
 			if rows := deps.Goals.GoalsForSite(f.SiteID); len(rows) > 0 {
 				out = rows
