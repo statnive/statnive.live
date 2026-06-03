@@ -331,4 +331,3 @@ func TestPrivacy_OptOut_AuditEventEmitted(t *testing.T) {
 			audittest.ReadEventNames(t, stack.auditPath))
 	}
 }
-

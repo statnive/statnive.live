@@ -38,9 +38,9 @@ import (
 )
 
 const (
-	testHostname    = "integration-test.example.com"
-	testSiteID      = 42
-	eventCount      = 100
+	testHostname = "integration-test.example.com"
+	testSiteID   = 42
+	eventCount   = 100
 	// Bumped from 5s to 15s in Phase 5a. After TestIngestPipelineSmoke
 	// drains 100 events + the consumer's Close waits for fsync, CI runs
 	// occasionally hit the 5s ceiling for the NEXT test's first event
