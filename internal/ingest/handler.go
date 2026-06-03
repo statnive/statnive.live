@@ -228,6 +228,7 @@ func serve(w http.ResponseWriter, r *http.Request, cfg HandlerConfig, hashIdenti
 		}
 
 		raw.SiteID = siteID
+		raw.TZ = policy.TZ
 
 		// XSS-hardening gate (per-event field validation). Hard-rejects
 		// charset/length violations on event_name, event_type, and

@@ -82,8 +82,12 @@ func NewPipeline(deps Deps) *Pipeline {
 // channel (CLAUDE.md Architecture Rule 6).
 func (p *Pipeline) Enrich(raw *ingest.RawEvent) (ingest.EnrichedEvent, bool) {
 	// Stage 1 — identity (BLAKE3 keyed by today's salt).
-	saltToday := p.deps.Salt.CurrentSalt(raw.SiteID)
-	saltPrev := p.deps.Salt.PreviousSalt(raw.SiteID)
+	// raw.TZ comes from statnive.sites.tz via the handler's
+	// LookupSitePolicy. Empty / invalid tz falls back to UTC at the
+	// SaltManager layer; STATNIVE_SALT_TZ_LEGACY=1 forces Asia/Tehran
+	// for emergency rollback. Doc: internal/identity/salt.go.
+	saltToday := p.deps.Salt.CurrentSalt(raw.SiteID, raw.TZ)
+	saltPrev := p.deps.Salt.PreviousSalt(raw.SiteID, raw.TZ)
 	visitorHash := identity.VisitorHash(raw.IP, raw.UserAgent, saltToday)
 	prevHash := identity.VisitorHash(raw.IP, raw.UserAgent, saltPrev)
 

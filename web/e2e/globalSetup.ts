@@ -305,6 +305,18 @@ export default async function globalSetup(): Promise<void> {
     // the e2e exercises auth.RequireDashboardSiteAccess (Lesson 35) and
     // SiteSwitcher's grant-filtered /api/sites response.
     STATNIVE_FEATURES_PER_SITE_ADMIN: 'true',
+    // Bump the per-IP login rate limit for the e2e suite. The
+    // production default is 10/min — fine in production where each
+    // browser session is a distinct IP, but the e2e suite runs every
+    // spec from the same 127.0.0.1, and each spec does ~1 admin login
+    // at module init via getAdminCtx (admin-allowed-origins.spec.ts
+    // line 36-50 + admin-tz-chip.spec.ts + dashboard-authz.spec.ts ×2,
+    // etc). After ~10 specs the bucket runs dry and any further /api/
+    // login returns 429, breaking the spec that happens to be next in
+    // the run order. 1000/min in tests has zero security risk
+    // (single-tenant local binary, single worker, throw-away
+    // bootstrap credentials).
+    STATNIVE_AUTH_LOGIN_RATE_LIMIT_REQUESTS: '1000',
   };
 
   const logChunks: Buffer[] = [];

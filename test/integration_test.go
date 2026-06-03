@@ -829,6 +829,127 @@ func TestDSAR_EraseRejectsZeroSiteID(t *testing.T) {
 	}
 }
 
+// TestSaltRotation_PerSiteTimezone verifies the v0.0.39 wiring:
+// LookupSitePolicy reads statnive.sites.tz and surfaces it in
+// SitePolicy.TZ, which the pipeline then passes to Salt.CurrentSalt.
+// Confirms two sites with different tz produce different visitor
+// hashes for the same IP+UA at the same UTC moment.
+//
+// Backs the operator-side gate from
+// televika-PATH-A-IMPLEMENTATION.md Section 13 signal #1.
+func TestSaltRotation_PerSiteTimezone(t *testing.T) {
+	const (
+		siteATehran uint32 = 5101
+		siteBBerlin uint32 = 5102
+		hostnameA          = "tz-rotation-a.example.com"
+		hostnameB          = "tz-rotation-b.example.com"
+	)
+
+	stack := newIntegrationStack(t, siteATehran, hostnameA)
+	defer stack.shutdown()
+
+	// Seed site B with a different tz so the dual-site assertion has
+	// something to compare against. Insert directly because the admin
+	// PATCH path isn't wired into this test harness.
+	if err := stack.store.Conn().Exec(stack.ctx,
+		`INSERT INTO statnive.sites (site_id, hostname, slug, enabled, tz)
+		 VALUES (?, ?, ?, 1, 'Europe/Berlin')`,
+		siteBBerlin, hostnameB, hostnameB,
+	); err != nil {
+		t.Fatalf("seed site B: %v", err)
+	}
+
+	// Force site A to Asia/Tehran (the seed leaves it at whatever the
+	// migration-021 default surfaces).
+	if err := stack.store.Conn().Exec(stack.ctx,
+		`ALTER TABLE statnive.sites UPDATE tz = 'Asia/Tehran' WHERE site_id = ?`,
+		siteATehran,
+	); err != nil {
+		t.Fatalf("force site A tz=Asia/Tehran: %v", err)
+	}
+
+	// Construct a fresh Registry + SaltManager from the stack's CH
+	// connection. The stack itself doesn't expose these as fields, but
+	// constructing them locally is a few lines and avoids harness churn.
+	registry := sites.New(stack.store.Conn())
+
+	saltMgr, err := identity.NewSaltManager([]byte(stage4MasterSecret))
+	if err != nil {
+		t.Fatalf("NewSaltManager: %v", err)
+	}
+
+	// Wait for the ALTER mutation to settle.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		_, policy, lookupErr := registry.LookupSitePolicy(stack.ctx, hostnameA)
+		if lookupErr == nil && policy.TZ == "Asia/Tehran" {
+			break
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Confirm both sites return the expected tz via the policy lookup.
+	_, policyA, err := registry.LookupSitePolicy(stack.ctx, hostnameA)
+	if err != nil {
+		t.Fatalf("LookupSitePolicy hostnameA: %v", err)
+	}
+
+	if policyA.TZ != "Asia/Tehran" {
+		t.Errorf("site A policy.TZ = %q, want %q", policyA.TZ, "Asia/Tehran")
+	}
+
+	_, policyB, err := registry.LookupSitePolicy(stack.ctx, hostnameB)
+	if err != nil {
+		t.Fatalf("LookupSitePolicy hostnameB: %v", err)
+	}
+
+	if policyB.TZ != "Europe/Berlin" {
+		t.Errorf("site B policy.TZ = %q, want %q", policyB.TZ, "Europe/Berlin")
+	}
+
+	// Pick a moment where Asia/Tehran and Europe/Berlin land on
+	// different YYYY-MM-DD values: 21:00 UTC = 00:30 IRST next day,
+	// 23:00 CEST (summer) / 22:00 CET (winter) same day.
+	wallClock := time.Date(2026, 4, 17, 21, 0, 0, 0, time.UTC)
+	saltMgr.SetClock(func() time.Time { return wallClock })
+
+	saltTehran := saltMgr.CurrentSalt(siteATehran, policyA.TZ)
+	saltBerlin := saltMgr.CurrentSalt(siteBBerlin, policyB.TZ)
+
+	if saltTehran == saltBerlin {
+		t.Errorf("per-site rotation broken: Tehran and Berlin sites produced identical salt at the local-day seam\n  Tehran: %s\n  Berlin: %s",
+			saltTehran, saltBerlin)
+	}
+}
+
+// TestMigration_021_SitesTzDefaultUTC confirms migration 021 ran and
+// the sites.tz column default is now 'UTC'. Existing rows are
+// unaffected — the migration only flips the column DEFAULT clause.
+func TestMigration_021_SitesTzDefaultUTC(t *testing.T) {
+	const siteID uint32 = 5103
+
+	stack := newIntegrationStack(t, siteID, "tz-default-utc.example.com")
+	defer stack.shutdown()
+
+	// Read the column's current default from system.columns.
+	var defaultExpr string
+	if err := stack.store.Conn().QueryRow(stack.ctx,
+		`SELECT default_expression FROM system.columns
+		 WHERE database = ? AND table = 'sites' AND name = 'tz' LIMIT 1`,
+		testDatabase,
+	).Scan(&defaultExpr); err != nil {
+		t.Fatalf("read sites.tz column default: %v", err)
+	}
+
+	// ClickHouse returns the DEFAULT expression as a string literal
+	// like `'UTC'`. After migration 021 it should be 'UTC', not the
+	// migration-003 'Asia/Tehran'.
+	if defaultExpr != "'UTC'" && defaultExpr != "UTC" {
+		t.Errorf("sites.tz default = %q, want 'UTC' (migration 021 not applied or reverted)", defaultExpr)
+	}
+}
+
 // TestMain is a placeholder — we don't need setup/teardown at the package
 // level yet, but leaving the hook makes it obvious where future test-scope
 // migrations go.

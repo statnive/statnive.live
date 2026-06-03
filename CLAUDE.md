@@ -17,8 +17,8 @@
 - **Database:** ClickHouse (single node, MergeTree + **3 AggregatingMergeTree rollups in v1**: `hourly_visitors`, `daily_pages`, `daily_sources`) using `AggregateFunction(uniqCombined64, FixedString(16))` (HLL, 0.5% error). Add `daily_geo`/`daily_devices`/`daily_users` in v1.1 as panels ship. Rollup `ORDER BY` leads with `site_id`. Time column is **`DateTime('UTC')`** (seconds, per doc 24 §Sec 2). **Reject mutable-row engines** (Collapsing/VersionedCollapsing). Migrations use `{{if .Cluster}}` templates from day 1 (doc 24 §Migration 0029) — single-node → Distributed is a config flip.
 - **Frontend:** Preact + @preact/signals + uPlot + Frappe Charts (~50KB minified / ~15KB gzipped), embedded via go:embed.
 - **Tracker:** Vanilla JS ~1.2KB minified / ~600B gzipped (doc 20), sendBeacon + fetch keepalive, text/plain.
-- **Identity:** user_id (site sends) → cookie → BLAKE3-128 hash; daily salt = `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`. One secret across tenants — site_id in HMAC input provides per-site cryptographic separation without per-site key management.
-- **Privacy:** Iran = no GDPR (cookies + user_id allowed). **SaaS (outside Iran) = GDPR applies to EU visitors** — customer DPA, consent banner, access/erasure rights required. IRST = UTC+3:30, no DST since Sept 2022; store UTC in CH, convert at API layer only.
+- **Identity:** user_id (site sends) → cookie → BLAKE3-128 hash; daily salt = `HMAC(master_secret, site_id || YYYY-MM-DD <site.tz>)` where `site.tz` is the per-site IANA zone from `statnive.sites.tz` (default `'UTC'` since migration 021; legacy installations may still hold `'Asia/Tehran'`). One secret across tenants — site_id in HMAC input provides per-site cryptographic separation without per-site key management. Emergency rollback: `STATNIVE_SALT_TZ_LEGACY=1` forces every site back to `'Asia/Tehran'`.
+- **Privacy:** Iran = no GDPR (cookies + user_id allowed). **SaaS (outside Iran) = GDPR applies to EU visitors** — customer DPA, consent banner, access/erasure rights required. Server stores UTC in ClickHouse; converts at the API layer using each site's configured timezone.
 
 ## Architecture Rules (Non-Negotiable)
 
@@ -45,7 +45,7 @@
 Iran allows cookies + `user_id`; the EU/SaaS tier does not. Both code paths live in the same binary — these rules keep them consistent. Extended GDPR Art./Recital-26/C-413/23 chain in [`docs/rules/privacy-detail.md`](docs/rules/privacy-detail.md). **SaaS-only ops contract** (Netcup Art. 28(3) DPA, sub-processor register, DNS hygiene, server hardening above Netcup's Annex 1 TOM) lives in [`docs/rules/netcup-vps-gdpr.md`](docs/rules/netcup-vps-gdpr.md) — load before provisioning or re-provisioning the SaaS VPS or when a sub-processor changes; canonical sub-processor list at [`docs/compliance/subprocessor-register.md`](docs/compliance/subprocessor-register.md); customer-facing DPA at [`docs/dpa-draft.md`](docs/dpa-draft.md).
 
 1. **Raw IP never persisted** — IP enters the pipeline only for GeoIP lookup, discarded before the batch writer sees the row (`internal/enrich/geoip.go` contract, asserted by integration test).
-2. **Daily rotating salts** — `HMAC(master_secret, site_id || YYYY-MM-DD IRST)`. Derived, never stored.
+2. **Daily rotating salts** — `HMAC(master_secret, site_id || YYYY-MM-DD <site.tz, default UTC>)`. Per-site IANA zone read from `statnive.sites.tz`; empty/invalid falls back to UTC. Derived, never stored.
 3. **SHA-256+ and BLAKE3 only** in any privacy/identity path. No MD5, no SHA-1 anywhere in the binary.
 4. **User ID hashed before ClickHouse write** — `SHA-256(master_secret || site_id || user_id)`. Raw `user_id` never logged, never on disk, never in audit sinks.
 5. **Iran = cookies + user_id allowed; SaaS = GDPR applies to EU visitors** — customer DPA, consent banner, subject access / erasure rights required.

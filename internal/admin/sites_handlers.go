@@ -52,7 +52,7 @@ func toSiteResponse(s sites.SiteAdmin) siteAdminResponse {
 		Slug:           s.Slug,
 		Plan:           s.Plan,
 		Enabled:        s.Enabled,
-		TZ:             s.TZ,
+		TZ:             s.Site.TZ,
 		Currency:       s.Currency,
 		CreatedAt:      s.CreatedAt,
 		RespectDNT:     s.RespectDNT,

@@ -56,10 +56,62 @@ describe('AppShell', () => {
     expect(container.querySelector('.statnive-wordmark-live')).toBeTruthy();
   });
 
-  it('renders Tehran timezone chip', () => {
+  it('renders fallback UTC timezone chip when no site is active', () => {
+    activeSiteSignal.value = null;
     const { container } = render(<AppShell />);
     const chip = container.querySelector('.statnive-tz-chip');
-    expect(chip?.textContent).toMatch(/Tehran.*UTC.*03:30/);
+    expect(chip?.textContent).toBe('UTC');
+    expect(chip?.getAttribute('title')).toBe('UTC');
+    expect(chip?.getAttribute('data-tz')).toBe('UTC');
+  });
+
+  it('renders Europe/Berlin chip as CEST or CET (DST-dependent)', () => {
+    activeSiteSignal.value = {
+      id: 4,
+      hostname: 'televika.com',
+      enabled: true,
+      tz: 'Europe/Berlin',
+      currency: 'EUR',
+    };
+    const { container } = render(<AppShell />);
+    const chip = container.querySelector('.statnive-tz-chip');
+    // Browser Intl: CEST/CET (DST-dependent). Node's Intl tables:
+    // GMT+2/GMT+1. Accept all four valid representations.
+    expect(chip?.textContent).toMatch(/^(CEST|CET|GMT\+2|GMT\+1)$/);
+    expect(chip?.getAttribute('title')).toBe('Europe/Berlin');
+    expect(chip?.getAttribute('data-tz')).toBe('Europe/Berlin');
+  });
+
+  it('renders Asia/Tehran chip as IRST or GMT+3:30', () => {
+    activeSiteSignal.value = {
+      id: 99,
+      hostname: 'iranian-customer.example',
+      enabled: true,
+      tz: 'Asia/Tehran',
+      currency: 'IRR',
+    };
+    const { container } = render(<AppShell />);
+    const chip = container.querySelector('.statnive-tz-chip');
+    // Node's Intl tables sometimes return "IRST", sometimes "GMT+3:30" —
+    // both are valid representations of Asia/Tehran. Accept either.
+    expect(chip?.textContent).toMatch(/^(IRST|GMT\+3:30)$/);
+    expect(chip?.getAttribute('title')).toBe('Asia/Tehran');
+    expect(chip?.getAttribute('data-tz')).toBe('Asia/Tehran');
+  });
+
+  it('renders UTC chip for a UTC-configured site', () => {
+    activeSiteSignal.value = {
+      id: 7,
+      hostname: 'utc-customer.example',
+      enabled: true,
+      tz: 'UTC',
+      currency: 'USD',
+    };
+    const { container } = render(<AppShell />);
+    const chip = container.querySelector('.statnive-tz-chip');
+    expect(chip?.textContent).toBe('UTC');
+    expect(chip?.getAttribute('title')).toBe('UTC');
+    expect(chip?.getAttribute('data-tz')).toBe('UTC');
   });
 
   it('shows Sign out button only when onLogout is provided', () => {
