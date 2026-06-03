@@ -358,6 +358,8 @@ func TestSaltManager_EmptyTZFallsBackToUTC(t *testing.T) {
 // TestSaltManager_InvalidTZFallsBackToUTC — unparseable tz strings
 // fall back to UTC. Defensive — keeps a typo in admin config from
 // silently producing IRST-style behaviour.
+//
+//nolint:dupl // structural similarity to DifferentSitesDifferentTimezones is incidental; each test pins a different invariant.
 func TestSaltManager_InvalidTZFallsBackToUTC(t *testing.T) {
 	t.Parallel()
 

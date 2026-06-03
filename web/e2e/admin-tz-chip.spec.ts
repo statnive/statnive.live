@@ -18,8 +18,6 @@ const ADMIN_PASSWORD = process.env.STATNIVE_E2E_ADMIN_PASSWORD ?? 'e2e-P@ssw0rd-
 const BASE = process.env.STATNIVE_E2E_BASEURL ?? 'http://127.0.0.1:18299';
 const SITE_A = Number(process.env.STATNIVE_E2E_SITE_A ?? 801);
 const SITE_B = Number(process.env.STATNIVE_E2E_SITE_B ?? 802);
-const HOST_A = process.env.STATNIVE_E2E_HOST_A ?? 'e2e-a.example.com';
-const HOST_B = process.env.STATNIVE_E2E_HOST_B ?? 'e2e-b.example.com';
 
 // Module-scoped admin context — one /api/login per worker.
 let adminCtx: APIRequestContext | null = null;
@@ -93,14 +91,10 @@ test.describe('AppShell .statnive-tz-chip — dynamic per-site timezone label', 
     await expect(chip).toHaveAttribute('data-tz', 'Asia/Tehran');
 
     // Phase 2: switch to SITE_B via SiteSwitcher. The component
-    // exposes a select-like control; the exact UI varies, so use the
-    // accessible name "Site" + hostname text.
-    const switcher = page.getByRole('combobox', { name: /site/i });
-    await switcher.selectOption({ label: new RegExp(HOST_B, 'i') }).catch(async () => {
-      // Fallback: click-based dropdown
-      await switcher.click();
-      await page.getByRole('option', { name: new RegExp(HOST_B, 'i') }).click();
-    });
+    // renders a plain <select data-testid="site-select"> when more
+    // than one site is available — see web/src/components/SiteSwitcher.tsx.
+    const switcher = page.getByTestId('site-select');
+    await switcher.selectOption(String(SITE_B));
 
     // After switching, the chip text + attrs reflect SITE_B's tz=UTC.
     await expect(chip).toHaveText(UTC_LABEL);
@@ -135,6 +129,3 @@ test.describe('AppShell .statnive-tz-chip — dynamic per-site timezone label', 
   });
 });
 
-// Acknowledge HOST_A is used only via the seed comment; silences
-// no-unused-vars in strict-mode test runs.
-void HOST_A;
