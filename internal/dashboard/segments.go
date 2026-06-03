@@ -9,6 +9,7 @@ import (
 
 const (
 	endpointPropsList = "props_list"
+	endpointGoalsList = "goals_list"
 	endpointCompare   = "compare"
 )
 
@@ -53,6 +54,38 @@ func propsListHandler(deps Deps) http.HandlerFunc {
 		// renderer can branch on length without nil-checking the JSON.
 		if out == nil {
 			out = []storage.PropNameRow{}
+		}
+
+		writeOK(w, r, deps, endpoint, out)
+	}
+}
+
+// goalsListHandler answers GET /api/goals/list. Returns the active
+// site's enabled goals projected to (name, pattern) — the Compare
+// panel's "Measure goal" picker autocompletes against pattern (the
+// event_name the ingest pipeline matches on). Viewer-accessible (read
+// only); admin write operations stay on /api/admin/goals.
+//
+// When deps.Goals is nil (test wiring, no snapshot loaded) returns an
+// empty list rather than 501 so the SPA falls back to free-text entry
+// without a visible error.
+func goalsListHandler(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		const endpoint = endpointGoalsList
+
+		f, err := filterFromRequest(r, deps.Sites)
+		if err != nil {
+			writeError(w, r, deps, endpoint, err)
+
+			return
+		}
+
+		out := []GoalSummary{}
+
+		if deps.Goals != nil {
+			if rows := deps.Goals.GoalsForSite(f.SiteID); len(rows) > 0 {
+				out = rows
+			}
 		}
 
 		writeOK(w, r, deps, endpoint, out)

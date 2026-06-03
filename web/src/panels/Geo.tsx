@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { apiGet } from '../api/client';
 import type { GeoResponse, GeoRow, GeoTopRow } from '../api/types';
+import { SegmentCaption } from '../components/SegmentCaption';
 import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
 import { siteSignal, activeSiteSignal } from '../state/site';
@@ -365,6 +366,7 @@ export default function Geo() {
   return (
     <section class="statnive-section statnive-geo-stack" data-testid="panel-geo">
       <h2 class="statnive-h2">Geo</h2>
+      <SegmentCaption />
 
       <article class="statnive-geo-box" data-testid="geo-headline">
         <header class="statnive-geo-box-head">

@@ -8,6 +8,7 @@ import { siteSignal, activeSiteSignal } from '../state/site';
 import { LazyChart } from '../components/LazyChart';
 import { SortHeader } from '../components/SortHeader';
 import { fmtInt, fmtMoney } from '../lib/fmt';
+import { SegmentCaption } from '../components/SegmentCaption';
 import { applyReducedMotion, readEChartsTheme, visitorLineOption } from '../lib/chart';
 import './panels.css';
 
@@ -99,6 +100,7 @@ export default function SEO() {
   return (
     <section class="statnive-section" data-testid="panel-seo">
       <h2 class="statnive-h2">SEO</h2>
+      <SegmentCaption />
       {option ? <LazyChart option={option} height={240} /> : null}
       <table class="statnive-table" style={{ marginTop: 'var(--s-3)' }}>
         <thead>

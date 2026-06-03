@@ -568,6 +568,7 @@ func run() error {
 		Sites:      registry,
 		Audit:      auditLog,
 		Logger:     logger,
+		Goals:      goalAutocompleter{snap: goalSnapshot},
 		GeoEnabled: cfg.Dashboard.GeoEnabled,
 	}
 
@@ -1637,4 +1638,37 @@ func walFillAlertEmitter(sink *alerts.Sink) func(ratio float64) {
 			slog.Int("band", int(band)),
 		)
 	}
+}
+
+// goalAutocompleter adapts *goals.Snapshot to the dashboard's narrow
+// GoalLister interface — projects each Goal down to the (name, pattern)
+// pair that /api/goals/list ships to the Compare picker. Reads only
+// enabled goals (Snapshot.Reload already filters); the autocomplete
+// never surfaces disabled or admin-internal fields.
+type goalAutocompleter struct {
+	snap *goals.Snapshot
+}
+
+func (a goalAutocompleter) GoalsForSite(siteID uint32) []dashboard.GoalSummary {
+	if a.snap == nil {
+		return nil
+	}
+
+	src := a.snap.GoalsForSite(siteID)
+	if len(src) == 0 {
+		return nil
+	}
+
+	out := make([]dashboard.GoalSummary, 0, len(src))
+
+	for i := range src {
+		g := &src[i]
+		if !g.Enabled {
+			continue
+		}
+
+		out = append(out, dashboard.GoalSummary{Name: g.Name, Pattern: g.Pattern})
+	}
+
+	return out
 }

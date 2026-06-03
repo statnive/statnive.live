@@ -29,6 +29,7 @@ const TABS: ReadonlyArray<TabDef> = [
   { id: 'seo', label: 'SEO' },
   { id: 'campaigns', label: 'Campaigns' },
   { id: 'geo', label: 'Geo' },
+  { id: 'compare', label: 'Compare' },
   { id: 'realtime', label: 'Realtime', live: true },
   { id: 'admin', label: 'Admin', adminOnly: true },
   { id: 'devices', label: 'Devices', soon: true },

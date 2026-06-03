@@ -1,0 +1,49 @@
+.seg-caption {
+  margin: -2px 0 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--text-body);
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+
+.seg-caption-lead {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.seg-caption-part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.seg-caption-sep {
+  margin-inline: 4px 0;
+  color: var(--rule-soft);
+}
+
+.seg-caption-scope {
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.seg-caption-name {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.seg-caption-eq {
+  color: var(--ink-2);
+  margin-inline: 1px;
+}
+
+.seg-caption-value {
+  font-family: var(--mono);
+  color: var(--ink);
+}

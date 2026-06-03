@@ -41,6 +41,10 @@ type Deps struct {
 	Sites  SiteLister
 	Audit  *audit.Logger
 	Logger *slog.Logger
+	// Goals is the in-memory enabled-goals snapshot. Optional — when nil
+	// the Compare panel's goal autocomplete returns an empty list and
+	// operators fall back to typing the event_name manually.
+	Goals GoalLister
 	// GeoEnabled is the v1.1-geo feature flag mirror. When false the
 	// /api/stats/geo handler returns 501 (storage.ErrNotImplemented)
 	// before touching the store — same behavior as v1, so the SPA
@@ -48,6 +52,23 @@ type Deps struct {
 	// dashboard.geo_enabled in config/statnive-live.yaml after the
 	// historical backfill in cmd/geo-backfill is verified.
 	GeoEnabled bool
+}
+
+// GoalLister is the dashboard's view onto goals.Snapshot — kept narrow
+// so tests can wire a stub without spinning up the full snapshot. The
+// production wiring threads *goals.Snapshot in; nil disables the
+// goal-autocomplete endpoint without breaking anything else.
+type GoalLister interface {
+	GoalsForSite(siteID uint32) []GoalSummary
+}
+
+// GoalSummary is the on-wire shape for /api/goals/list. Carries only
+// the fields the autocomplete needs (label + the string that gets
+// passed to /api/stats/compare as ?goal=). Operator value targets +
+// match types + raw UUIDs stay on the admin endpoints.
+type GoalSummary struct {
+	Name    string `json:"name"`
+	Pattern string `json:"pattern"`
 }
 
 // endpoint names — the strings that land in the audit log "endpoint"

@@ -8,6 +8,7 @@ import { siteSignal, activeSiteSignal } from '../state/site';
 import { DualBar } from './DualBar';
 import { DualSortHeader, SortHeader } from '../components/SortHeader';
 import { fmtInt, fmtRpv } from '../lib/fmt';
+import { SegmentCaption } from '../components/SegmentCaption';
 import { rowMax } from '../lib/rows';
 import './panels.css';
 
@@ -84,6 +85,7 @@ export default function Pages() {
   return (
     <section class="statnive-section" data-testid="panel-pages">
       <h2 class="statnive-h2">Pages</h2>
+      <SegmentCaption />
       <table class="statnive-table">
         <thead>
           <tr>
