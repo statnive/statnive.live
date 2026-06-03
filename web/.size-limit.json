@@ -1,8 +1,8 @@
 [
   {
-    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login + multi-metric chart wiring + ECharts theme reader. Bumped 19→20 KB when filters.ts gained the segments Phase-3 scope-prop maps (HitProps/SessionProps/UserProps + setPropFilter/removePropFilter/hasAnyPropFilter helpers + filtersToQuery handling of repeated <scope>_prop URL params). +45 B gz net; budget headroom kept. Compare panel itself ships in its own lazy chunk.",
+    "name": "initial JS (gz) — Preact + signals + Overview + Nav + AppShell + Login + multi-metric chart wiring + ECharts theme reader. Bumped 20→21 KB in Phase 5 of segments when FilterPanel pulled in PropFilterChip + PropFilterAdd directly (chip strip renders on every panel, so the components must live in the initial chunk). Compare panel itself still ships in its own lazy chunk; only the chip + add affordance land in initial.",
     "path": "../internal/dashboard/spa/dist/assets/index-*.js",
-    "limit": "20 KB",
+    "limit": "21 KB",
     "gzip": true
   },
   {
