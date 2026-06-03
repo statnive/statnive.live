@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -285,6 +286,13 @@ func (e *EraseEnumerator) countPendingMutations(
 		  AND is_done = 0
 	`, e.database, mutationIDs).Scan(&count); err != nil {
 		return 0, err
+	}
+
+	// Mutation count is bounded by len(mutationIDs) — realistically
+	// <100, never close to math.MaxInt. Cap defensively before the
+	// uint64 → int narrowing (gosec G115).
+	if count > uint64(math.MaxInt) {
+		count = uint64(math.MaxInt)
 	}
 
 	return int(count), nil

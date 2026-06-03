@@ -45,6 +45,7 @@ func WaitForEvent(t *testing.T, path, eventName string, timeout time.Duration) b
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
+
 	ticker := time.NewTicker(waitForEventInterval)
 	defer ticker.Stop()
 
