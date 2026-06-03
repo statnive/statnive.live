@@ -1,0 +1,174 @@
+/* Segments Phase 5 — applied-filter chip + add affordance. Tokens
+   from tokens.css (no hand-rolled hex). Three states only: default,
+   hover, focus-visible. */
+
+.seg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  font: inherit;
+  font-size: var(--text-body);
+  color: var(--ink);
+  cursor: pointer;
+  /* Non-decorative; the chip IS the remove affordance (clicking removes). */
+}
+
+.seg-chip:hover {
+  border-color: var(--ink);
+}
+
+.seg-chip:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+.seg-chip-icon {
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+.seg-chip-scope {
+  font-size: var(--text-label-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-2);
+}
+
+.seg-chip-name {
+  font-weight: 500;
+}
+
+.seg-chip-sep {
+  color: var(--ink-2);
+}
+
+.seg-chip-value {
+  font-weight: 400;
+}
+
+.seg-chip-remove {
+  font-family: var(--mono);
+  color: var(--ink-2);
+  margin-inline-start: 4px;
+  /* Hit-area 24×24 via parent padding rather than transparent inflation
+     — the entire chip is the click target (button element). */
+}
+
+.seg-chip:hover .seg-chip-remove {
+  color: var(--ink);
+}
+
+/* ─── PropFilterAdd popover ──────────────────────────────────────── */
+
+.seg-add-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.seg-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px dashed var(--rule-soft);
+  border-radius: 4px;
+  font: inherit;
+  font-size: var(--text-body);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.seg-add-btn:hover {
+  color: var(--ink);
+  border-color: var(--ink-2);
+}
+
+.seg-add-btn:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+.seg-add-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  inset-inline-end: 0;
+  width: 240px;
+  padding: 10px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10;
+}
+
+.seg-add-scope {
+  display: inline-flex;
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.seg-add-scope button {
+  flex: 1;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: var(--text-label-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.seg-add-scope button[aria-pressed="true"] {
+  background: var(--green);
+  color: var(--paper);
+}
+
+.seg-add-popover input {
+  font: inherit;
+  font-size: var(--text-body);
+  padding: 6px 8px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.seg-add-popover input:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+
+.seg-add-submit {
+  padding: 6px 10px;
+  background: var(--green);
+  color: var(--paper);
+  border: none;
+  border-radius: 4px;
+  font: inherit;
+  font-size: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.seg-add-submit:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.seg-add-submit:disabled {
+  background: var(--rule-soft);
+  color: var(--ink-2);
+  cursor: not-allowed;
+}

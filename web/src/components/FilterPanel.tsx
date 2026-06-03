@@ -1,5 +1,7 @@
-import { filtersSignal, updateFilters, clearFilters } from '../state/filters';
+import { filtersSignal, updateFilters, clearFilters, hasAnyPropFilter } from '../state/filters';
 import { hashSignal } from '../state/hash';
+import { PropFilterChip } from './PropFilterChip';
+import { PropFilterAdd } from './PropFilterAdd';
 import './FilterPanel.css';
 
 // Channel values map to the channel column on the v1 rollups (daily_sources
@@ -32,7 +34,8 @@ const CHANNELS: ReadonlyArray<string> = [
 export function FilterPanel() {
   const f = filtersSignal.value;
   const panel = hashSignal.value.panel;
-  const any = Boolean(f.channel || f.path);
+  const hasProps = hasAnyPropFilter(f);
+  const any = Boolean(f.channel || f.path || hasProps);
   const isSEO = panel === 'seo';
 
   return (
@@ -73,6 +76,20 @@ export function FilterPanel() {
             Clear all
           </button>
         ) : null}
+      </div>
+
+      {/* Segments Phase 5 — property chip strip. Renders only when at
+          least one prop filter is active OR for surfaces where the
+          add affordance is always available. The strip lives in a
+          dedicated row below the dimension chips so the two filter
+          vocabularies don't compete for the same horizontal scan. */}
+      <div class="statnive-filter-row seg-chip-row" aria-label="Property filters">
+        {(['hitProps', 'sessionProps', 'userProps'] as const).flatMap((scope) =>
+          Object.entries(f[scope]).map(([name, value]) => (
+            <PropFilterChip key={`${scope}:${name}`} scope={scope} name={name} value={value} />
+          ))
+        )}
+        <PropFilterAdd />
       </div>
     </section>
   );

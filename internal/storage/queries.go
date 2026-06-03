@@ -389,6 +389,10 @@ func (s *clickhouseStore) Sources(ctx context.Context, f *Filter) ([]SourceRow, 
 		return nil, err
 	}
 
+	if f.HasPropFilter() {
+		return s.sourcesFromRaw(ctx, f)
+	}
+
 	where, args := whereTimeAndTenant(f, "day")
 	where, args = applyFilters(f, where, args, dailySourcesCols)
 
@@ -444,6 +448,10 @@ func (s *clickhouseStore) SourcesByChannel(ctx context.Context, f *Filter) ([]So
 		return nil, err
 	}
 
+	if f.HasPropFilter() {
+		return s.sourcesByChannelFromRaw(ctx, f)
+	}
+
 	where, args := whereTimeAndTenant(f, "day")
 	where, args = applyFilters(f, where, args, dailySourcesCols)
 
@@ -486,6 +494,10 @@ func (s *clickhouseStore) SourcesByChannel(ctx context.Context, f *Filter) ([]So
 func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
+	}
+
+	if f.HasPropFilter() {
+		return s.pagesFromRaw(ctx, f)
 	}
 
 	where, args := whereTimeAndTenant(f, "day")
@@ -536,6 +548,10 @@ func (s *clickhouseStore) Pages(ctx context.Context, f *Filter) ([]PageRow, erro
 func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
+	}
+
+	if f.HasPropFilter() {
+		return s.seoFromRaw(ctx, f)
 	}
 
 	where, args := whereTimeAndTenant(f, "day")
@@ -597,6 +613,10 @@ func (s *clickhouseStore) SEO(ctx context.Context, f *Filter) ([]SEORow, error) 
 func (s *clickhouseStore) Campaigns(ctx context.Context, f *Filter) ([]CampaignRow, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
+	}
+
+	if f.HasPropFilter() {
+		return s.campaignsFromRaw(ctx, f)
 	}
 
 	where, args := whereTimeAndTenant(f, "day")
@@ -666,6 +686,10 @@ func (s *clickhouseStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, e
 		return nil, err
 	}
 
+	if f.HasPropFilter() {
+		return s.trendFromRaw(ctx, f)
+	}
+
 	where, args := whereTimeAndTenant(f, "hour")
 	where, args = applyFilters(f, where, args, hourlyVisitorsCols)
 
@@ -717,6 +741,10 @@ func (s *clickhouseStore) Trend(ctx context.Context, f *Filter) ([]DailyPoint, e
 func (s *clickhouseStore) Realtime(ctx context.Context, f *Filter) (*RealtimeResult, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
+	}
+
+	if f.HasPropFilter() {
+		return s.realtimeFromRaw(ctx, f)
 	}
 
 	hourStart := time.Now().UTC().Truncate(time.Hour)
