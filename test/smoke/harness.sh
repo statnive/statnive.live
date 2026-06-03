@@ -12,6 +12,16 @@
 
 set -euo pipefail
 
+# --with-privacy adds the /privacy?site= + /api/privacy/* probe set.
+# Default off so the existing CI invocation doesn't pay the extra
+# round-trips; release-gate adds it.
+WITH_PRIVACY=0
+for arg in "$@"; do
+    case "$arg" in
+        --with-privacy) WITH_PRIVACY=1 ;;
+    esac
+done
+
 PORT="${STATNIVE_SMOKE_PORT:-18199}"
 SITE_ID="${STATNIVE_SMOKE_SITE:-997}"
 HOSTNAME_="${STATNIVE_SMOKE_HOSTNAME:-smoke.example.com}"
@@ -757,6 +767,66 @@ probe_geo() {
         "status=${status_yes} body=${body}"
 }
 
+# probe_privacy_landing: GET /privacy?site=<host>. Asserts 200 + HTML
+# with a non-empty csrf-token meta tag. The token is captured into a
+# global $CSRF_TOKEN var so probe_privacy_optout can reuse it.
+probe_privacy_landing() {
+    local cookies html token
+    cookies="${WORK}/privacy-cookies.txt"
+    html=$(curl -fsS -c "$cookies" "http://127.0.0.1:${PORT}/privacy?site=${HOSTNAME_}")
+    token=$(printf '%s' "$html" | grep -oE 'name="csrf-token"[[:space:]]*content="[^"]+"' \
+        | head -n 1 | sed -E 's/.*content="([^"]+)".*/\1/')
+
+    if [ -z "$token" ]; then
+        fatal "probe_privacy_landing: no csrf-token meta tag in /privacy?site=${HOSTNAME_} response"
+    fi
+
+    CSRF_TOKEN="$token"
+    CSRF_COOKIES="$cookies"
+    _assert "/privacy?site=<host> → 200 + csrf-token meta (len=${#token})" "0" "token-prefix=${token:0:8}..."
+}
+
+# probe_privacy_access: GET /api/privacy/access with a synthesized
+# _statnive cookie. Asserts 200 + JSON envelope from Fix #1
+# (Stage 3) — confirms the Televika operator can hand visitors this
+# URL on Art. 15 emails and they get real data back, not a Stage 2
+# acknowledgement.
+#
+# Only GET endpoints are probed here — the POST flows
+# (/api/privacy/opt-out + /api/privacy/erase) are CSRF-gated by the
+# __Host-statnive_csrf cookie which requires HTTPS, and the smoke
+# harness runs on plain HTTP. Those POST paths are covered by the
+# Go integration tests TestPrivacy_OptOut_AuditEventEmitted +
+# TestDSAR_Erase_EmitsCompletedEvent + TestDSAR_Access_ReturnsVisitorRows.
+probe_privacy_access() {
+    local body status
+    body=$(curl -sS -w '\n%{http_code}' \
+        "http://127.0.0.1:${PORT}/api/privacy/access" \
+        -H "Host: ${HOSTNAME_}" \
+        --cookie "_statnive=smoke-optout-uuid")
+
+    status=$(printf '%s' "$body" | tail -n 1)
+    local json
+    json=$(printf '%s' "$body" | sed '$d')
+
+    local cond=1
+    [ "$status" = "200" ] && cond=0
+    _assert "/api/privacy/access → 200" "$cond" "status=${status}"
+    [ "$cond" = "0" ] || fatal "probe_privacy_access: status=${status}, body=${json}"
+
+    # Fix #1 envelope shape: must have site_id + cookie_id_hash +
+    # row_count + rows.
+    cond=1
+    if printf '%s' "$json" | grep -q '"site_id"' \
+        && printf '%s' "$json" | grep -q '"cookie_id_hash"' \
+        && printf '%s' "$json" | grep -q '"row_count"' \
+        && printf '%s' "$json" | grep -q '"rows"'; then
+        cond=0
+    fi
+    _assert "access response carries {site_id,cookie_id_hash,row_count,rows}" "$cond" \
+        "body=${json:0:200}"
+}
+
 # ---------- Run the probe matrix ----------
 
 log "probing /healthz + /tracker.js + /app/ + /app/assets/"
@@ -786,6 +856,12 @@ probe_per_site_authz
 
 log "probing /api/stats/geo (v1.1-geo: bearer auth + combined envelope)"
 probe_geo
+
+if [ "$WITH_PRIVACY" = "1" ]; then
+    log "probing /privacy + /api/privacy/access (Fix #1 envelope shape; CSRF-exempt GETs only)"
+    probe_privacy_landing
+    probe_privacy_access
+fi
 
 log "=== all probes green ==="
 exit 0

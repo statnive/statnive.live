@@ -169,9 +169,22 @@ const (
 const (
 	EventOptOutReceived      EventName = "privacy.opt_out_received"
 	EventDSARAccessRequested EventName = "privacy.dsar_access_requested"
+	EventDSARAccessReturned  EventName = "privacy.dsar_access_returned"
 	EventDSAREraseRequested  EventName = "privacy.dsar_erase_requested"
-	EventConsentGiven        EventName = "privacy.consent_given"
-	EventConsentWithdrawn    EventName = "privacy.consent_withdrawn"
+	// EventDSAREraseCompleted fires after the background goroutine
+	// confirms every ALTER ... DELETE mutation dispatched by the erase
+	// handler reached is_done = 1 in system.mutations. Without it,
+	// Art. 5(2) DSGVO accountability is unfalsifiable from the audit
+	// log alone — an operator would have to SSH to CH to prove the
+	// deletion landed.
+	EventDSAREraseCompleted EventName = "privacy.dsar_erase_completed"
+	// EventDSAREraseTimeout fires when the background poll hits its
+	// deadline (default 5 min) with mutations still pending. Operator
+	// must investigate manually; row may still be deleted later by
+	// the merge, but the SLA window was exceeded.
+	EventDSAREraseTimeout EventName = "privacy.dsar_erase_timeout"
+	EventConsentGiven     EventName = "privacy.consent_given"
+	EventConsentWithdrawn EventName = "privacy.consent_withdrawn"
 )
 
 // Legal disclosure events. Emitted by internal/legal/* handlers when a

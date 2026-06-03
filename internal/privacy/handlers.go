@@ -35,6 +35,12 @@ type Config struct {
 	// returns 503 (Stage 2 only-suppression mode).
 	Erase *EraseEnumerator
 
+	// Export returns the visitor's events_raw rows for Art. 15 / Art. 20
+	// fulfilment. Optional: when nil the access endpoint returns 503.
+	// Production deployments MUST wire this alongside Erase so the
+	// surface a visitor can erase equals the surface they can read.
+	Export *VisitorExporter
+
 	// Audit emits the privacy.* events. Optional — nil-safe for tests.
 	Audit *audit.Logger
 
@@ -123,11 +129,12 @@ func (h *Handlers) OptOut(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Access handles GET /api/privacy/access. Stage 2 returns a minimal
-// JSON envelope acknowledging the visitor's request — the actual
-// data export ships in v1.1 along with the email-token auth flow.
-// Returns 401 when the visitor has no _statnive cookie (no anchor
-// to identify their rows).
+// Access handles GET /api/privacy/access. Returns the visitor's
+// events_raw rows for the requesting site_id as JSON — satisfies both
+// Art. 15 Auskunft and Art. 20 Datenübertragbarkeit in one
+// round-trip. Returns 401 when the visitor has no _statnive cookie
+// (no anchor to identify their rows) and 503 when no VisitorExporter
+// is wired (test stacks that opt out of ClickHouse).
 func (h *Handlers) Access(w http.ResponseWriter, r *http.Request) {
 	siteID, hash, ok := h.resolveSiteAndCookie(w, r)
 	if !ok {
@@ -136,22 +143,37 @@ func (h *Handlers) Access(w http.ResponseWriter, r *http.Request) {
 
 	h.emit(r.Context(), audit.EventDSARAccessRequested, siteID, hash)
 
+	if h.cfg.Export == nil {
+		http.Error(w, "access not configured", http.StatusServiceUnavailable)
+
+		return
+	}
+
+	result, err := h.cfg.Export.ExportVisitorRows(r.Context(), siteID, hash)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
+	h.emit(r.Context(), audit.EventDSARAccessReturned, siteID, hash,
+		slog.Int("row_count", result.RowCount),
+		slog.Bool("truncated", result.Truncated),
+	)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status":           "received",
-		"cookie_id_hash":   hash,
-		"site_id":          siteID,
-		"export_available": false,
-		"export_message":   "Data export will be emailed within 30 days per GDPR Art. 15. Stage 2 only acknowledges the request.",
-	})
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 // Erase handles POST /api/privacy/erase. Issues an async ALTER TABLE
 // ... DELETE across every base MergeTree table that carries cookie_id;
 // returns 202 (mutations run in the background). Failure of any
 // per-table mutation is surfaced in the response so the operator can
-// re-issue.
+// re-issue. A detached goroutine polls system.mutations and emits
+// EventDSAREraseCompleted (or EventDSAREraseTimeout) when the mutations
+// land — gives Art. 5(2) accountability a 1-grep audit check rather
+// than an SSH-to-CH correlation query.
 func (h *Handlers) Erase(w http.ResponseWriter, r *http.Request) {
 	siteID, hash, ok := h.resolveSiteAndCookie(w, r)
 	if !ok {
@@ -163,6 +185,8 @@ func (h *Handlers) Erase(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	dispatchedAt := h.cfg.Now()
 
 	results, err := h.cfg.Erase.EraseByCookieID(r.Context(), siteID, hash)
 	if err != nil {
@@ -184,6 +208,8 @@ func (h *Handlers) Erase(w http.ResponseWriter, r *http.Request) {
 		slog.Int("tables", len(results)),
 	)
 
+	h.spawnCompletionWatcher(siteID, hash, results, dispatchedAt)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusAccepted)
@@ -192,6 +218,55 @@ func (h *Handlers) Erase(w http.ResponseWriter, r *http.Request) {
 		"tables":  results,
 		"site_id": siteID,
 	})
+}
+
+// completionWatchTimeout caps how long the background goroutine waits
+// for ALTER ... DELETE mutations to land. 5 minutes is well above the
+// p99 mutation latency for events_raw on the design-ceiling cluster
+// (8c/32GB, 200M events/day) — anything that takes longer indicates
+// merge backlog or an unrelated incident the operator needs to see.
+const completionWatchTimeout = 5 * time.Minute
+
+// spawnCompletionWatcher launches the background poll. Detached from
+// the request context so the audit event still fires after the HTTP
+// 202 response closes. Skipped entirely when no mutations were
+// dispatched (every result has MutationSent=false) — emitting a
+// Completed event for zero work would be misleading.
+func (h *Handlers) spawnCompletionWatcher(
+	siteID uint32,
+	hash string,
+	results []EraseResult,
+	dispatchedAt time.Time,
+) {
+	tables := make([]string, 0, len(results))
+
+	for _, r := range results {
+		if r.MutationSent {
+			tables = append(tables, r.Table)
+		}
+	}
+
+	if len(tables) == 0 {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), completionWatchTimeout)
+		defer cancel()
+
+		h.cfg.Erase.WaitForCompletion(ctx, tables, dispatchedAt,
+			func(mutationCount int) {
+				h.emit(context.Background(), audit.EventDSAREraseCompleted, siteID, hash,
+					slog.Int("mutation_count", mutationCount),
+				)
+			},
+			func(pendingCount int) {
+				h.emit(context.Background(), audit.EventDSAREraseTimeout, siteID, hash,
+					slog.Int("pending_count", pendingCount),
+				)
+			},
+		)
+	}()
 }
 
 // resolveSiteAndCookie does the shared prelude:

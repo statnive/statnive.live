@@ -27,6 +27,8 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-chi/chi/v5"
 
+	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/audit/audittest"
 	"github.com/statnive/statnive.live/internal/enrich"
 	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/ingest"
@@ -36,9 +38,9 @@ import (
 )
 
 const (
-	testHostname    = "integration-test.example.com"
-	testSiteID      = 42
-	eventCount      = 100
+	testHostname = "integration-test.example.com"
+	testSiteID   = 42
+	eventCount   = 100
 	// Bumped from 5s to 15s in Phase 5a. After TestIngestPipelineSmoke
 	// drains 100 events + the consumer's Close waits for fsync, CI runs
 	// occasionally hit the 5s ceiling for the NEXT test's first event
@@ -239,15 +241,17 @@ func waitForCount(t *testing.T, parent context.Context, store *storage.ClickHous
 // flow needs all three of (a) ingest /api/event, (b) privacy /opt-out
 // and /consent, and (c) the suppression list shared between them.
 type integrationStack struct {
-	t            *testing.T
-	ctx          context.Context
-	cancel       context.CancelFunc
-	store        *storage.ClickHouseStore
-	srv          *httptest.Server
-	consumerEnd  <-chan struct{}
-	masterKey    []byte
-	suppression  *privacy.SuppressionList
-	privacyErase *privacy.EraseEnumerator
+	t             *testing.T
+	ctx           context.Context
+	cancel        context.CancelFunc
+	store         *storage.ClickHouseStore
+	srv           *httptest.Server
+	consumerEnd   <-chan struct{}
+	masterKey     []byte
+	suppression   *privacy.SuppressionList
+	privacyErase  *privacy.EraseEnumerator
+	privacyExport *privacy.VisitorExporter
+	auditPath     string
 }
 
 const stage4MasterSecret = "stage4-integration-master-secret-32"
@@ -368,10 +372,26 @@ func newIntegrationStack(t *testing.T, siteID uint32, hostname string) *integrat
 
 	registry := sites.New(store.Conn())
 
+	auditPath := filepath.Join(walDir, "audit.jsonl")
+
+	auditLog, err := audit.New(auditPath)
+	if err != nil {
+		cancel()
+		t.Fatalf("audit log: %v", err)
+	}
+
+	t.Cleanup(func() { _ = auditLog.Close() })
+
+	privacyErase := privacy.NewEraseEnumerator(store.Conn(), testDatabase)
+	privacyExport := privacy.NewVisitorExporter(store.Conn(), testDatabase)
+
 	privacyHandlers, err := privacy.NewHandlers(privacy.Config{
 		Sites:        registry,
 		MasterSecret: masterKey,
 		Suppression:  suppression,
+		Erase:        privacyErase,
+		Export:       privacyExport,
+		Audit:        auditLog,
 	})
 	if err != nil {
 		cancel()
@@ -387,25 +407,30 @@ func newIntegrationStack(t *testing.T, siteID uint32, hostname string) *integrat
 			Sites:        registry,
 			MasterSecret: masterKey,
 			Suppression:  suppression,
+			Audit:        auditLog,
 			Logger:       logger,
 		}))
 	})
 	router.Method(http.MethodPost, "/api/privacy/opt-out", http.HandlerFunc(privacyHandlers.OptOut))
 	router.Method(http.MethodPost, "/api/privacy/consent", http.HandlerFunc(privacyHandlers.Consent))
+	router.Method(http.MethodPost, "/api/privacy/erase", http.HandlerFunc(privacyHandlers.Erase))
+	router.Method(http.MethodGet, "/api/privacy/access", http.HandlerFunc(privacyHandlers.Access))
 
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
 
 	return &integrationStack{
-		t:            t,
-		ctx:          ctx,
-		cancel:       cancel,
-		store:        store,
-		srv:          srv,
-		consumerEnd:  consumerDone,
-		masterKey:    masterKey,
-		suppression:  suppression,
-		privacyErase: privacy.NewEraseEnumerator(store.Conn(), testDatabase),
+		t:             t,
+		ctx:           ctx,
+		cancel:        cancel,
+		store:         store,
+		srv:           srv,
+		consumerEnd:   consumerDone,
+		masterKey:     masterKey,
+		suppression:   suppression,
+		privacyErase:  privacyErase,
+		privacyExport: privacyExport,
+		auditPath:     auditPath,
 	}
 }
 
@@ -826,6 +851,221 @@ func TestDSAR_EraseRejectsZeroSiteID(t *testing.T) {
 	_, err := stack.privacyErase.EraseByCookieID(stack.ctx, 0, "h:cafebabe")
 	if err == nil {
 		t.Fatalf("EraseByCookieID with siteID=0 must error")
+	}
+}
+
+// TestDSAR_Access_ReturnsVisitorRows asserts the read path's
+// cross-tenant scoping. Seeds two rows for the visitor's cookie hash
+// + one row for a different cookie hash on the same site; asserts
+// only the two matching rows come back. Also seeds a row on a second
+// site with the same cookie hash and asserts cross-tenant scoping
+// holds — same invariant as TestDSAR_CrossTenantIsolation, applied
+// to the read path so the surface a visitor can see equals the
+// surface they can erase.
+func TestDSAR_Access_ReturnsVisitorRows(t *testing.T) {
+	const (
+		siteAID   uint32 = 4447
+		siteBID   uint32 = 4448
+		hostnameA        = "stage4-access-a.example.com"
+		hostnameB        = "stage4-access-b.example.com"
+	)
+
+	stack := newIntegrationStack(t, siteAID, hostnameA)
+	defer stack.shutdown()
+
+	// Seed site B so the cross-tenant assertion below has a real
+	// neighbour.
+	if err := stack.store.Conn().Exec(stack.ctx,
+		`INSERT INTO statnive.sites (site_id, hostname, slug, enabled) VALUES (?, ?, ?, 1)`,
+		siteBID, hostnameB, hostnameB,
+	); err != nil {
+		t.Fatalf("seed site B: %v", err)
+	}
+
+	// Per-run unique hashes so parallel test runs against a shared CH
+	// don't collide.
+	stamp := time.Now().UnixNano()
+	visitorHash := fmt.Sprintf("h:test-access-visitor-%d", stamp)
+	otherHash := fmt.Sprintf("h:test-access-other-%d", stamp)
+
+	// Two rows for visitorHash on site A — these MUST appear in the
+	// export.
+	for i := range 2 {
+		if err := stack.store.Conn().Exec(stack.ctx,
+			`INSERT INTO statnive.events_raw
+			   (site_id, time, hostname, pathname, event_type, event_name, cookie_id, visitor_hash, country_code)
+			 VALUES
+			   (?, now(), ?, ?, 'pageview', 'pageview', ?, unhex('00000000000000000000000000000000'), 'DE')`,
+			siteAID, hostnameA, fmt.Sprintf("/page-%d", i), visitorHash,
+		); err != nil {
+			t.Fatalf("seed visitor row %d: %v", i, err)
+		}
+	}
+
+	// One row for a different cookie on site A — MUST NOT appear.
+	if err := stack.store.Conn().Exec(stack.ctx,
+		`INSERT INTO statnive.events_raw
+		   (site_id, time, hostname, pathname, event_type, event_name, cookie_id, visitor_hash)
+		 VALUES
+		   (?, now(), ?, '/other', 'pageview', 'pageview', ?, unhex('00000000000000000000000000000000'))`,
+		siteAID, hostnameA, otherHash,
+	); err != nil {
+		t.Fatalf("seed other-visitor row: %v", err)
+	}
+
+	// One row for the SAME cookie hash on site B — MUST NOT appear in
+	// the site-A export. Cross-tenant invariant for the read path.
+	if err := stack.store.Conn().Exec(stack.ctx,
+		`INSERT INTO statnive.events_raw
+		   (site_id, time, hostname, pathname, event_type, event_name, cookie_id, visitor_hash)
+		 VALUES
+		   (?, now(), ?, '/leaked', 'pageview', 'pageview', ?, unhex('00000000000000000000000000000000'))`,
+		siteBID, hostnameB, visitorHash,
+	); err != nil {
+		t.Fatalf("seed cross-tenant row: %v", err)
+	}
+
+	result, err := stack.privacyExport.ExportVisitorRows(stack.ctx, siteAID, visitorHash)
+	if err != nil {
+		t.Fatalf("ExportVisitorRows: %v", err)
+	}
+
+	if result.SiteID != siteAID {
+		t.Errorf("SiteID = %d, want %d", result.SiteID, siteAID)
+	}
+
+	if result.CookieIDHash != visitorHash {
+		t.Errorf("CookieIDHash = %q, want %q", result.CookieIDHash, visitorHash)
+	}
+
+	if result.RowCount != 2 {
+		t.Errorf("RowCount = %d, want 2 (got rows: %+v)", result.RowCount, result.Rows)
+	}
+
+	if result.Truncated {
+		t.Errorf("Truncated = true, want false (only 2 rows seeded)")
+	}
+
+	if result.GeneratedAt.IsZero() {
+		t.Errorf("GeneratedAt is zero")
+	}
+
+	// Every returned row MUST come from site A's seed set. Detects
+	// either the cross-tenant leak (siteB rows) or the wrong-cookie
+	// leak (otherHash row).
+	for _, r := range result.Rows {
+		if r.Hostname != hostnameA {
+			t.Errorf("row hostname = %q, want %q (cross-tenant leak)", r.Hostname, hostnameA)
+		}
+
+		if r.Pathname == "/other" {
+			t.Errorf("row pathname = /other (wrong-cookie row leaked)")
+		}
+
+		if r.Pathname == "/leaked" {
+			t.Errorf("row pathname = /leaked (cross-tenant row leaked)")
+		}
+	}
+}
+
+// TestDSAR_Erase_EmitsCompletedEvent asserts the goroutine spawned
+// by the erase handler polls system.mutations and emits
+// privacy.dsar_erase_completed after the ALTER ... DELETE lands.
+// Pre-fix the audit log only carried privacy.dsar_erase_requested,
+// leaving Art. 5(2) DSGVO accountability unfalsifiable from the
+// audit file alone.
+func TestDSAR_Erase_EmitsCompletedEvent(t *testing.T) {
+	const (
+		siteID   uint32 = 4451
+		hostname        = "stage4-erase-completed.example.com"
+	)
+
+	stack := newIntegrationStack(t, siteID, hostname)
+	defer stack.shutdown()
+
+	// Seed one row so the erase has real work to do — guarantees a
+	// system.mutations row appears with create_time >= dispatchedAt.
+	stamp := time.Now().UnixNano()
+	visitorCookie := fmt.Sprintf("erase-completed-%d", stamp)
+	visitorHash := identity.HexCookieIDHash(stack.masterKey, siteID, visitorCookie)
+
+	if err := stack.store.Conn().Exec(stack.ctx,
+		`INSERT INTO statnive.events_raw
+		   (site_id, time, hostname, pathname, event_type, event_name, cookie_id, visitor_hash)
+		 VALUES
+		   (?, now(), ?, '/', 'pageview', 'pageview', ?, unhex('00000000000000000000000000000000'))`,
+		siteID, hostname, visitorHash,
+	); err != nil {
+		t.Fatalf("seed events_raw: %v", err)
+	}
+
+	// Fire the erase via the HTTP route so the handler's
+	// spawnCompletionWatcher goroutine actually runs (calling
+	// EraseByCookieID directly bypasses the audit-event path).
+	resp := postJSON(t, stack.srv, "/api/privacy/erase", "{}", []*http.Cookie{
+		{Name: "_statnive", Value: visitorCookie},
+	}, hostname)
+
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("erase status = %d, want 202", resp.StatusCode)
+	}
+
+	// The completion event lands once the CH mutation finishes. On a
+	// fresh docker CH a single-row DELETE finishes in <500ms; 15s
+	// gives plenty of headroom for CI noise.
+	if !audittest.WaitForEvent(t, stack.auditPath, string(audit.EventDSAREraseCompleted), 15*time.Second) {
+		t.Fatalf("dsar_erase_completed event not emitted within 15s — got events: %v",
+			audittest.ReadEventNames(t, stack.auditPath))
+	}
+
+	// All three privacy events MUST appear in order. Timeout MUST NOT.
+	events := audittest.ReadEventNames(t, stack.auditPath)
+
+	requested := false
+	completed := false
+
+	for _, name := range events {
+		switch name {
+		case string(audit.EventDSAREraseRequested):
+			requested = true
+		case string(audit.EventDSAREraseCompleted):
+			completed = true
+		case string(audit.EventDSAREraseTimeout):
+			t.Errorf("unexpected dsar_erase_timeout event — mutation should have completed")
+		}
+	}
+
+	if !requested {
+		t.Errorf("missing privacy.dsar_erase_requested event in %v", events)
+	}
+
+	if !completed {
+		t.Errorf("missing privacy.dsar_erase_completed event in %v", events)
+	}
+}
+
+// TestDSAR_Access_RejectsEmptyHash and TestDSAR_Access_RejectsZeroSiteID
+// confirm the guards in ExportVisitorRows short-circuit before any CH
+// query — same pattern as TestDSAR_EraseRejectsZeroSiteID.
+func TestDSAR_Access_RejectsEmptyHash(t *testing.T) {
+	const siteID uint32 = 4449
+
+	stack := newIntegrationStack(t, siteID, "stage4-access-empty-hash.example.com")
+	defer stack.shutdown()
+
+	if _, err := stack.privacyExport.ExportVisitorRows(stack.ctx, siteID, ""); err == nil {
+		t.Fatalf("ExportVisitorRows with empty hash must error")
+	}
+}
+
+func TestDSAR_Access_RejectsZeroSiteID(t *testing.T) {
+	const siteID uint32 = 4450
+
+	stack := newIntegrationStack(t, siteID, "stage4-access-zero-site.example.com")
+	defer stack.shutdown()
+
+	if _, err := stack.privacyExport.ExportVisitorRows(stack.ctx, 0, "h:cafebabe"); err == nil {
+		t.Fatalf("ExportVisitorRows with siteID=0 must error")
 	}
 }
 

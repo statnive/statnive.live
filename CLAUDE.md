@@ -196,10 +196,17 @@ Full roadmap in [`PLAN.md`](PLAN.md) — 51 v1 + 10 v1.1 + 17 v2 features across
 | Level | Tool | Location |
 |---|---|---|
 | Unit | Go testing | `*_test.go` alongside source |
-| Integration (incl. security) | Go testing | `test/integration_test.go` |
+| Integration (incl. security) | Go testing | `test/integration_test.go` + `test/privacy_realprod_test.go` |
 | Load smoke | k6 | `test/perf/load.js` (`make load-test`, 7K EPS × 5min) |
 | Frontend | Vitest | `web/src/**/*.test.tsx` |
+| Smoke (boot + privacy GETs) | bash + curl | `test/smoke/harness.sh` (`make smoke` / `make smoke-privacy`) |
+| **Live post-deploy probe** | bash + curl + SSH-CH-oracle | `scripts/prod-probe.sh` (`make prod-probe`) |
 | Graduation gate | Locust (primary) + k6 (cross-check) + Vegeta + wrk2 | `test/perf/gate/` + `test/perf/chaos/` + `test/perf/generator/` (doc 29 §4, Phase 7e) |
+
+**Two-layer privacy + tracker test design** (full spec: `~/.claude/plans/plan-to-design-real-production-eager-pine.md`):
+
+- **Ephemeral**: `test/privacy_realprod_test.go` covers categories B/C/D of the matrix — tracker negative gates (prefetch, UA-reject, unknown hostname, Sec-GPC, DNT) + privacy-API audit-event emission. Runs via `go test -tags=integration` against docker CH. `test/smoke/harness.sh --with-privacy` adds the CSRF-exempt GETs (`/privacy?site=`, `/api/privacy/access`) to the boot smoke.
+- **Live**: `scripts/prod-probe.sh` runs against `https://app.statnive.live` using a dedicated test `site_id=9999` / `probe.statnive.live`. Three concentric safeguards prevent ANY impact on customer data (Televika `site_id=4` is hard-refused at script entry). Wired into `.github/workflows/deploy-saas.yml` gated on `vars.STATNIVE_PROBE_ENABLED=='true'`; failure auto-reverts via `deploy/statnive-deploy.sh`.
 
 **ClickHouse-Oracle Assertion Hierarchy.** Always use the highest applicable tier; lower tiers are diagnostic, not acceptance evidence.
 

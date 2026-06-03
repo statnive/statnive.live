@@ -697,12 +697,14 @@ func run() error {
 
 	if cfg.Privacy.PrivacyAPI {
 		eraseEnum := privacy.NewEraseEnumerator(store.Conn(), cfg.ClickHouse.Database)
+		exporter := privacy.NewVisitorExporter(store.Conn(), cfg.ClickHouse.Database)
 
 		privacyHandlers, pErr := privacy.NewHandlers(privacy.Config{
 			Sites:        registry,
 			MasterSecret: masterSecret,
 			Suppression:  suppressionList,
 			Erase:        eraseEnum,
+			Export:       exporter,
 			Audit:        auditLog,
 		})
 		if pErr != nil {

@@ -2,7 +2,6 @@ package privacy
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -173,7 +172,12 @@ func TestOptOut_RejectsUnknownHost(t *testing.T) {
 	}
 }
 
-func TestAccess_AcknowledgesRequest(t *testing.T) {
+// TestAccess_NotConfiguredReturns503 pins the nil-Export fallback:
+// when no VisitorExporter is wired (e.g. unit-test stacks that don't
+// spin up ClickHouse), the access endpoint must surface 503 rather
+// than the legacy Stage 2 placeholder. The integration test
+// TestPrivacy_Access_ReturnsVisitorRows covers the wired path.
+func TestAccess_NotConfiguredReturns503(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandlers(t)
@@ -185,21 +189,8 @@ func TestAccess_AcknowledgesRequest(t *testing.T) {
 
 	h.Access(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-
-	var body map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	if body["status"] != "received" {
-		t.Errorf("status = %v, want received", body["status"])
-	}
-
-	if got, ok := body["cookie_id_hash"].(string); !ok || got == "" {
-		t.Errorf("missing cookie_id_hash in body: %+v", body)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 (export not wired)", rec.Code)
 	}
 }
 
