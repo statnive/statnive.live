@@ -169,6 +169,7 @@ const (
 const (
 	EventOptOutReceived      EventName = "privacy.opt_out_received"
 	EventDSARAccessRequested EventName = "privacy.dsar_access_requested"
+	EventDSARAccessReturned  EventName = "privacy.dsar_access_returned"
 	EventDSAREraseRequested  EventName = "privacy.dsar_erase_requested"
 	EventConsentGiven        EventName = "privacy.consent_given"
 	EventConsentWithdrawn    EventName = "privacy.consent_withdrawn"

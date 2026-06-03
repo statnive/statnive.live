@@ -35,6 +35,12 @@ type Config struct {
 	// returns 503 (Stage 2 only-suppression mode).
 	Erase *EraseEnumerator
 
+	// Export returns the visitor's events_raw rows for Art. 15 / Art. 20
+	// fulfilment. Optional: when nil the access endpoint returns 503.
+	// Production deployments MUST wire this alongside Erase so the
+	// surface a visitor can erase equals the surface they can read.
+	Export *VisitorExporter
+
 	// Audit emits the privacy.* events. Optional — nil-safe for tests.
 	Audit *audit.Logger
 
@@ -123,11 +129,12 @@ func (h *Handlers) OptOut(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Access handles GET /api/privacy/access. Stage 2 returns a minimal
-// JSON envelope acknowledging the visitor's request — the actual
-// data export ships in v1.1 along with the email-token auth flow.
-// Returns 401 when the visitor has no _statnive cookie (no anchor
-// to identify their rows).
+// Access handles GET /api/privacy/access. Returns the visitor's
+// events_raw rows for the requesting site_id as JSON — satisfies both
+// Art. 15 Auskunft and Art. 20 Datenübertragbarkeit in one
+// round-trip. Returns 401 when the visitor has no _statnive cookie
+// (no anchor to identify their rows) and 503 when no VisitorExporter
+// is wired (test stacks that opt out of ClickHouse).
 func (h *Handlers) Access(w http.ResponseWriter, r *http.Request) {
 	siteID, hash, ok := h.resolveSiteAndCookie(w, r)
 	if !ok {
@@ -136,15 +143,27 @@ func (h *Handlers) Access(w http.ResponseWriter, r *http.Request) {
 
 	h.emit(r.Context(), audit.EventDSARAccessRequested, siteID, hash)
 
+	if h.cfg.Export == nil {
+		http.Error(w, "access not configured", http.StatusServiceUnavailable)
+
+		return
+	}
+
+	result, err := h.cfg.Export.ExportVisitorRows(r.Context(), siteID, hash)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
+	h.emit(r.Context(), audit.EventDSARAccessReturned, siteID, hash,
+		slog.Int("row_count", result.RowCount),
+		slog.Bool("truncated", result.Truncated),
+	)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status":           "received",
-		"cookie_id_hash":   hash,
-		"site_id":          siteID,
-		"export_available": false,
-		"export_message":   "Data export will be emailed within 30 days per GDPR Art. 15. Stage 2 only acknowledges the request.",
-	})
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 // Erase handles POST /api/privacy/erase. Issues an async ALTER TABLE
