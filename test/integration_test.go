@@ -407,6 +407,7 @@ func newIntegrationStack(t *testing.T, siteID uint32, hostname string) *integrat
 			Sites:        registry,
 			MasterSecret: masterKey,
 			Suppression:  suppression,
+			Audit:        auditLog,
 			Logger:       logger,
 		}))
 	})
