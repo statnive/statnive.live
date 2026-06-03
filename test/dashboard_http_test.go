@@ -228,7 +228,8 @@ func TestDashboardHTTP_SitesList(t *testing.T) {
 	}
 
 	// Seed in newDashboardTestServer adds siteA + siteB; list MUST contain
-	// both with the migration-003 default tz = "Asia/Tehran".
+	// both with the migration-021 default tz = "UTC" (was "Asia/Tehran"
+	// under migration-003; flipped in v0.0.39 — see LEARN.md Lesson 39).
 	found := map[uint32]map[string]any{}
 
 	for _, s := range env.Sites {
@@ -244,8 +245,8 @@ func TestDashboardHTTP_SitesList(t *testing.T) {
 			continue
 		}
 
-		if tz, _ := got["tz"].(string); tz != "Asia/Tehran" {
-			t.Errorf("site %d: tz = %q, want Asia/Tehran (migration-003 default)", want, tz)
+		if tz, _ := got["tz"].(string); tz != "UTC" {
+			t.Errorf("site %d: tz = %q, want UTC (migration-021 default)", want, tz)
 		}
 
 		if enabled, _ := got["enabled"].(bool); !enabled {
