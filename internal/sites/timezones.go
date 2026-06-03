@@ -118,6 +118,21 @@ func IsValidTimezone(iana string) bool {
 	return ok
 }
 
+// LocationFor returns the cached *time.Location for an allow-listed
+// IANA name. Empty or unknown name → time.UTC (regulator-safe default,
+// see internal/identity/salt.go::DefaultSaltTimezone). Shared between
+// the dashboard's date-picker boundary (internal/dashboard/filter.go)
+// and the identity hot path (internal/identity/salt.go) so a single
+// package-init cache backs every consumer — zero locking, zero
+// per-event time.LoadLocation calls.
+func LocationFor(iana string) *time.Location {
+	if loc, ok := cachedLocations[iana]; ok {
+		return loc
+	}
+
+	return time.UTC
+}
+
 // TimezonesWithOffset returns Timezones with the Offset field populated
 // from the live time.Location. now() is injected so tests can lock the
 // clock; production callers pass time.Now. Locations come from

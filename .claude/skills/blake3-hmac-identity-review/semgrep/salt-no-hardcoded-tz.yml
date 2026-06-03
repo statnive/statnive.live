@@ -1,0 +1,60 @@
+# salt-no-hardcoded-tz — Path A Iran-signal regression guard (v0.0.39+).
+#
+# Rule: no Go code under internal/identity/**/*.go (other than tests
+# and the deliberately-named legacyTimezone constant) may construct a
+# hardcoded IANA timezone literal. The salt-rotation timezone MUST be
+# threaded through statnive.sites.tz → SitePolicy.TZ → RawEvent.TZ →
+# SaltManager.CurrentSalt(siteID, tz), with empty/invalid falling back
+# to "UTC" at the SaltManager layer.
+#
+# Why: the v0.0.39 fix removed `time.LoadLocation("Asia/Tehran")` from
+# salt.go because a hardcoded IANA name in the hot-path source is a
+# regulator-readable signal (`televika-PATH-A-IMPLEMENTATION.md`
+# Section 13 signal #1; jaan-to/outputs/research/03-grc-televika-...
+# Section 13). This rule prevents future code from re-introducing
+# the same signal — whether IRST, Berlin, LA, or any other.
+#
+# The single permitted hardcoded constant is `legacyTimezone =
+# "Asia/Tehran"` in salt.go itself, which exists ONLY for the
+# STATNIVE_SALT_TZ_LEGACY=1 emergency rollback path. Naming makes
+# the intent unambiguous: `const legacyTimezone = "..."` is fine;
+# `time.LoadLocation("Asia/Tehran")` or `time.FixedZone(...)` with
+# IRST offset is not.
+#
+# Scope: internal/identity/**/*.go (the hot-path identity package).
+# Tests, vendor, and the legacyTimezone constant declaration are
+# excluded.
+
+rules:
+  - id: salt-no-hardcoded-tz
+    message: >-
+      Hardcoded IANA timezone literal in internal/identity/. The
+      v0.0.39 fix routed the salt-rotation timezone through the
+      per-site sites.tz column (default UTC). Re-introducing a
+      hardcoded zone here is a regulator-readable signal and a
+      LEARN.md Lesson 39 regression. If you need a fixed-zone
+      fallback, name the constant `legacyTimezone` and document why.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include:
+        - "**/internal/identity/**/*.go"
+      exclude:
+        - "**/*_test.go"
+        - "**/vendor/**"
+    patterns:
+      - pattern-either:
+          - pattern: time.LoadLocation("Asia/Tehran")
+          - pattern: time.LoadLocation("Europe/Berlin")
+          - pattern: time.LoadLocation("America/Los_Angeles")
+          - pattern: time.LoadLocation("America/New_York")
+          - pattern: time.LoadLocation("Asia/Tokyo")
+          - pattern: time.LoadLocation("Asia/Shanghai")
+          - pattern: time.FixedZone("IRST", ...)
+          - pattern: time.FixedZone("CET", ...)
+          - pattern: time.FixedZone("CEST", ...)
+      - pattern-not-inside: |
+          const legacyTimezone = "..."
+      - pattern-not-inside: |
+          // legacy ...
+          ...

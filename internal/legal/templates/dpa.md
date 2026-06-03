@@ -41,7 +41,7 @@ Processor will not process the data for any other purpose, including: targeted a
 
 | Category | Form stored | Retention |
 |---|---|---|
-| **Visitor hash** (BLAKE3-128 of `IP \|\| "\|" \|\| User-Agent` keyed by daily-rotating salt; salt = `HMAC-SHA256(master_secret, site_id \|\| YYYY-MM-DD IRST)`) | `FixedString(16)` | Raw event 180 days; rollups indefinite (HLL state — anonymous per Recital 26 + CJEU C-413/23) |
+| **Visitor hash** (BLAKE3-128 of `IP \|\| "\|" \|\| User-Agent` keyed by daily-rotating salt; salt = `HMAC-SHA256(master_secret, site_id \|\| YYYY-MM-DD <site-configured timezone, default UTC>)` — see `statnive.sites.tz`) | `FixedString(16)` | Raw event 180 days; rollups indefinite (HLL state — anonymous per Recital 26 + CJEU C-413/23) |
 | **User-ID hash** (SHA-256 of `master_secret \|\| site_id \|\| user_id` — populated only when the Customer's site calls `statnive.identify(user_id)`) | `String` (64-hex) | Raw event 180 days; rollups indefinite |
 | **Cookie identifier** (SHA-256 of `master_secret \|\| site_id \|\| UUID` with `h:` prefix — first-party `_statnive` cookie used to bind opt-in/opt-out + DSAR scope to the visitor) | `String` (66 chars: `h:` + 64-hex) | Raw event 180 days; deleted on DSAR erase |
 | Source IP address | **Never persisted.** Used only for GeoIP lookup (and the daily hash above), then discarded before the batch writer sees the row. | Zero |

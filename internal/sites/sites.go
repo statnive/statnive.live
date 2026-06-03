@@ -103,6 +103,20 @@ type SitePolicy struct {
 	// only — the current pre-Stage-4 behaviour, preserved for the 3
 	// live operators after the backfill.
 	AllowedOrigins []string `json:"allowed_origins"`
+
+	// TZ is the IANA zone name from statnive.sites.tz (migration 003;
+	// default flipped from 'Asia/Tehran' to 'UTC' by migration 021).
+	// Used by the salt-rotation pipeline to derive the local-day
+	// boundary for the daily HMAC salt. Empty string falls back to
+	// UTC at the SaltManager layer. Setting STATNIVE_SALT_TZ_LEGACY=1
+	// forces every site to 'Asia/Tehran' regardless of this field
+	// (emergency rollback handle; see identity/salt.go).
+	//
+	// json:"-" because SiteAdmin embeds both Site and SitePolicy; the
+	// dashboard's JSON view of `tz` comes from Site.TZ which is the
+	// dashboard-display semantic. SitePolicy.TZ is the internal
+	// hot-path policy field; the value is identical (same DB column).
+	TZ string `json:"-"`
 }
 
 // Jurisdiction enum values. Kept as string constants (not a typed
@@ -393,18 +407,19 @@ func (r *Registry) lookupExactPolicy(ctx context.Context, host string) (uint32, 
 		jurisdiction, consentMode         string
 		eventAllowlistJSON                string
 		allowedOriginsJSON                string
+		tz                                string
 	)
 
 	row := r.conn.QueryRow(ctx,
 		`SELECT site_id, respect_dnt, respect_gpc, track_bots,
-		        jurisdiction, consent_mode, event_allowlist, allowed_origins
+		        jurisdiction, consent_mode, event_allowlist, allowed_origins, tz
 		 FROM statnive.sites
 		 WHERE hostname = ? AND enabled = 1 LIMIT 1`,
 		host,
 	)
 
 	if err := row.Scan(&siteID, &respectDNT, &respectGPC, &trackBots,
-		&jurisdiction, &consentMode, &eventAllowlistJSON, &allowedOriginsJSON); err != nil {
+		&jurisdiction, &consentMode, &eventAllowlistJSON, &allowedOriginsJSON, &tz); err != nil {
 		// ClickHouse driver returns a generic error on no-rows; treat any
 		// scan failure as ErrUnknownHostname. The handler then 204s the
 		// event silently. Real connection failures bubble through ping/health.
@@ -423,6 +438,7 @@ func (r *Registry) lookupExactPolicy(ctx context.Context, host string) (uint32, 
 		ConsentMode:    consentMode,
 		EventAllowlist: parseEventAllowlist(eventAllowlistJSON),
 		AllowedOrigins: parseAllowedOrigins(allowedOriginsJSON),
+		TZ:             tz,
 	}, nil
 }
 
@@ -833,7 +849,7 @@ func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin
 	)
 
 	if err := row.Scan(
-		&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.Currency, &sa.CreatedAt,
+		&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.Site.TZ, &sa.Currency, &sa.CreatedAt,
 		&respectDNT, &respectGPC, &trackBots,
 		&jurisdiction, &consentMode, &eventAllowlistJSON, &allowedOriginsJSON,
 	); err != nil {
@@ -852,6 +868,10 @@ func (r *Registry) LookupSiteByID(ctx context.Context, siteID uint32) (SiteAdmin
 	sa.ConsentMode = consentMode
 	sa.EventAllowlist = parseEventAllowlist(eventAllowlistJSON)
 	sa.AllowedOrigins = parseAllowedOrigins(allowedOriginsJSON)
+	// Mirror Site.TZ into SitePolicy.TZ so any future caller reaching
+	// via sa.SitePolicy.TZ (embedded promotion) gets the same value as
+	// sa.Site.TZ — both fields hold the same statnive.sites.tz column.
+	sa.SitePolicy.TZ = sa.Site.TZ
 
 	return sa, nil
 }
@@ -888,7 +908,7 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 		)
 
 		if scanErr := rows.Scan(
-			&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.TZ, &sa.Currency, &sa.CreatedAt,
+			&sa.ID, &sa.Hostname, &sa.Slug, &sa.Plan, &enabled, &sa.Site.TZ, &sa.Currency, &sa.CreatedAt,
 			&respectDNT, &respectGPC, &trackBots,
 			&jurisdiction, &consentMode, &eventAllowlistJSON, &allowedOriginsJSON,
 		); scanErr != nil {
@@ -903,6 +923,7 @@ func (r *Registry) ListAdmin(ctx context.Context) ([]SiteAdmin, error) {
 		sa.ConsentMode = consentMode
 		sa.EventAllowlist = parseEventAllowlist(eventAllowlistJSON)
 		sa.AllowedOrigins = parseAllowedOrigins(allowedOriginsJSON)
+		sa.SitePolicy.TZ = sa.Site.TZ
 
 		out = append(out, sa)
 	}

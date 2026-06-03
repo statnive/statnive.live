@@ -427,7 +427,7 @@ func (f *fakeSitesStore) UpdateSiteAttributes(_ context.Context, siteID uint32, 
 	}
 
 	if tz != nil {
-		s.TZ = *tz
+		s.Site.TZ = *tz
 	}
 
 	return nil

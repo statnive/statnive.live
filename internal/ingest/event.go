@@ -66,6 +66,12 @@ type RawEvent struct {
 	// is_bot=1 (default true preserves the post-PR-#78 behavior). Set
 	// by the handler from the per-site policy lookup.
 	TrackBots bool `json:"-"`
+	// TZ mirrors statnive.sites.tz for this hostname (IANA name, e.g.
+	// "Europe/Berlin" or "Asia/Tehran"; empty string falls back to UTC
+	// at the SaltManager layer). Used by enrich Stage 1 to derive
+	// per-site daily salt rotation. Set by the handler from the same
+	// LookupSitePolicy call that populates TrackBots.
+	TZ string `json:"-"`
 }
 
 // EnrichedEvent is the row written to ClickHouse.

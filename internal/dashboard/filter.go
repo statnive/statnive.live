@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/statnive/statnive.live/internal/auth"
+	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
 )
 
@@ -50,12 +51,7 @@ func resolveSiteTZ(ctx context.Context, lister SiteLister, siteID uint32) *time.
 		return time.UTC
 	}
 
-	loc, err := time.LoadLocation(site.TZ)
-	if err != nil || loc == nil {
-		return time.UTC
-	}
-
-	return loc
+	return sites.LocationFor(site.Site.TZ)
 }
 
 // filterFromRequest parses URL query into a storage.Filter. Required:

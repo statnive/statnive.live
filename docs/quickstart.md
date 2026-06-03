@@ -78,8 +78,10 @@ form:
   `example.com` or `localhost` if you're testing against a local page.
 - **Slug** — leave blank to let statnive-live auto-generate one from the
   hostname.
-- **Timezone** — `Asia/Tehran` by default; override if your operator
-  locale differs.
+- **Timezone** — `UTC` by default (per migration 021); override per
+  site if your operator locale differs (e.g. `Europe/Berlin`).
+  Drives both the dashboard's date-picker midnight boundary AND the
+  daily salt-rotation moment for the visitor hash.
 
 Click **Add site**. A row appears in the table with the tracker snippet
 pre-rendered.

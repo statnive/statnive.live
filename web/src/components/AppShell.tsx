@@ -5,6 +5,8 @@ import { FilterPanel } from './FilterPanel';
 import { SiteSwitcher } from './SiteSwitcher';
 import { Footer } from './Footer';
 import { userSignal } from '../state/auth';
+import { activeSiteSignal } from '../state/site';
+import { tzShortLabel } from '../lib/tz';
 import './AppShell.css';
 
 // AppShell is the sticky four-row chrome stack that wraps every
@@ -17,10 +19,15 @@ export interface AppShellProps {
   onLogout?: (ev: Event) => void | Promise<void>;
 }
 
-const TZ_LABEL = 'Tehran (UTC+03:30)';
+// FALLBACK_TZ matches migration 021's new default. Surfaces only when
+// no site is active yet (e.g. on the multi-site landing view); the
+// reactive read below otherwise mirrors the active site's actual tz.
+const FALLBACK_TZ = 'UTC';
 
 export function AppShell({ children, onLogout }: AppShellProps) {
   const user = userSignal.value;
+  const activeTZ = activeSiteSignal.value?.tz ?? FALLBACK_TZ;
+  const shortLabel = tzShortLabel(activeTZ, new Date());
 
   return (
     <div class="statnive-shell">
@@ -51,7 +58,14 @@ export function AppShell({ children, onLogout }: AppShellProps) {
 
       <div class="statnive-datebar" role="region" aria-label="Date range">
         <DatePicker />
-        <span class="statnive-tz-chip" aria-label="timezone">{TZ_LABEL}</span>
+        <span
+          class="statnive-tz-chip"
+          aria-label="timezone"
+          title={activeTZ}
+          data-tz={activeTZ}
+        >
+          {shortLabel}
+        </span>
       </div>
 
       <Nav />
