@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
+.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-privacy prod-probe smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks
 
 all: lint test build
 
@@ -440,6 +440,21 @@ perf-tests: crash-test ch-outage-test disk-full-test
 ## up (same convention as wal-killtest).
 smoke: build
 	./test/smoke/harness.sh
+
+## smoke-privacy: extends `make smoke` with /privacy + /api/privacy/access
+## probes (Fix #1 envelope shape verification). Belongs in the release
+## gate, not the inner-loop ci-local-fast.
+smoke-privacy: build
+	./test/smoke/harness.sh --with-privacy
+
+## prod-probe: live post-deploy probe against ${STATNIVE_PROBE_HOST}
+## using a dedicated test site_id. Verifies the privacy + tracker
+## contract end-to-end on production hardware. See scripts/prod-probe.sh
+## for the 10-step sequence + the env-var contract. Wired into
+## .github/workflows/deploy-saas.yml after the existing /api/about
+## git_sha check.
+prod-probe:
+	./scripts/prod-probe.sh
 
 ## blackout-sim: Air-gap proof — runs `make smoke` under iptables
 ## OUTPUT DROP (loopback + docker-bridge whitelisted). Asserts ZERO

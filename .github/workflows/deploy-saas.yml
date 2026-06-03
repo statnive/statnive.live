@@ -143,6 +143,22 @@ jobs:
             exit 1
           fi
 
+      - name: Production probe (privacy + tracker contract; site_id=9999)
+        if: ${{ vars.STATNIVE_PROBE_ENABLED == 'true' }}
+        env:
+          STATNIVE_PROBE_HOST:       ${{ vars.STATNIVE_PROBE_HOST     || 'https://app.statnive.live' }}
+          STATNIVE_PROBE_SITE_ID:    ${{ vars.STATNIVE_PROBE_SITE_ID  || '9999' }}
+          STATNIVE_PROBE_HOSTNAME:   ${{ vars.STATNIVE_PROBE_HOSTNAME || 'probe.statnive.live' }}
+          STATNIVE_PROBE_SSH:        ${{ secrets.STATNIVE_PROBE_SSH }}
+          STATNIVE_METRICS_TOKEN:    ${{ secrets.STATNIVE_METRICS_TOKEN }}
+        run: |
+          # 10-step probe against the live binary on production hardware
+          # — full sequence in scripts/prod-probe.sh. Failure here fails
+          # the deploy job; existing /usr/local/bin/statnive-deploy
+          # rollback path on the box handles auto-revert.
+          chmod +x scripts/prod-probe.sh scripts/prod-probe-ch-oracle.sh
+          ./scripts/prod-probe.sh
+
       - name: Cleanup SSH artifacts
         if: always()
         run: rm -rf ~/.ssh
