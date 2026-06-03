@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'preact/hooks';
 import { useSignal, type Signal } from '@preact/signals';
 import { apiGet } from '../api/client';
 import type { SourceRow, SourceChannelRow, SourcesResponse } from '../api/types';
+import { SegmentCaption } from '../components/SegmentCaption';
 import { rangeSignal } from '../state/range';
 import { filtersSignal } from '../state/filters';
 import { siteSignal, activeSiteSignal } from '../state/site';
@@ -85,6 +86,7 @@ export default function Sources() {
   return (
     <section class="statnive-section" data-testid="panel-sources">
       <h2 class="statnive-h2">Sources</h2>
+      <SegmentCaption />
       <SourcesByChannelChart by_channel={resp.by_channel} currency={currency} />
       <SourcesTable
         rows={resp.rows}

@@ -7,6 +7,7 @@ import { siteSignal } from '../state/site';
 import { filtersSignal } from '../state/filters';
 import { fmtInt } from '../lib/fmt';
 import { LivePulse } from '../components/LivePulse';
+import { SegmentCaption } from '../components/SegmentCaption';
 import './panels.css';
 
 export default function Realtime() {
@@ -44,6 +45,7 @@ export default function Realtime() {
   return (
     <section class="statnive-section" data-testid="panel-realtime">
       <h2 class="statnive-h2">Realtime</h2>
+      <SegmentCaption />
       <div class="statnive-realtime">
         <div class="statnive-realtime-card">
           <div class="statnive-realtime-live">

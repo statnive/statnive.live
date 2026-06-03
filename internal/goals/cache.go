@@ -97,6 +97,25 @@ func (s *Snapshot) Reload(ctx context.Context) error {
 	return nil
 }
 
+// GoalsForSite returns the enabled goals for one site_id, suitable for
+// autocomplete UIs (Compare panel "Measure goal" picker). The slice
+// aliases the snapshot's internal storage — safe because Reload
+// atomic-swaps a fresh map and never mutates the old one in place.
+// Callers MUST NOT mutate the returned slice; project into an
+// owned shape (e.g. dashboard.GoalSummary) before exposing it.
+func (s *Snapshot) GoalsForSite(siteID uint32) []Goal {
+	if s == nil {
+		return nil
+	}
+
+	m := s.ptr.Load()
+	if m == nil {
+		return nil
+	}
+
+	return (*m)[siteID]
+}
+
 // Size returns the total goal count in the current snapshot. Used by
 // /healthz + admin-UI "N active goals" indicator.
 func (s *Snapshot) Size() int {

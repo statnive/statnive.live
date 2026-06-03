@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { apiGet } from '../api/client';
 import type { CampaignRow } from '../api/types';
+import { SegmentCaption } from '../components/SegmentCaption';
 import { rangeSignal } from '../state/range';
 import { dirOf, filtersSignal } from '../state/filters';
 import { siteSignal, activeSiteSignal } from '../state/site';
@@ -150,6 +151,7 @@ export default function Campaigns() {
   return (
     <section class="statnive-section" data-testid="panel-campaigns">
       <h2 class="statnive-h2">Campaigns</h2>
+      <SegmentCaption />
 
       <CampaignCharts tree={tree} rows={rows} currency={currency} />
 

@@ -58,6 +58,7 @@ func MountSiteScoped(r chi.Router, deps Deps) {
 
 	// Segments — Phase 3 (props autocomplete) + Phase 4 (variant pivot).
 	r.Method(http.MethodGet, "/api/props/list", propsListHandler(deps))
+	r.Method(http.MethodGet, "/api/goals/list", goalsListHandler(deps))
 	r.Method(http.MethodGet, "/api/stats/compare", compareHandler(deps))
 }
 

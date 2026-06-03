@@ -2,6 +2,7 @@ import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { apiGet } from '../api/client';
 import type { OverviewResponse } from '../api/types';
+import { SegmentCaption } from '../components/SegmentCaption';
 import { rangeSignal } from '../state/range';
 import { siteSignal, activeSiteSignal } from '../state/site';
 import {
@@ -140,6 +141,7 @@ export function Overview() {
   return (
     <section class="statnive-section">
       <h2 class="statnive-h2">Overview</h2>
+      <SegmentCaption />
 
       <div data-testid="kpi-primary" class="statnive-kpi-grid-primary">
         <KpiCard id="visitors"   label="Visitors"   value={fmtInt(d.visitors)}             tier="primary" deltaPct={withDelta.visitors_delta_pct}   selected={selected} />
