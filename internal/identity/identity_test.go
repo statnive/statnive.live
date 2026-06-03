@@ -250,6 +250,8 @@ func TestSaltManager_Cache(t *testing.T) {
 // TestSaltManager_DifferentSitesDifferentTimezones — same UTC instant,
 // two sites with different tz produce different daily salts. Verifies
 // the per-site rotation wiring.
+//
+//nolint:dupl // structural similarity to InvalidTZFallsBackToUTC is incidental; each test pins a different invariant (cross-zone seam vs. UTC-fallback for unparseable tz).
 func TestSaltManager_DifferentSitesDifferentTimezones(t *testing.T) {
 	t.Parallel()
 
