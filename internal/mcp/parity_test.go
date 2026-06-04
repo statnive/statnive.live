@@ -55,7 +55,7 @@ func TestParity_EveryStoreMethodHasTool(t *testing.T) {
 	tools := catalogToolNames()
 	storeType := reflect.TypeOf((*storage.Store)(nil)).Elem()
 
-	for i := 0; i < storeType.NumMethod(); i++ {
+	for i := range storeType.NumMethod() {
 		method := storeType.Method(i).Name
 
 		cover, ok := storeMethodCoverage[method]
@@ -95,7 +95,7 @@ func TestParity_NoStaleCoverageEntries(t *testing.T) {
 	storeType := reflect.TypeOf((*storage.Store)(nil)).Elem()
 	exists := make(map[string]bool, storeType.NumMethod())
 
-	for i := 0; i < storeType.NumMethod(); i++ {
+	for i := range storeType.NumMethod() {
 		exists[storeType.Method(i).Name] = true
 	}
 

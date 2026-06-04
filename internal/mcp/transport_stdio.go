@@ -45,7 +45,7 @@ func (s *Server) ServeStdio(ctx context.Context, r io.Reader, w io.Writer, actor
 			continue
 		}
 
-		resp := s.Handle(ctx, req, actor)
+		resp := s.handle(ctx, req, actor)
 		if resp == nil {
 			continue // notification — no reply
 		}

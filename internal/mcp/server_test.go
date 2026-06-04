@@ -189,7 +189,7 @@ func call(t *testing.T, s *Server, actor *auth.User, method string, params any) 
 		raw = b
 	}
 
-	return s.Handle(context.Background(), request{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: method, Params: raw}, actor)
+	return s.handle(context.Background(), request{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: method, Params: raw}, actor)
 }
 
 func mustCallResult(t *testing.T, resp *response) callToolResult {
@@ -262,7 +262,7 @@ func TestInitializedNotificationGetsNoReply(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer(&fakeStore{})
-	resp := s.Handle(context.Background(), request{JSONRPC: "2.0", Method: "notifications/initialized"}, nil)
+	resp := s.handle(context.Background(), request{JSONRPC: "2.0", Method: "notifications/initialized"}, nil)
 
 	if resp != nil {
 		t.Errorf("notification should get no reply, got %+v", resp)
@@ -331,6 +331,7 @@ func TestToolsList_GeoOmittedWhenDisabled(t *testing.T) {
 	var got struct {
 		Tools []listedTool `json:"tools"`
 	}
+
 	_ = json.Unmarshal(resp.Result, &got)
 
 	if len(got.Tools) != len(catalog())-1 {
@@ -412,7 +413,11 @@ func TestToolsCall_GoalsList(t *testing.T) {
 		t.Fatalf("goals_list = %v, want 1 goal", ct.StructuredContent)
 	}
 
-	row := arr[0].(map[string]any)
+	row, ok := arr[0].(map[string]any)
+	if !ok {
+		t.Fatalf("goal row not a map: %T", arr[0])
+	}
+
 	if row["name"] != "Purchase" || row["match_type"] != "event_name_equals" {
 		t.Errorf("goal summary wrong: %v", row)
 	}
@@ -541,6 +546,7 @@ func TestToolsCall_TrendRowsResult(t *testing.T) {
 		callParams{Name: "trend", Arguments: json.RawMessage(`{"site":"one","range":"30d"}`)})
 
 	ct := mustCallResult(t, resp)
+
 	arr, ok := ct.StructuredContent.([]any)
 	if !ok || len(arr) != 2 {
 		t.Fatalf("trend structuredContent = %v, want 2-element array", ct.StructuredContent)
@@ -645,6 +651,7 @@ func TestListSites_FiltersByActor(t *testing.T) {
 		callParams{Name: "list_sites", Arguments: json.RawMessage(`{}`)})
 
 	ct := mustCallResult(t, resp)
+
 	arr, ok := ct.StructuredContent.([]any)
 	if !ok || len(arr) != 1 {
 		t.Fatalf("scoped list_sites = %v, want 1 site", ct.StructuredContent)

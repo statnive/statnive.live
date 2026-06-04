@@ -128,17 +128,32 @@ func TestPropsList_SampleValuesSanitized(t *testing.T) {
 		t.Fatalf("props_list shape: %v", ct.StructuredContent)
 	}
 
-	vals, _ := arr[0].(map[string]any)["sample_values"].([]any)
+	first, ok := arr[0].(map[string]any)
+	if !ok {
+		t.Fatalf("props_list row not a map: %T", arr[0])
+	}
+
+	vals, _ := first["sample_values"].([]any)
 	if len(vals) != 2 {
 		t.Fatalf("sample_values = %v", vals)
 	}
 
-	if vals[0].(string) != "pro" {
-		t.Errorf("sample value not sanitized (invisible/HTML survived): %q", vals[0])
+	val0, ok := vals[0].(string)
+	if !ok {
+		t.Fatalf("sample value 0 not a string: %T", vals[0])
 	}
 
-	if strings.Contains(vals[1].(string), "sk-abcdefghij") {
-		t.Errorf("leaked secret not redacted in sample value: %q", vals[1])
+	if val0 != "pro" {
+		t.Errorf("sample value not sanitized (invisible/HTML survived): %q", val0)
+	}
+
+	val1, ok := vals[1].(string)
+	if !ok {
+		t.Fatalf("sample value 1 not a string: %T", vals[1])
+	}
+
+	if strings.Contains(val1, "sk-abcdefghij") {
+		t.Errorf("leaked secret not redacted in sample value: %q", val1)
 	}
 
 	// The text block must be clean too.
@@ -165,7 +180,16 @@ func TestCompare_VariantValueSanitized(t *testing.T) {
 	ct := mustCallResult(t, resp)
 	sc, _ := ct.StructuredContent.(map[string]any)
 	variants, _ := sc["variants"].([]any)
-	val := variants[0].(map[string]any)["value"].(string)
+
+	variant0, ok := variants[0].(map[string]any)
+	if !ok {
+		t.Fatalf("variant not a map: %T", variants[0])
+	}
+
+	val, ok := variant0["value"].(string)
+	if !ok {
+		t.Fatalf("variant value not a string: %T", variant0["value"])
+	}
 
 	if val != "A" {
 		t.Errorf("variant value not sanitized: %q", val)
@@ -202,7 +226,12 @@ func TestGoalsList_ScopedToResolvedSite(t *testing.T) {
 		t.Fatalf("goals_list site 1 = %v, want exactly site 1's goals", arr)
 	}
 
-	if name := arr[0].(map[string]any)["name"]; name != "Purchase" {
+	goal0, ok := arr[0].(map[string]any)
+	if !ok {
+		t.Fatalf("goal row not a map: %T", arr[0])
+	}
+
+	if name := goal0["name"]; name != "Purchase" {
 		t.Errorf("goal = %v, want Purchase (site 2's Signup must not leak)", name)
 	}
 }

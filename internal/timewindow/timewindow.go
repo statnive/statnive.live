@@ -59,7 +59,8 @@ func ParseLocalDate(raw string, loc *time.Location) (time.Time, error) {
 // ParseDateRange returns the [from, to) half-open interval in UTC for the
 // dashboard's from/to query params. When toRaw is empty, to defaults to
 // tomorrow's midnight in loc (so the window includes the whole current
-// local day). When fromRaw is empty, from defaults to to - DefaultRangeDays.
+// local day). When fromRaw is empty, from defaults to the upper bound minus
+// DefaultRangeDays.
 // now is injected for deterministic tests; pass time.Now() in production.
 func ParseDateRange(fromRaw, toRaw string, loc *time.Location, now time.Time) (from, to time.Time, err error) {
 	nowLocal := now.In(loc)

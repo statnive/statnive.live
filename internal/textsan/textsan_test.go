@@ -112,13 +112,25 @@ func TestValue_Recurses(t *testing.T) {
 		"null":  nil,
 	}
 
-	out := Value(in).(map[string]any)
+	out, ok := Value(in).(map[string]any)
+	if !ok {
+		t.Fatalf("Value(in) not a map: %T", Value(in))
+	}
 
 	if out["referrer"] != "google" {
 		t.Errorf("referrer = %v, want google", out["referrer"])
 	}
 
-	row := out["rows"].([]any)[0].(map[string]any)
+	rows, ok := out["rows"].([]any)
+	if !ok {
+		t.Fatalf("rows not a []any: %T", out["rows"])
+	}
+
+	row, ok := rows[0].(map[string]any)
+	if !ok {
+		t.Fatalf("rows[0] not a map: %T", rows[0])
+	}
+
 	if row["path"] != "/p" {
 		t.Errorf("nested path = %v, want /p", row["path"])
 	}

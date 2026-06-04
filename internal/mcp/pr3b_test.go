@@ -20,7 +20,10 @@ func TestToolsCall_About(t *testing.T) {
 		t.Fatalf("about errored: %+v", ct)
 	}
 
-	sc := ct.StructuredContent.(map[string]any)
+	sc, ok := ct.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", ct.StructuredContent)
+	}
 
 	attrs, _ := sc["attributions"].([]any)
 	if len(attrs) == 0 {
@@ -33,7 +36,12 @@ func TestToolsCall_About(t *testing.T) {
 	found := false
 
 	for _, a := range attrs {
-		if a.(map[string]any)["text"] == verbatim {
+		am, ok := a.(map[string]any)
+		if !ok {
+			t.Fatalf("attribution entry not a map: %T", a)
+		}
+
+		if am["text"] == verbatim {
 			found = true
 		}
 	}
@@ -82,7 +90,11 @@ func TestSystemHealth_AdminOnly(t *testing.T) {
 		t.Fatalf("system_health (admin) errored: %+v", ct)
 	}
 
-	sc := ct.StructuredContent.(map[string]any)
+	sc, ok := ct.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", ct.StructuredContent)
+	}
+
 	if sc["clickhouse"] != "up" {
 		t.Errorf("clickhouse = %v, want up", sc["clickhouse"])
 	}
@@ -110,7 +122,12 @@ func TestSystemHealth_ReportsCHDown(t *testing.T) {
 	ct := mustCallResult(t, call(t, s, wildcardActor(), "tools/call",
 		callParams{Name: "system_health", Arguments: json.RawMessage(`{}`)}))
 
-	if ct.StructuredContent.(map[string]any)["clickhouse"] != "down" {
+	sc, ok := ct.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", ct.StructuredContent)
+	}
+
+	if sc["clickhouse"] != "down" {
 		t.Errorf("clickhouse should be down on ping error: %v", ct.StructuredContent)
 	}
 }
@@ -130,7 +147,12 @@ func TestSystemHealth_UnknownWithoutPinger(t *testing.T) {
 	ct := mustCallResult(t, call(t, s, wildcardActor(), "tools/call",
 		callParams{Name: "system_health", Arguments: json.RawMessage(`{}`)}))
 
-	if ct.StructuredContent.(map[string]any)["clickhouse"] != "unknown" {
+	sc, ok := ct.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", ct.StructuredContent)
+	}
+
+	if sc["clickhouse"] != "unknown" {
 		t.Errorf("clickhouse should be unknown without a pinger: %v", ct.StructuredContent)
 	}
 }

@@ -166,10 +166,11 @@ func New(cfg Config) *Server {
 	return s
 }
 
-// Handle processes one decoded JSON-RPC request for the given actor and
+// handle processes one decoded JSON-RPC request for the given actor and
 // returns the response, or nil for a notification (no reply). The transport
-// owns decoding (and the -32700 parse error) and encoding.
-func (s *Server) Handle(ctx context.Context, req request, actor *auth.User) *response {
+// owns decoding (and the -32700 parse error) and encoding. Unexported because
+// it returns the unexported response type; transports call it in-package.
+func (s *Server) handle(ctx context.Context, req request, actor *auth.User) *response {
 	switch req.Method {
 	case "initialize":
 		return s.initialize(req)

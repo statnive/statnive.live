@@ -38,7 +38,7 @@ func TestAnomaly_BulkReadAlertFiresAndDebounces(t *testing.T) {
 	// Same band again → debounced (no second emit).
 	d.observeRows(ctx, "user:abc", "key1", 120, 100)
 
-	data, _ := os.ReadFile(path)
+	data, _ := os.ReadFile(path) //nolint:gosec // G304: reads a temp alerts file this test created
 	s := string(data)
 
 	// Count the "alert":"<name>" token (appears once per emitted line; the
@@ -54,7 +54,7 @@ func TestAnomaly_BulkReadAlertFiresAndDebounces(t *testing.T) {
 	// Drop back below 50% → one resolved (exit-band) emit.
 	d.observeRows(ctx, "user:abc", "key1", 10, 100)
 
-	data, _ = os.ReadFile(path)
+	data, _ = os.ReadFile(path) //nolint:gosec // G304: reads a temp alerts file this test created
 	if !strings.Contains(string(data), `"resolved":true`) {
 		t.Errorf("expected a resolved exit-band alert:\n%s", data)
 	}
@@ -73,7 +73,7 @@ func TestAnomaly_CrossTenantSweep(t *testing.T) {
 	// Over threshold → the dataset-clone signal fires.
 	d.observeSweep(ctx, "token:wildcard", "k", 6, 5)
 
-	data, _ := os.ReadFile(path)
+	data, _ := os.ReadFile(path) //nolint:gosec // G304: reads a temp alerts file this test created
 	s := string(data)
 
 	if got := strings.Count(s, `"alert":"`+alertCrossTenantSweep+`"`); got != 1 {
@@ -101,7 +101,7 @@ func TestAnomaly_DisabledWhenCapZero(t *testing.T) {
 	d.observeRows(context.Background(), "u", "k", 1_000_000, 0)
 	d.observeSweep(context.Background(), "u", "k", 1_000, 0)
 
-	data, _ := os.ReadFile(path)
+	data, _ := os.ReadFile(path) //nolint:gosec // G304: reads a temp alerts file this test created
 	if len(strings.TrimSpace(string(data))) != 0 {
 		t.Errorf("expected no alerts with zero caps, got:\n%s", data)
 	}

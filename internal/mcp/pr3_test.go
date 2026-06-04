@@ -67,7 +67,12 @@ func TestToolsCall_EventAudit_CapStatus(t *testing.T) {
 	resp := call(t, under, wildcardActor(), "tools/call", callParams{
 		Name: "event_audit", Arguments: json.RawMessage(`{"site":"1","range":"30d"}`),
 	})
-	sc := mustCallResult(t, resp).StructuredContent.(map[string]any)
+
+	sc, ok := mustCallResult(t, resp).StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", mustCallResult(t, resp).StructuredContent)
+	}
+
 	if sc["cap_status"] != "ok" || sc["distinct"] != float64(2) {
 		t.Errorf("under-cap: cap_status=%v distinct=%v, want ok/2", sc["cap_status"], sc["distinct"])
 	}
@@ -79,7 +84,12 @@ func TestToolsCall_EventAudit_CapStatus(t *testing.T) {
 	resp = call(t, over, wildcardActor(), "tools/call", callParams{
 		Name: "event_audit", Arguments: json.RawMessage(`{"site":"1","range":"30d"}`),
 	})
-	sc = mustCallResult(t, resp).StructuredContent.(map[string]any)
+
+	sc, ok = mustCallResult(t, resp).StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", mustCallResult(t, resp).StructuredContent)
+	}
+
 	if sc["cap_status"] != "over" {
 		t.Errorf("over-cap: cap_status=%v, want over", sc["cap_status"])
 	}
@@ -98,9 +108,25 @@ func TestEventAudit_EventNamesSanitized(t *testing.T) {
 		Name: "event_audit", Arguments: json.RawMessage(`{"site":"1","range":"7d"}`),
 	})
 
-	sc := mustCallResult(t, resp).StructuredContent.(map[string]any)
-	events := sc["events"].([]any)
-	name := events[0].(map[string]any)["name"].(string)
+	sc, ok := mustCallResult(t, resp).StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", mustCallResult(t, resp).StructuredContent)
+	}
+
+	events, ok := sc["events"].([]any)
+	if !ok {
+		t.Fatalf("events not a slice: %T", sc["events"])
+	}
+
+	event0, ok := events[0].(map[string]any)
+	if !ok {
+		t.Fatalf("events[0] not a map: %T", events[0])
+	}
+
+	name, ok := event0["name"].(string)
+	if !ok {
+		t.Fatalf("name not a string: %T", event0["name"])
+	}
 
 	if name != "buy" {
 		t.Errorf("event name not sanitized: %q", name)
@@ -140,7 +166,10 @@ func TestToolsCall_SiteConfig_NoPII(t *testing.T) {
 		t.Fatalf("site_config errored: %+v", ct)
 	}
 
-	sc := ct.StructuredContent.(map[string]any)
+	sc, ok := ct.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", ct.StructuredContent)
+	}
 
 	for _, want := range []string{"site_id", "hostname", "consent_mode", "jurisdiction", "respect_gpc"} {
 		if _, ok := sc[want]; !ok {
@@ -163,7 +192,11 @@ func TestToolsCall_MyAccess(t *testing.T) {
 	// Scoped actor → enumerated grants, not wildcard.
 	scoped := mustCallResult(t, call(t, s, syntheticOperator([]uint32{1, 2}, false), "tools/call",
 		callParams{Name: "my_access", Arguments: json.RawMessage(`{}`)}))
-	sc := scoped.StructuredContent.(map[string]any)
+
+	sc, ok := scoped.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", scoped.StructuredContent)
+	}
 
 	if sc["wildcard"] != false {
 		t.Errorf("scoped actor wildcard = %v, want false", sc["wildcard"])
@@ -183,14 +216,25 @@ func TestToolsCall_MyAccess(t *testing.T) {
 	// Wildcard actor → wildcard:true.
 	wild := mustCallResult(t, call(t, s, wildcardActor(), "tools/call",
 		callParams{Name: "my_access", Arguments: json.RawMessage(`{}`)}))
-	if wild.StructuredContent.(map[string]any)["wildcard"] != true {
+
+	wsc, ok := wild.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", wild.StructuredContent)
+	}
+
+	if wsc["wildcard"] != true {
 		t.Errorf("wildcard actor wildcard != true: %v", wild.StructuredContent)
 	}
 
 	// api-token actor (single site) → that one grant.
 	tok := mustCallResult(t, call(t, s, apiTokenActor(7), "tools/call",
 		callParams{Name: "my_access", Arguments: json.RawMessage(`{}`)}))
-	tsc := tok.StructuredContent.(map[string]any)
+
+	tsc, ok := tok.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent not a map: %T", tok.StructuredContent)
+	}
+
 	if tsc["role"] != "api" {
 		t.Errorf("token actor role = %v, want api", tsc["role"])
 	}
@@ -221,11 +265,11 @@ func TestAdminTools_AuditDeniedNoArgsLeak(t *testing.T) {
 	// Reuse the role-floor denial path; the audit assertion is in audit_test
 	// for tool_call. Here we just confirm the denial shape is stable: the
 	// dispatcher rejects BEFORE building a filter, so no secret arg is read.
-	const secret = "ADMIN-PROBE-SECRET"
+	const probeArg = "ADMIN-PROBE-SECRET"
 
 	resp := call(t, newTestServer(&fakeStore{}), apiTokenActor(1), "tools/call", callParams{
 		Name:      "event_audit",
-		Arguments: json.RawMessage(`{"site":"1","filters":{"referrer":"` + secret + `"}}`),
+		Arguments: json.RawMessage(`{"site":"1","filters":{"referrer":"` + probeArg + `"}}`),
 	})
 
 	if resp.Error == nil || resp.Error.Code != codeInvalidParams {
@@ -233,7 +277,7 @@ func TestAdminTools_AuditDeniedNoArgsLeak(t *testing.T) {
 	}
 
 	// The error message must not echo the supplied secret.
-	if strings.Contains(resp.Error.Message, secret) {
+	if strings.Contains(resp.Error.Message, probeArg) {
 		t.Errorf("error message leaked arg value: %q", resp.Error.Message)
 	}
 }

@@ -187,7 +187,16 @@ func TestMarshalResult_SanitizesAndShapes(t *testing.T) {
 		t.Fatalf("structured shape wrong: %T", structured)
 	}
 
-	got := arr[0].(map[string]any)["referrer"].(string)
+	first, ok := arr[0].(map[string]any)
+	if !ok {
+		t.Fatalf("structured row not a map: %T", arr[0])
+	}
+
+	got, ok := first["referrer"].(string)
+	if !ok {
+		t.Fatalf("referrer not a string: %T", first["referrer"])
+	}
+
 	if got != "google" {
 		t.Errorf("referrer not sanitized: %q", got)
 	}
@@ -243,5 +252,15 @@ func textsanClean(s string) bool {
 		return false
 	}
 
-	return structured.(map[string]any)["s"].(string) == s
+	m, ok := structured.(map[string]any)
+	if !ok {
+		return false
+	}
+
+	got, ok := m["s"].(string)
+	if !ok {
+		return false
+	}
+
+	return got == s
 }

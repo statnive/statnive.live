@@ -96,11 +96,19 @@ func TestHTTP_PostHappyPath(t *testing.T) {
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"overview","arguments":{"site":"1","range":"7d"}}}`
 
-	resp, err := http.Post(ts.URL+"/mcp", "application/json", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/mcp", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -117,12 +125,20 @@ func TestHTTP_NotificationReturns202(t *testing.T) {
 	ts := httpServer(t, wildcardActor())
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/mcp", "application/json",
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/mcp",
 		strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/initialized"}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted {
 		t.Errorf("notification status = %d, want 202", resp.StatusCode)
@@ -135,57 +151,61 @@ func TestHTTP_GetIs405(t *testing.T) {
 	ts := httpServer(t, wildcardActor())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/mcp")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/mcp", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("GET status = %d, want 405", resp.StatusCode)
 	}
 }
 
-func TestHTTP_ForbiddenOrigin(t *testing.T) {
-	t.Parallel()
+func assertMCPStatus(t *testing.T, headerKey, headerVal string, want int) {
+	t.Helper()
 
 	ts := httpServer(t, wildcardActor())
 	defer ts.Close()
 
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/mcp",
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/mcp",
 		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
-	req.Header.Set("Origin", "https://evil.example.com")
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	if headerKey != "" {
+		req.Header.Set(headerKey, headerVal)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusForbidden {
-		t.Errorf("evil origin status = %d, want 403", resp.StatusCode)
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != want {
+		t.Errorf("status = %d, want %d", resp.StatusCode, want)
 	}
+}
+
+func TestHTTP_ForbiddenOrigin(t *testing.T) {
+	t.Parallel()
+
+	assertMCPStatus(t, "Origin", "https://evil.example.com", http.StatusForbidden)
 }
 
 func TestHTTP_UnsupportedProtocolVersion(t *testing.T) {
 	t.Parallel()
 
-	ts := httpServer(t, wildcardActor())
-	defer ts.Close()
-
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/mcp",
-		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
-	req.Header.Set("MCP-Protocol-Version", "1999-01-01")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("do: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("bad protocol version status = %d, want 400", resp.StatusCode)
-	}
+	assertMCPStatus(t, "MCP-Protocol-Version", "1999-01-01", http.StatusBadRequest)
 }
 
 func TestHTTP_Unauthenticated(t *testing.T) {
@@ -195,12 +215,20 @@ func TestHTTP_Unauthenticated(t *testing.T) {
 	ts := httpServer(t, nil)
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/mcp", "application/json",
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/mcp",
 		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"overview","arguments":{"site":"1"}}}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() { _ = resp.Body.Close() }()
 
 	var r response
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {

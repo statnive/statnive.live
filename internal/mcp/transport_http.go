@@ -82,7 +82,7 @@ func (s *Server) HTTPHandler(opts HTTPOptions) http.Handler {
 			return
 		}
 
-		resp := s.Handle(r.Context(), req, auth.UserFrom(r.Context()))
+		resp := s.handle(r.Context(), req, auth.UserFrom(r.Context()))
 		if resp == nil {
 			// JSON-RPC notification — Streamable HTTP returns 202, no body.
 			w.WriteHeader(http.StatusAccepted)

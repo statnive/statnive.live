@@ -599,7 +599,7 @@ func goalsListTool() toolDef {
 		InputSchema:  siteOnlyInputSchema,
 		OutputSchema: goalsListOutputSchema,
 		Annotations:  readOnly(),
-		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+		Handler: func(_ context.Context, s *Server, tc *toolCtx) (any, int, error) {
 			if s.goals == nil {
 				return []goalSummary{}, 0, nil
 			}
@@ -647,7 +647,7 @@ func myAccessTool() toolDef {
 		InputSchema:  emptyInputSchema,
 		OutputSchema: myAccessOutputSchema,
 		Annotations:  readOnly(),
-		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+		Handler: func(_ context.Context, _ *Server, tc *toolCtx) (any, int, error) {
 			u := tc.actor
 			out := accessInfo{Role: string(u.Role)}
 
@@ -730,13 +730,13 @@ func siteConfigTool() toolDef {
 			}
 
 			return map[string]any{
-				"site_id":         sa.Site.ID,
-				"hostname":        sa.Site.Hostname,
+				"site_id":         sa.ID,
+				"hostname":        sa.Hostname,
 				"slug":            sa.Slug,
 				"plan":            sa.Plan,
-				"enabled":         sa.Site.Enabled,
-				"tz":              sa.Site.TZ,
-				"currency":        sa.Site.Currency,
+				"enabled":         sa.Enabled,
+				"tz":              sa.Site.TZ, // Site.TZ vs SitePolicy.TZ — must qualify
+				"currency":        sa.Currency,
 				"jurisdiction":    sa.Jurisdiction,
 				"consent_mode":    sa.ConsentMode,
 				"respect_dnt":     sa.RespectDNT,
@@ -761,7 +761,7 @@ func aboutTool() toolDef {
 		InputSchema:  emptyInputSchema,
 		OutputSchema: aboutOutputSchema,
 		Annotations:  readOnly(),
-		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+		Handler: func(_ context.Context, s *Server, _ *toolCtx) (any, int, error) {
 			return map[string]any{
 				"version":      s.build.Version,
 				"git_sha":      s.build.GitSHA,
@@ -785,7 +785,7 @@ func systemHealthTool() toolDef {
 		InputSchema:  emptyInputSchema,
 		OutputSchema: systemHealthOutputSchema,
 		Annotations:  readOnly(),
-		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+		Handler: func(ctx context.Context, s *Server, _ *toolCtx) (any, int, error) {
 			ch := "unknown"
 
 			if s.health != nil {

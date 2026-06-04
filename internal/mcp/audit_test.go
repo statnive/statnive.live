@@ -51,7 +51,7 @@ func TestToolsCall_AuditCarriesNoFilterValues(t *testing.T) {
 		t.Fatalf("audit close: %v", err)
 	}
 
-	data, err := os.ReadFile(auditPath)
+	data, err := os.ReadFile(auditPath) //nolint:gosec // G304: reads a temp audit file this test created
 	if err != nil {
 		t.Fatalf("read audit: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestToolsCall_AuditDeniedEventOnCrossTenant(t *testing.T) {
 		t.Fatalf("audit close: %v", err)
 	}
 
-	data, _ := os.ReadFile(auditPath)
+	data, _ := os.ReadFile(auditPath) //nolint:gosec // G304: reads a temp audit file this test created
 	if !strings.Contains(string(data), string(audit.EventMCPDenied)) {
 		t.Errorf("audit log missing mcp.denied event:\n%s", data)
 	}
