@@ -1,5 +1,7 @@
 # statnive-live MCP server (read-only agent surface)
 
+> **New to this?** Start with the plain-language guide: **[mcp-guide.md](mcp-guide.md)** (what it is, how to use it, creative examples). This page is the precise operator reference.
+
 > **Status:** v2 "agent surface" — read-only. Lets an MCP client (Claude Code, Claude Desktop, or any MCP host) answer analytics questions directly from statnive-live's rollups, with the **same tenancy isolation and role rules as the dashboard/REST API**.
 >
 > **No LLM in the server.** It is a deterministic adapter over the existing `storage.Store` — zero model/inference code, zero new dependencies, air-gap-safe. The intelligence (natural-language → tool selection) is the *client's* job.
