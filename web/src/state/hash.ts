@@ -13,7 +13,8 @@ export type PanelName =
   | 'geo'
   | 'realtime'
   | 'admin'
-  | 'compare';
+  | 'compare'
+  | 'connect';
 
 export const DEFAULT_PANEL: PanelName = 'overview';
 
@@ -27,6 +28,7 @@ const VALID: ReadonlySet<string> = new Set<PanelName>([
   'realtime',
   'admin',
   'compare',
+  'connect',
 ]);
 
 export interface HashState {

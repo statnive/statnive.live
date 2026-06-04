@@ -1,0 +1,67 @@
+.statnive-connect {
+  max-width: 60rem;
+}
+
+.statnive-connect-intro p {
+  max-width: 42rem;
+  color: var(--ink-2);
+}
+
+/* Show-once reveal — visually distinct so the user copies before dismissing. */
+.statnive-token-reveal {
+  border: 1px solid var(--green);
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  margin: 1rem 0;
+  background: var(--paper-2);
+}
+
+.statnive-token-reveal h3 {
+  margin-top: 0;
+  color: var(--green-dk);
+}
+
+.statnive-token-reveal-field {
+  display: block;
+  margin: 0.75rem 0;
+  font-weight: 600;
+}
+
+.statnive-token-reveal-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+  margin-top: 0.25rem;
+}
+
+.statnive-token-reveal-row code {
+  flex: 1;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 0.5rem 0.65rem;
+  background: var(--paper);
+  border: 1px solid var(--rule-hair);
+  border-radius: 4px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 400;
+}
+
+.statnive-token-reveal-dismiss {
+  margin-top: 0.5rem;
+}
+
+.statnive-connect-sites {
+  border: 1px solid var(--rule-hair);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.statnive-connect-site-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-right: 1rem;
+  font-weight: 400;
+}
