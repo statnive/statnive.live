@@ -655,6 +655,20 @@ func run() error {
 		admin.Mount(r, adminDeps)
 	})
 
+	// OAuth 2.1 authorization server (PR-E, ChatGPT-app onboarding). No-op in
+	// the default/air-gap build (stub returns nil unless enabled). Mounted on
+	// the main router so /authorize shares the dashboard origin + session.
+	if err := mountOAuthAS(router, oauthASParams{
+		cfg:       cfg,
+		conn:      store.Conn(),
+		audit:     auditLog,
+		logger:    logger,
+		sessionMW: sessionMW,
+		authedMW:  requireAuthed,
+	}); err != nil {
+		return fmt.Errorf("mount oauth as: %w", err)
+	}
+
 	router.Method(http.MethodGet, "/healthz", health.Handler(health.Reporter{
 		Store:     store,
 		WAL:       wal,
@@ -1382,6 +1396,23 @@ type appConfig struct {
 		Widgets struct {
 			Enabled bool // v3 ChatGPT-app widgets — schema-only in v2
 		}
+		// OAuthAS is statnive's own OAuth 2.1 authorization server (PR-E) —
+		// the AS half of the ChatGPT-app onboarding path. Mounted on the main
+		// daemon (same origin as the dashboard, so /authorize reuses the
+		// dashboard session). SaaS-only + behind the `chatgpt_app` build tag:
+		// the default + air-gap binaries ship a no-op stub (oauthas_stub.go).
+		// Reuses HTTP.OAuth.{Issuer,Audience,AllowedSiteIDs,RequiredScope} as
+		// the issuer / RFC 8707 audience / deployment ceiling / scope, so the
+		// AS and the resource-server verifier share one source of truth.
+		OAuthAS struct {
+			Enabled           bool
+			SigningKeyFile    string   // RSA private-key PEM (chmod 0600); signs RS256 access tokens
+			RetiredKeyFiles   []string // public-key PEMs served from /jwks.json during a rotation grace window (M7)
+			AccessTTLSeconds  int      // access-token lifespan (default 1800 = 30m)
+			RefreshTTLSeconds int      // refresh-token lifespan (default 2592000 = 30d)
+			CodeTTLSeconds    int      // authorization-code lifespan (default 60s)
+			LoginPath         string   // where to bounce an unauthenticated /authorize (default "/")
+		}
 	}
 }
 
@@ -1511,6 +1542,17 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("mcp.budget.distinct_sites_per_min", 5)
 	v.SetDefault("mcp.budget.wildcard_tier_factor", 0.25)
 	v.SetDefault("mcp.widgets.enabled", false)
+
+	// OAuth 2.1 authorization server (PR-E). Default off; SaaS-only +
+	// chatgpt_app-tag-gated. Reuses mcp.http.oauth.{issuer,audience,
+	// allowed_site_ids,required_scope}.
+	v.SetDefault("mcp.oauth_as.enabled", false)
+	v.SetDefault("mcp.oauth_as.signing_key_file", "")
+	v.SetDefault("mcp.oauth_as.retired_key_files", []string{})
+	v.SetDefault("mcp.oauth_as.access_ttl_seconds", 1800)
+	v.SetDefault("mcp.oauth_as.refresh_ttl_seconds", 2592000)
+	v.SetDefault("mcp.oauth_as.code_ttl_seconds", 60)
+	v.SetDefault("mcp.oauth_as.login_path", "/")
 
 	// Consent posture (CLAUDE.md Privacy Rules 5 + 9).
 	// `consent.required` stays a global flag (cookie + identity gate is
@@ -1651,6 +1693,14 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.MCP.Budget.DistinctSitesPerMin = v.GetInt("mcp.budget.distinct_sites_per_min")
 	cfg.MCP.Budget.WildcardTierFactor = v.GetFloat64("mcp.budget.wildcard_tier_factor")
 	cfg.MCP.Widgets.Enabled = v.GetBool("mcp.widgets.enabled")
+
+	cfg.MCP.OAuthAS.Enabled = v.GetBool("mcp.oauth_as.enabled")
+	cfg.MCP.OAuthAS.SigningKeyFile = v.GetString("mcp.oauth_as.signing_key_file")
+	cfg.MCP.OAuthAS.RetiredKeyFiles = v.GetStringSlice("mcp.oauth_as.retired_key_files")
+	cfg.MCP.OAuthAS.AccessTTLSeconds = v.GetInt("mcp.oauth_as.access_ttl_seconds")
+	cfg.MCP.OAuthAS.RefreshTTLSeconds = v.GetInt("mcp.oauth_as.refresh_ttl_seconds")
+	cfg.MCP.OAuthAS.CodeTTLSeconds = v.GetInt("mcp.oauth_as.code_ttl_seconds")
+	cfg.MCP.OAuthAS.LoginPath = v.GetString("mcp.oauth_as.login_path")
 
 	cfg.Consent.Required = v.GetBool("consent.required")
 	cfg.Consent.RequireForSegments = v.GetBool("consent.require_for_segments")

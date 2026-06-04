@@ -187,6 +187,23 @@ const (
 	EventConsentWithdrawn EventName = "privacy.consent_withdrawn"
 )
 
+// OAuth authorization-server events (PR-E). Emitted by internal/oauthas/*
+// handlers in the chatgpt_app build. They carry client_id + the consenting
+// user_id + the consented site_ids — NEVER a raw code / token / secret
+// (those are SHA-256-hashed at rest; the raw value lives only in the HTTP
+// response). EventOAuthRefreshReuse is the stolen-refresh-token alarm: a
+// rotated token presented again revokes the whole family.
+const (
+	EventOAuthClientRegistered EventName = "oauth.client.registered"
+	EventOAuthConsentGranted   EventName = "oauth.consent.granted"
+	EventOAuthConsentDenied    EventName = "oauth.consent.denied"
+	EventOAuthCodeIssued       EventName = "oauth.code.issued"
+	EventOAuthTokenIssued      EventName = "oauth.token.issued"    //nolint:gosec // G101: audit event name, not a credential
+	EventOAuthTokenRefreshed   EventName = "oauth.token.refreshed" //nolint:gosec // G101: audit event name, not a credential
+	EventOAuthRefreshReuse     EventName = "oauth.refresh.reuse_detected"
+	EventOAuthTokenRejected    EventName = "oauth.token.rejected" //nolint:gosec // G101: audit event name, not a credential
+)
+
 // Legal disclosure events. Emitted by internal/legal/* handlers when a
 // visitor views the LIA / DPA / privacy-policy pages. No visitor PII
 // attached — site_id only.

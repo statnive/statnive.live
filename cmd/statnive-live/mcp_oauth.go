@@ -57,13 +57,14 @@ func oauthMiddleware(o mcpOAuthConfig, logger *slog.Logger) (func(http.Handler) 
 		logger.Warn("mcp oauth: initial JWKS fetch failed; will retry on first request", "err", err)
 	}
 
-	// Deployment-scoped grants, built once. A verified token reads exactly
-	// these sites — NEVER wildcard. Non-nil UserID + Sites map ⇒ the grant-map
-	// branch of ActorCanReadSite. Empty would fail closed, but buildMCPAuthChain
-	// already rejects an empty allowed_site_ids for this profile.
-	grants := make(map[uint32]auth.Role, len(o.AllowedSiteIDs))
+	// Deployment ceiling — the sites ANY token may read on this deployment,
+	// built once and read-only thereafter (safe to share). NEVER wildcard.
+	// buildMCPAuthChain already rejects an empty allowed_site_ids for this
+	// profile. The per-request grant map is this ceiling intersected with the
+	// token's own consented site_ids (M1).
+	ceiling := make(map[uint32]auth.Role, len(o.AllowedSiteIDs))
 	for _, id := range o.AllowedSiteIDs {
-		grants[id] = auth.RoleAPI
+		ceiling[id] = auth.RoleAPI
 	}
 
 	return func(next http.Handler) http.Handler {
@@ -75,17 +76,43 @@ func oauthMiddleware(o mcpOAuthConfig, logger *slog.Logger) (func(http.Handler) 
 				return
 			}
 
-			if err := verifyToken(raw, o, cache, time.Now()); err != nil {
+			claims, err := verifyToken(raw, o, cache, time.Now())
+			if err != nil {
 				logger.Info("mcp oauth: token rejected", "err", err)
 				write401(w, o, "invalid token")
 
 				return
 			}
 
-			u := &auth.User{UserID: oauthActorID, Role: auth.RoleAPI, Sites: grants}
+			// Non-nil UserID + Sites map ⇒ the grant-map branch of
+			// ActorCanReadSite. The grants honor the token's consent (M1).
+			u := &auth.User{UserID: oauthActorID, Role: auth.RoleAPI, Sites: grantsForToken(claims, ceiling)}
 			next.ServeHTTP(w, r.WithContext(auth.WithSession(r.Context(), u, nil)))
 		})
 	}, nil
+}
+
+// grantsForToken derives the per-request read grants from the token's consented
+// site_ids intersected with the deployment ceiling (M1). A token with NO
+// site_ids claim (legacy / external IdP) gets the full ceiling — the pre-M1
+// #186 behavior. A token WITH the claim is clamped to its consented sites, so a
+// token consented to [1,3] cannot read site 2 even when the ceiling is [1,2,3];
+// an empty array grants nothing (fail-closed). The ceiling itself is the
+// defense-in-depth cap a forged/over-broad site_ids claim can never exceed.
+func grantsForToken(c jwtClaims, ceiling map[uint32]auth.Role) map[uint32]auth.Role {
+	if c.SiteIDs == nil {
+		return ceiling
+	}
+
+	grants := make(map[uint32]auth.Role, len(*c.SiteIDs))
+
+	for _, id := range *c.SiteIDs {
+		if role, ok := ceiling[id]; ok {
+			grants[id] = role
+		}
+	}
+
+	return grants
 }
 
 // oauthActorID is a fixed non-nil sentinel so the OAuth principal takes the
@@ -124,6 +151,13 @@ type jwtClaims struct {
 	Nbf   int64           `json:"nbf"`
 	Scope string          `json:"scope"`
 	Scp   []string        `json:"scp"`
+	// SiteIDs is the per-token consented site list (M1) the statnive AS stamps
+	// on every issued token. A nil pointer means the claim is ABSENT (a legacy
+	// or external-IdP token) → the verifier falls back to the deployment
+	// ceiling (the pre-M1 #186 behavior). A non-nil pointer (even an empty
+	// slice) means the claim is PRESENT → grants = SiteIDs ∩ ceiling, so
+	// consent is enforced per token and an empty array grants nothing.
+	SiteIDs *[]uint32 `json:"site_ids"`
 }
 
 func (c jwtClaims) audiences() []string {
@@ -147,15 +181,15 @@ func (c jwtClaims) hasScope(want string) bool {
 	return slices.Contains(strings.Fields(c.Scope), want) || slices.Contains(c.Scp, want)
 }
 
-func verifyToken(raw string, o mcpOAuthConfig, jwks *jwksCache, now time.Time) error {
+func verifyToken(raw string, o mcpOAuthConfig, jwks *jwksCache, now time.Time) (jwtClaims, error) {
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
-		return errors.New("malformed JWT")
+		return jwtClaims{}, errors.New("malformed JWT")
 	}
 
 	hdrBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return fmt.Errorf("decode header: %w", err)
+		return jwtClaims{}, fmt.Errorf("decode header: %w", err)
 	}
 
 	var hdr struct {
@@ -163,40 +197,44 @@ func verifyToken(raw string, o mcpOAuthConfig, jwks *jwksCache, now time.Time) e
 		Kid string `json:"kid"`
 	}
 	if err := json.Unmarshal(hdrBytes, &hdr); err != nil {
-		return fmt.Errorf("parse header: %w", err)
+		return jwtClaims{}, fmt.Errorf("parse header: %w", err)
 	}
 
 	// Reject alg=none, HS* and anything else — only asymmetric RS256/ES256.
 	// This is the alg-confusion guard.
 	if hdr.Alg != "RS256" && hdr.Alg != "ES256" {
-		return fmt.Errorf("unsupported alg %q (only RS256/ES256)", hdr.Alg)
+		return jwtClaims{}, fmt.Errorf("unsupported alg %q (only RS256/ES256)", hdr.Alg)
 	}
 
 	pub, err := jwks.key(hdr.Kid)
 	if err != nil {
-		return err
+		return jwtClaims{}, err
 	}
 
 	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
-		return fmt.Errorf("decode signature: %w", err)
+		return jwtClaims{}, fmt.Errorf("decode signature: %w", err)
 	}
 
 	if err := verifySignature(hdr.Alg, pub, parts[0]+"."+parts[1], sig); err != nil {
-		return err
+		return jwtClaims{}, err
 	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return fmt.Errorf("decode claims: %w", err)
+		return jwtClaims{}, fmt.Errorf("decode claims: %w", err)
 	}
 
 	var c jwtClaims
 	if err := json.Unmarshal(payload, &c); err != nil {
-		return fmt.Errorf("parse claims: %w", err)
+		return jwtClaims{}, fmt.Errorf("parse claims: %w", err)
 	}
 
-	return validateClaims(c, o, now)
+	if err := validateClaims(c, o, now); err != nil {
+		return jwtClaims{}, err
+	}
+
+	return c, nil
 }
 
 // verifySignature checks the JWT signature against the public key, pinning the
