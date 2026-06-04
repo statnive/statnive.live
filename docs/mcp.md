@@ -66,7 +66,30 @@ All tools are read-only (`readOnlyHint:true`). "Scoped" tools require a `site` (
 
 ## Setup
 
-### stdio (recommended; air-gap-safe)
+Three ways to connect, by audience:
+
+| You are… | Path | How |
+|---|---|---|
+| A **dashboard customer** (no shell/binary/config) | **HTTP-Bearer token** | Mint a token in the dashboard → paste the `claude mcp add` command. See *Connect from the dashboard* below. The universal path — works in Claude Code, Claude Desktop, and any MCP host. |
+| An **operator / CLI** on the box | **stdio** | Run the binary directly. Air-gap-safe; needs the binary + config + `--allow-sites`. |
+| A **ChatGPT** user | **OAuth app** | Install the published ChatGPT app and sign in (statnive is the OAuth authorization server — see `docs/mcp-chatgpt.md`, shipping with the OAuth-AS work). |
+
+### Connect from the dashboard (no server access)
+
+The self-serve path for end-users — no shell, binary, or config needed. Requires the operator to have enabled it (`mcp.tokens.enabled: true` + `mcp.http.enabled: true` behind TLS) and to publish the MCP URL (`mcp.public_url`).
+
+1. In the dashboard, open **Connect** (the "Connect your AI assistant" screen).
+2. Click **Create token**, give it a name, optionally narrow the sites, and copy the token — **it is shown only once**.
+3. Paste the ready-made command (also shown on that screen):
+   ```bash
+   claude mcp add --transport http https://app.statnive.live/mcp \
+     --header "Authorization: Bearer <YOUR_TOKEN>"
+   ```
+4. Ask your assistant a question, e.g. *"How did organic search convert on site 1 last week?"*
+
+The token is **read-only** and scoped to exactly the sites you can already see. Revoke it any time from the same screen (takes effect immediately). Tokens are SHA-256-hashed at rest; the raw value is never stored or logged.
+
+### stdio (operator / CLI — air-gap-safe)
 
 ```bash
 # scoped to specific sites (fail-closed default — no sites without this)
@@ -117,8 +140,13 @@ mcp:
     wildcard_tier_factor: 0.25     # strict tier for the all-sites/legacy wildcard actor
   widgets:
     enabled: false                 # reserved (v3 ChatGPT-app widgets)
+  tokens:                          # self-serve dashboard tokens (end-user path)
+    enabled: false                 # turn on to expose the "Connect" screen + /api/mcp/tokens
+    max_per_user: 20
+    ttl_default_days: 90
+  public_url: ""                   # customer-facing /mcp base for the dashboard "Connect" command, e.g. https://app.statnive.live/mcp
 ```
-`geo` visibility follows `dashboard.geo_enabled`.
+`geo` visibility follows `dashboard.geo_enabled`. To offer the **dashboard self-serve token** path, the operator enables both `mcp.http.enabled` (the transport the tokens authenticate against) and `mcp.tokens.enabled` (the mint UI/endpoints), and sets `mcp.public_url`.
 
 ## Verification
 
