@@ -147,6 +147,16 @@ mcp:
     wildcard_tier_factor:    0.25
   widgets:
     enabled: false                          # v3 ChatGPT-app widgets (schema-only in v2)
+  # Self-serve MCP tokens — the daemon dashboard mints dashboard-scoped
+  # bearer tokens so end-users connect Claude/any MCP host themselves
+  # (POST/GET/DELETE /api/mcp/tokens + GET /api/mcp/connection). Default
+  # OFF — leave off for air-gap / inside-iran. SaaS flips enabled=true.
+  tokens:
+    enabled:          false                 # feature flag / kill-switch
+    max_per_user:     20                    # hard cap on active tokens per user
+    ttl_default_days: 90                    # applied when a mint omits ttl_days (max 365)
+    min_plan:         ""                    # gating seam — empty = all tiers (future toggle)
+  public_url:         ""                    # customer-facing /mcp base for the dashboard "Connect" command, e.g. https://app.statnive.live/mcp
 
 # ─── Auth (Phase 2b: sessions, RBAC, lockout) ──────────────────────────
 # First-run bootstrap reads STATNIVE_BOOTSTRAP_ADMIN_{EMAIL,PASSWORD,USERNAME}
