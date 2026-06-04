@@ -239,8 +239,8 @@ func TestMCP_Stdio_ToolsList_RealCH(t *testing.T) {
 	result, _ := resp["result"].(map[string]any)
 	tools, _ := result["tools"].([]any)
 
-	if len(tools) != 3 {
-		t.Fatalf("tools/list returned %d tools, want 3 (spine)", len(tools))
+	if len(tools) != 10 {
+		t.Fatalf("tools/list returned %d tools, want 10 (PR2 catalog)", len(tools))
 	}
 }
 

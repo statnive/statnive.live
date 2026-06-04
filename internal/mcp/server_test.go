@@ -16,9 +16,15 @@ var testNow = time.Date(2026, 6, 4, 13, 0, 0, 0, time.UTC)
 // --- fakes -----------------------------------------------------------------
 
 type fakeStore struct {
-	overview *storage.OverviewResult
-	trend    []storage.DailyPoint
-	err      error
+	overview  *storage.OverviewResult
+	trend     []storage.DailyPoint
+	sources   []storage.SourceRow
+	byChannel []storage.SourceChannelRow
+	pages     []storage.PageRow
+	seo       []storage.SEORow
+	campaigns []storage.CampaignRow
+	realtime  *storage.RealtimeResult
+	err       error
 }
 
 func (f *fakeStore) Overview(_ context.Context, _ *storage.Filter) (*storage.OverviewResult, error) {
@@ -27,6 +33,40 @@ func (f *fakeStore) Overview(_ context.Context, _ *storage.Filter) (*storage.Ove
 
 func (f *fakeStore) Trend(_ context.Context, _ *storage.Filter) ([]storage.DailyPoint, error) {
 	return f.trend, f.err
+}
+
+func (f *fakeStore) Sources(_ context.Context, _ *storage.Filter) ([]storage.SourceRow, error) {
+	return f.sources, f.err
+}
+
+func (f *fakeStore) SourcesByChannel(_ context.Context, _ *storage.Filter) ([]storage.SourceChannelRow, error) {
+	return f.byChannel, f.err
+}
+
+func (f *fakeStore) Pages(_ context.Context, _ *storage.Filter) ([]storage.PageRow, error) {
+	return f.pages, f.err
+}
+
+func (f *fakeStore) SEO(_ context.Context, _ *storage.Filter) ([]storage.SEORow, error) {
+	return f.seo, f.err
+}
+
+func (f *fakeStore) Campaigns(_ context.Context, _ *storage.Filter) ([]storage.CampaignRow, error) {
+	return f.campaigns, f.err
+}
+
+func (f *fakeStore) Realtime(_ context.Context, _ *storage.Filter) (*storage.RealtimeResult, error) {
+	return f.realtime, f.err
+}
+
+// Devices + Funnel are reserved — the fake returns ErrNotImplemented so the
+// not-yet-available tools/call path is exercised.
+func (f *fakeStore) Devices(_ context.Context, _ *storage.Filter) ([]storage.DeviceRow, error) {
+	return nil, storage.ErrNotImplemented
+}
+
+func (f *fakeStore) Funnel(_ context.Context, _ *storage.Filter, _ []string) (*storage.FunnelResult, error) {
+	return nil, storage.ErrNotImplemented
 }
 
 type fakeRegistry struct {
@@ -196,8 +236,8 @@ func TestToolsList(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if len(got.Tools) != 3 {
-		t.Fatalf("got %d tools, want 3 (spine)", len(got.Tools))
+	if len(got.Tools) != len(catalog()) {
+		t.Fatalf("tools/list returned %d tools, want %d (full catalog)", len(got.Tools), len(catalog()))
 	}
 
 	names := map[string]bool{}
@@ -217,10 +257,52 @@ func TestToolsList(t *testing.T) {
 		}
 	}
 
-	for _, want := range []string{"list_sites", "overview", "trend"} {
+	for _, want := range []string{"list_sites", "overview", "trend", "sources", "pages", "campaigns", "seo", "realtime", "devices", "funnel"} {
 		if !names[want] {
 			t.Errorf("missing tool %q", want)
 		}
+	}
+}
+
+func TestToolsCall_Sources(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{
+		sources:   []storage.SourceRow{{ReferrerName: "google.com", Channel: "Organic Search", Visitors: 40}},
+		byChannel: []storage.SourceChannelRow{{Channel: "Organic Search", Visitors: 40}},
+	}
+
+	resp := call(t, newTestServer(store), wildcardActor(), "tools/call",
+		callParams{Name: "sources", Arguments: json.RawMessage(`{"site":"1","range":"7d"}`)})
+
+	ct := mustCallResult(t, resp)
+	if ct.IsError {
+		t.Fatalf("unexpected isError: %+v", ct)
+	}
+
+	sc, _ := ct.StructuredContent.(map[string]any)
+	rows, _ := sc["rows"].([]any)
+	byCh, _ := sc["by_channel"].([]any)
+
+	if len(rows) != 1 || len(byCh) != 1 {
+		t.Fatalf("sources shape wrong: rows=%d by_channel=%d", len(rows), len(byCh))
+	}
+}
+
+func TestToolsCall_DevicesNotImplemented(t *testing.T) {
+	t.Parallel()
+
+	resp := call(t, newTestServer(&fakeStore{}), wildcardActor(), "tools/call",
+		callParams{Name: "devices", Arguments: json.RawMessage(`{"site":"1","range":"7d"}`)})
+
+	ct := mustCallResult(t, resp)
+	if !ct.IsError {
+		t.Fatal("devices should return isError (not yet available), not a JSON-RPC error or data")
+	}
+
+	// Must be a graceful tools/call result, NOT a -32601 method-not-found.
+	if resp.Error != nil {
+		t.Errorf("not-implemented must be an isError result, not a JSON-RPC error: %+v", resp.Error)
 	}
 }
 
