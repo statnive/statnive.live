@@ -1357,6 +1357,19 @@ type appConfig struct {
 			RateLimitPerMinute int
 			TLSCertFile        string
 			TLSKeyFile         string
+			// OAuth is the v2.5 ChatGPT-app resource-server config. SaaS-only;
+			// inert unless Profile=="chatgpt-app". The JWT/JWKS verifier that
+			// consumes it is behind the `chatgpt_app` build tag, so the
+			// default + air-gap binaries never compile any IdP/outbound code.
+			OAuth struct {
+				Enabled             bool
+				Issuer              string   // expected `iss` + JWKS discovery base
+				Audience            string   // expected `aud` (this resource server)
+				JWKSURL             string   // optional explicit JWKS endpoint (else issuer/.well-known)
+				RequiredScope       string   // optional scope the access token must carry
+				ResourceMetadataURL string   // RFC 9728 URL advertised in the 401 WWW-Authenticate
+				AllowedSiteIDs      []uint32 // sites a verified token may read (deployment-scoped; NOT wildcard). Required for chatgpt-app.
+			}
 		}
 		Budget struct {
 			CallsPerMin         int
@@ -1484,6 +1497,13 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("mcp.http.rate_limit_per_minute", 120)
 	v.SetDefault("mcp.http.tls_cert_file", "")
 	v.SetDefault("mcp.http.tls_key_file", "")
+	v.SetDefault("mcp.http.oauth.enabled", false)
+	v.SetDefault("mcp.http.oauth.issuer", "")
+	v.SetDefault("mcp.http.oauth.audience", "")
+	v.SetDefault("mcp.http.oauth.jwks_url", "")
+	v.SetDefault("mcp.http.oauth.required_scope", "")
+	v.SetDefault("mcp.http.oauth.resource_metadata_url", "")
+	v.SetDefault("mcp.http.oauth.allowed_site_ids", []int{})
 	v.SetDefault("mcp.budget.calls_per_min", 60)
 	v.SetDefault("mcp.budget.rows_per_min", 20000)
 	v.SetDefault("mcp.budget.calls_per_session", 2000)
@@ -1611,6 +1631,19 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.MCP.HTTP.RateLimitPerMinute = v.GetInt("mcp.http.rate_limit_per_minute")
 	cfg.MCP.HTTP.TLSCertFile = v.GetString("mcp.http.tls_cert_file")
 	cfg.MCP.HTTP.TLSKeyFile = v.GetString("mcp.http.tls_key_file")
+	cfg.MCP.HTTP.OAuth.Enabled = v.GetBool("mcp.http.oauth.enabled")
+	cfg.MCP.HTTP.OAuth.Issuer = v.GetString("mcp.http.oauth.issuer")
+	cfg.MCP.HTTP.OAuth.Audience = v.GetString("mcp.http.oauth.audience")
+	cfg.MCP.HTTP.OAuth.JWKSURL = v.GetString("mcp.http.oauth.jwks_url")
+	cfg.MCP.HTTP.OAuth.RequiredScope = v.GetString("mcp.http.oauth.required_scope")
+	cfg.MCP.HTTP.OAuth.ResourceMetadataURL = v.GetString("mcp.http.oauth.resource_metadata_url")
+
+	for _, id := range v.GetIntSlice("mcp.http.oauth.allowed_site_ids") {
+		if id > 0 && id <= 0xFFFF_FFFF {
+			cfg.MCP.HTTP.OAuth.AllowedSiteIDs = append(cfg.MCP.HTTP.OAuth.AllowedSiteIDs, uint32(id))
+		}
+	}
+
 	cfg.MCP.Budget.CallsPerMin = v.GetInt("mcp.budget.calls_per_min")
 	cfg.MCP.Budget.RowsPerMin = v.GetInt("mcp.budget.rows_per_min")
 	cfg.MCP.Budget.CallsPerSession = v.GetInt("mcp.budget.calls_per_session")

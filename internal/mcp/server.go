@@ -102,26 +102,31 @@ type Config struct {
 	Budget     BudgetConfig
 	Version    string
 	GeoEnabled bool
-	Now        func() time.Time
+	// OAuthScopes, when non-empty, makes tools/list advertise per-tool
+	// _meta.securitySchemes (noauth + oauth2) — the v2.5 ChatGPT-app seam.
+	// Empty for the v2 loopback/stdio profile (no _meta emitted).
+	OAuthScopes []string
+	Now         func() time.Time
 }
 
 // Server is the read-only MCP server. It is transport-agnostic: stdio and
 // HTTP both decode a request, supply the authenticated actor, and call
 // Handle.
 type Server struct {
-	store      analyticsStore
-	registry   registry
-	goals      goalLister
-	concrete   eventAuditReader
-	health     healthChecker
-	build      about.BuildInfo
-	audit      *audit.Logger
-	log        *slog.Logger
-	budgets    *budgetSet
-	anomaly    *anomalyDetector
-	now        func() time.Time
-	version    string
-	geoEnabled bool
+	store       analyticsStore
+	registry    registry
+	goals       goalLister
+	concrete    eventAuditReader
+	health      healthChecker
+	build       about.BuildInfo
+	audit       *audit.Logger
+	log         *slog.Logger
+	budgets     *budgetSet
+	anomaly     *anomalyDetector
+	now         func() time.Time
+	version     string
+	geoEnabled  bool
+	oauthScopes []string
 
 	tools map[string]toolDef
 	order []string
@@ -142,20 +147,21 @@ func New(cfg Config) *Server {
 	}
 
 	s := &Server{
-		store:      cfg.Store,
-		registry:   cfg.Registry,
-		goals:      cfg.Goals,
-		concrete:   cfg.Concrete,
-		health:     cfg.Health,
-		build:      cfg.Build,
-		audit:      cfg.Audit,
-		log:        log,
-		budgets:    newBudgetSet(cfg.Budget, now),
-		anomaly:    newAnomalyDetector(cfg.Alerts),
-		now:        now,
-		version:    cfg.Version,
-		geoEnabled: cfg.GeoEnabled,
-		tools:      make(map[string]toolDef),
+		store:       cfg.Store,
+		registry:    cfg.Registry,
+		goals:       cfg.Goals,
+		concrete:    cfg.Concrete,
+		health:      cfg.Health,
+		build:       cfg.Build,
+		audit:       cfg.Audit,
+		log:         log,
+		budgets:     newBudgetSet(cfg.Budget, now),
+		anomaly:     newAnomalyDetector(cfg.Alerts),
+		now:         now,
+		version:     cfg.Version,
+		geoEnabled:  cfg.GeoEnabled,
+		oauthScopes: cfg.OAuthScopes,
+		tools:       make(map[string]toolDef),
 	}
 
 	for _, td := range catalog() {
@@ -232,7 +238,7 @@ func (s *Server) toolsList(req request) *response {
 			InputSchema:  td.InputSchema,
 			OutputSchema: td.OutputSchema,
 			Annotations:  td.Annotations,
-			Meta:         td.metaMap(),
+			Meta:         td.metaMap(s.oauthScopes),
 		})
 	}
 
@@ -409,27 +415,42 @@ func (s *Server) emit(ctx context.Context, name audit.EventName, attrs ...slog.A
 	s.audit.Event(ctx, name, attrs...)
 }
 
-// metaMap builds the tools/list _meta object for a tool. Empty for every v2
-// tool (Widget is nil) so the field is omitted — the ChatGPT-app widget seam
-// populates it in v3.
-func (td toolDef) metaMap() map[string]any {
-	if td.Widget == nil {
+// metaMap builds the tools/list _meta object for a tool. Empty (field omitted)
+// for the v2 loopback profile: Widget is nil for every tool and oauthScopes is
+// empty. The ChatGPT-app seams populate it — v2.5 adds per-tool
+// securitySchemes when OAuth is on; v3 adds the widget descriptor.
+func (td toolDef) metaMap(oauthScopes []string) map[string]any {
+	meta := map[string]any{}
+
+	if td.Widget != nil {
+		ui := map[string]any{"resourceUri": td.Widget.TemplateURI}
+		meta["ui"] = ui
+
+		if td.Widget.Invoking != "" {
+			meta["openai/toolInvocation/invoking"] = td.Widget.Invoking
+		}
+
+		if td.Widget.Invoked != "" {
+			meta["openai/toolInvocation/invoked"] = td.Widget.Invoked
+		}
+
+		if td.Widget.Accessible {
+			meta["openai/widgetAccessible"] = true
+		}
+	}
+
+	// v2.5 ChatGPT-app: advertise how the client may authenticate to this
+	// tool. noauth keeps loopback/stdio working; oauth2 tells ChatGPT to run
+	// the auth-code+PKCE flow against the configured IdP (RFC 9728 discovery).
+	if len(oauthScopes) > 0 {
+		meta["securitySchemes"] = []map[string]any{
+			{"type": "noauth"},
+			{"type": "oauth2", "scopes": oauthScopes},
+		}
+	}
+
+	if len(meta) == 0 {
 		return nil
-	}
-
-	ui := map[string]any{"resourceUri": td.Widget.TemplateURI}
-	meta := map[string]any{"ui": ui}
-
-	if td.Widget.Invoking != "" {
-		meta["openai/toolInvocation/invoking"] = td.Widget.Invoking
-	}
-
-	if td.Widget.Invoked != "" {
-		meta["openai/toolInvocation/invoked"] = td.Widget.Invoked
-	}
-
-	if td.Widget.Accessible {
-		meta["openai/widgetAccessible"] = true
 	}
 
 	return meta
