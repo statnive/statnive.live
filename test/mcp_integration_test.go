@@ -43,10 +43,11 @@ func mcpTestServer(t *testing.T, store *storage.ClickHouseStore) *mcp.Server {
 	cached := storage.NewCachedStore(storage.NewClickhouseQueryStore(store), 256)
 
 	return mcp.New(mcp.Config{
-		Store:    cached,
-		Registry: sites.New(store.Conn()),
-		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Version:  "itest",
+		Store:      cached,
+		Registry:   sites.New(store.Conn()),
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Version:    "itest",
+		GeoEnabled: true, // advertise the full catalog in tools/list
 		Budget: mcp.BudgetConfig{
 			CallsPerMin: 1000, RowsPerMin: 1_000_000, CallsPerSession: 10_000,
 			RowsPerSession: 10_000_000, DistinctSitesPerMin: 100, WildcardFactor: 1.0,
@@ -239,8 +240,8 @@ func TestMCP_Stdio_ToolsList_RealCH(t *testing.T) {
 	result, _ := resp["result"].(map[string]any)
 	tools, _ := result["tools"].([]any)
 
-	if len(tools) != 10 {
-		t.Fatalf("tools/list returned %d tools, want 10 (PR2 catalog)", len(tools))
+	if len(tools) != 14 {
+		t.Fatalf("tools/list returned %d tools, want 14 (PR2b catalog, geo enabled)", len(tools))
 	}
 }
 

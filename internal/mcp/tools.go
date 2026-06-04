@@ -3,8 +3,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/statnive/statnive.live/internal/auth"
+	"github.com/statnive/statnive.live/internal/storage"
 )
 
 // catalog is the ordered single source of truth for the tool surface. The
@@ -21,6 +23,10 @@ func catalog() []toolDef {
 		campaignsTool(),
 		seoTool(),
 		realtimeTool(),
+		geoTool(),
+		compareTool(),
+		propsListTool(),
+		goalsListTool(),
 		devicesTool(),
 		funnelTool(),
 	}
@@ -66,6 +72,50 @@ var analyticsInputSchema = json.RawMessage(`{
 
 // emptyInputSchema is for global tools that take no arguments.
 var emptyInputSchema = json.RawMessage(`{"type": "object", "properties": {}, "additionalProperties": false}`)
+
+// siteOnlyInputSchema is for site-scoped tools that need no range/filters
+// (goals_list reads the in-memory snapshot).
+var siteOnlyInputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {"site": {"type": "string", "description": "Site slug, numeric site_id, or hostname."}},
+  "required": ["site"],
+  "additionalProperties": false
+}`)
+
+// compareInputSchema = the analytics base + the required compare extras.
+var compareInputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "site": {"type": "string", "description": "Site slug, numeric site_id, or hostname."},
+    "range": {"type": "string", "default": "7d", "description": "1h|24h|7d|30d|90d or YYYY-MM-DD..YYYY-MM-DD (end-exclusive), site timezone."},
+    "filters": {"type": "object", "additionalProperties": false, "properties": {
+      "path": {"type": "string"}, "referrer": {"type": "string"}, "channel": {"type": "string"},
+      "utm_source": {"type": "string"}, "utm_medium": {"type": "string"}, "utm_campaign": {"type": "string"},
+      "utm_content": {"type": "string"}, "utm_term": {"type": "string"},
+      "country": {"type": "string"}, "browser": {"type": "string"}, "os": {"type": "string"}, "device": {"type": "string"},
+      "hit_props": {"type": "object", "additionalProperties": {"type": "string"}},
+      "session_props": {"type": "object", "additionalProperties": {"type": "string"}},
+      "user_props": {"type": "object", "additionalProperties": {"type": "string"}}
+    }},
+    "dimension": {"type": "string", "description": "The custom dimension to split on, as \"scope:name\" (e.g. \"session:ab_variant\")."},
+    "goal": {"type": "string", "description": "The event name to count as a conversion."}
+  },
+  "required": ["site", "dimension", "goal"],
+  "additionalProperties": false
+}`)
+
+// propsListInputSchema = site + range + the scope/limit knobs.
+var propsListInputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "site": {"type": "string", "description": "Site slug, numeric site_id, or hostname."},
+    "range": {"type": "string", "default": "7d", "description": "1h|24h|7d|30d|90d or YYYY-MM-DD..YYYY-MM-DD (end-exclusive), site timezone."},
+    "scope": {"type": "string", "enum": ["hit", "session", "user"], "default": "hit", "description": "Custom-property scope to list."},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 500}
+  },
+  "required": ["site"],
+  "additionalProperties": false
+}`)
 
 var overviewOutputSchema = json.RawMessage(`{
   "type": "object",
@@ -151,6 +201,46 @@ var realtimeOutputSchema = json.RawMessage(`{
     "active_visitors": {"type": "integer"},
     "pageviews_last_hr": {"type": "integer"}
   }
+}`)
+
+var geoOutputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "top": {"type": "array", "items": {"type": "object", "properties": {
+      "country_code": {"type": "string"}, "views": {"type": "integer"}, "visitors": {"type": "integer"},
+      "goals": {"type": "integer"}, "revenue": {"type": "integer"}, "rpv": {"type": "number"}}}},
+    "rows": {"type": "array", "items": {"type": "object", "properties": {
+      "country_code": {"type": "string"}, "province": {"type": "string"}, "city": {"type": "string"},
+      "views": {"type": "integer"}, "visitors": {"type": "integer"}, "goals": {"type": "integer"},
+      "revenue": {"type": "integer"}, "rpv": {"type": "number"}}}}
+  }
+}`)
+
+var compareOutputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "dimension": {"type": "string"}, "goal": {"type": "string"}, "control": {"type": "string"},
+    "variants": {"type": "array", "items": {"type": "object", "properties": {
+      "value": {"type": "string"}, "visitors": {"type": "integer"}, "goal_completions": {"type": "integer"},
+      "conversion_rate": {"type": "number"}, "delta_pp": {"type": "number"}, "delta_rel": {"type": "number"},
+      "p_value": {"type": "number"}, "significant": {"type": "boolean"},
+      "ci_low": {"type": "number"}, "ci_high": {"type": "number"}}}}
+  }
+}`)
+
+var propsListOutputSchema = json.RawMessage(`{
+  "type": "array",
+  "items": {"type": "object", "properties": {
+    "name": {"type": "string"},
+    "sample_values": {"type": "array", "items": {"type": "string"}},
+    "last_seen": {"type": "string", "format": "date-time"}}}
+}`)
+
+var goalsListOutputSchema = json.RawMessage(`{
+  "type": "array",
+  "items": {"type": "object", "properties": {
+    "name": {"type": "string"}, "pattern": {"type": "string"},
+    "match_type": {"type": "string"}, "value": {"type": "integer"}}}
 }`)
 
 // listSitesTool is the discovery entry point: it tells the client which
@@ -329,6 +419,138 @@ func realtimeTool() toolDef {
 			}
 
 			return res, 1, nil
+		},
+	}
+}
+
+// geoTool returns country/province/city analytics, gated by the
+// dashboard.geo_enabled deployment flag. When disabled it is omitted from
+// tools/list AND this handler refuses (defense in depth) with a graceful
+// not-available result.
+func geoTool() toolDef {
+	return toolDef{
+		Name:         "geo",
+		Description:  "Geographic breakdown for a site over a range: top countries plus a country/province/city drill-down, each with visitors, pageviews, goals, revenue, RPV. Use for \"where are my visitors located?\".",
+		RoleClass:    auth.RoleAPI,
+		Scoped:       true,
+		InputSchema:  analyticsInputSchema,
+		OutputSchema: geoOutputSchema,
+		Annotations:  readOnly(),
+		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+			if !s.geoEnabled {
+				return nil, 0, storage.ErrNotImplemented
+			}
+
+			top, err := s.store.GeoTopCountries(ctx, tc.filter)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			rows, err := s.store.Geo(ctx, tc.filter)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			return map[string]any{"top": top, "rows": rows}, len(top) + len(rows), nil
+		},
+	}
+}
+
+// compareTool runs an A/B style variant comparison (two-proportion test +
+// Wilson CIs, computed server-side). Requires `dimension` ("scope:name") and
+// `goal` (an event_name).
+func compareTool() toolDef {
+	return toolDef{
+		Name:         "compare",
+		Description:  "Compare conversion across the values of a custom dimension for a site + range (A/B style): per-variant visitors, goal completions, conversion rate, and — when sample size allows — significance vs the control. Requires `dimension` (\"scope:name\", e.g. \"session:ab_variant\") and `goal` (an event name; see goals_list / props_list to discover valid values).",
+		RoleClass:    auth.RoleAPI,
+		Scoped:       true,
+		InputSchema:  compareInputSchema,
+		OutputSchema: compareOutputSchema,
+		Annotations:  readOnly(),
+		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+			if tc.args.Dimension == "" || tc.args.Goal == "" {
+				return nil, 0, fmt.Errorf("%w: compare requires dimension and goal", storage.ErrInvalidFilter)
+			}
+
+			res, err := s.store.Compare(ctx, tc.filter, tc.args.Dimension, tc.args.Goal)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			return res, len(res.Variants), nil
+		},
+	}
+}
+
+// propsListTool lists distinct custom-property names (+ sample values) for a
+// scope, powering the LLM's discovery of valid prop filters / compare
+// dimensions. SampleValues are raw user-generated content and are sanitized
+// by the marshal choke point.
+func propsListTool() toolDef {
+	return toolDef{
+		Name:         "props_list",
+		Description:  "List distinct custom-property names (with a few sample values) observed for a site, by scope. Use to discover valid custom dimensions for filters and the compare tool. Sample values are untrusted user-generated content.",
+		RoleClass:    auth.RoleAPI,
+		Scoped:       true,
+		InputSchema:  propsListInputSchema,
+		OutputSchema: propsListOutputSchema,
+		Annotations:  readOnly(),
+		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+			scope := tc.args.Scope
+			if scope == "" {
+				scope = "hit"
+			}
+
+			res, err := s.store.PropNames(ctx, tc.filter, scope, tc.filter.EffectiveLimit())
+			if err != nil {
+				return nil, 0, err
+			}
+
+			return res, len(res), nil
+		},
+	}
+}
+
+// goalSummary is the goals_list wire shape (enabled goals only; the enabled
+// snapshot is the useful discovery set for compare's `goal` arg).
+type goalSummary struct {
+	Name      string `json:"name"`
+	Pattern   string `json:"pattern"`
+	MatchType string `json:"match_type"`
+	Value     uint64 `json:"value"`
+}
+
+// goalsListTool lists a site's enabled goals so the LLM can discover valid
+// `goal` values for the compare tool. Reads the in-memory snapshot (no CH),
+// but is still site-scoped for resolution + authz.
+func goalsListTool() toolDef {
+	return toolDef{
+		Name:         "goals_list",
+		Description:  "List a site's enabled conversion goals (name, match type, pattern, fixed value). Use to discover valid `goal` values for the compare tool.",
+		RoleClass:    auth.RoleAPI,
+		Scoped:       true,
+		InputSchema:  siteOnlyInputSchema,
+		OutputSchema: goalsListOutputSchema,
+		Annotations:  readOnly(),
+		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+			if s.goals == nil {
+				return []goalSummary{}, 0, nil
+			}
+
+			gs := s.goals.GoalsForSite(tc.siteID)
+			out := make([]goalSummary, 0, len(gs))
+
+			for _, g := range gs {
+				out = append(out, goalSummary{
+					Name:      g.Name,
+					Pattern:   g.Pattern,
+					MatchType: string(g.MatchType),
+					Value:     g.Value,
+				})
+			}
+
+			return out, len(out), nil
 		},
 	}
 }

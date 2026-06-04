@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/statnive/statnive.live/internal/auth"
+	"github.com/statnive/statnive.live/internal/goals"
 	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
 )
@@ -24,6 +25,10 @@ type fakeStore struct {
 	seo       []storage.SEORow
 	campaigns []storage.CampaignRow
 	realtime  *storage.RealtimeResult
+	geo       []storage.GeoRow
+	geoTop    []storage.GeoTopRow
+	props     []storage.PropNameRow
+	compare   *storage.CompareResult
 	err       error
 }
 
@@ -68,6 +73,29 @@ func (f *fakeStore) Devices(_ context.Context, _ *storage.Filter) ([]storage.Dev
 func (f *fakeStore) Funnel(_ context.Context, _ *storage.Filter, _ []string) (*storage.FunnelResult, error) {
 	return nil, storage.ErrNotImplemented
 }
+
+func (f *fakeStore) Geo(_ context.Context, _ *storage.Filter) ([]storage.GeoRow, error) {
+	return f.geo, f.err
+}
+
+func (f *fakeStore) GeoTopCountries(_ context.Context, _ *storage.Filter) ([]storage.GeoTopRow, error) {
+	return f.geoTop, f.err
+}
+
+func (f *fakeStore) PropNames(_ context.Context, _ *storage.Filter, _ string, _ int) ([]storage.PropNameRow, error) {
+	return f.props, f.err
+}
+
+func (f *fakeStore) Compare(_ context.Context, _ *storage.Filter, _, _ string) (*storage.CompareResult, error) {
+	return f.compare, f.err
+}
+
+// fakeGoals is a goalLister stub for the goals_list tool.
+type fakeGoals struct {
+	bySite map[uint32][]goals.Goal
+}
+
+func (g fakeGoals) GoalsForSite(siteID uint32) []goals.Goal { return g.bySite[siteID] }
 
 type fakeRegistry struct {
 	list   []sites.Site
@@ -122,7 +150,11 @@ func newTestServer(store analyticsStore) *Server {
 	return New(Config{
 		Store:    store,
 		Registry: newTestRegistry(),
-		Version:  "test-1.2.3",
+		Goals: fakeGoals{bySite: map[uint32][]goals.Goal{
+			1: {{Name: "Purchase", Pattern: "purchase", MatchType: goals.MatchTypeEventNameEquals, Value: 100, Enabled: true}},
+		}},
+		Version:    "test-1.2.3",
+		GeoEnabled: true, // advertise the full catalog; geo-disabled has its own test
 		Budget: BudgetConfig{
 			CallsPerMin: 60, RowsPerMin: 20000, CallsPerSession: 2000,
 			RowsPerSession: 500000, DistinctSitesPerMin: 5, WildcardFactor: 0.25,
@@ -257,10 +289,165 @@ func TestToolsList(t *testing.T) {
 		}
 	}
 
-	for _, want := range []string{"list_sites", "overview", "trend", "sources", "pages", "campaigns", "seo", "realtime", "devices", "funnel"} {
+	for _, want := range []string{
+		"list_sites", "overview", "trend", "sources", "pages", "campaigns",
+		"seo", "realtime", "geo", "compare", "props_list", "goals_list", "devices", "funnel",
+	} {
 		if !names[want] {
 			t.Errorf("missing tool %q", want)
 		}
+	}
+}
+
+func TestToolsList_GeoOmittedWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	// A geo-disabled deployment must NOT advertise the geo tool.
+	s := New(Config{
+		Store:      &fakeStore{},
+		Registry:   newTestRegistry(),
+		Version:    "t",
+		GeoEnabled: false,
+		Budget:     BudgetConfig{CallsPerMin: 100, WildcardFactor: 1},
+		Now:        func() time.Time { return testNow },
+	})
+
+	resp := call(t, s, wildcardActor(), "tools/list", nil)
+
+	var got struct {
+		Tools []listedTool `json:"tools"`
+	}
+	_ = json.Unmarshal(resp.Result, &got)
+
+	if len(got.Tools) != len(catalog())-1 {
+		t.Errorf("geo-disabled tools/list = %d, want %d (catalog minus geo)", len(got.Tools), len(catalog())-1)
+	}
+
+	for _, tl := range got.Tools {
+		if tl.Name == "geo" {
+			t.Error("geo tool must be omitted when geo disabled")
+		}
+	}
+}
+
+func TestToolsCall_Compare(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{compare: &storage.CompareResult{
+		Dimension: "session:ab", Goal: "purchase", Control: "A",
+		Variants: []storage.VariantRow{{Value: "A", Visitors: 100}, {Value: "B", Visitors: 90}},
+	}}
+
+	resp := call(t, newTestServer(store), wildcardActor(), "tools/call", callParams{
+		Name:      "compare",
+		Arguments: json.RawMessage(`{"site":"1","range":"7d","dimension":"session:ab","goal":"purchase"}`),
+	})
+
+	ct := mustCallResult(t, resp)
+	sc, _ := ct.StructuredContent.(map[string]any)
+	variants, _ := sc["variants"].([]any)
+
+	if len(variants) != 2 {
+		t.Fatalf("compare variants = %v, want 2", sc["variants"])
+	}
+}
+
+func TestToolsCall_CompareMissingArgs(t *testing.T) {
+	t.Parallel()
+
+	// dimension/goal are required → -32602 when absent.
+	resp := call(t, newTestServer(&fakeStore{}), wildcardActor(), "tools/call", callParams{
+		Name:      "compare",
+		Arguments: json.RawMessage(`{"site":"1","range":"7d"}`),
+	})
+
+	if resp.Error == nil || resp.Error.Code != codeInvalidParams {
+		t.Fatalf("compare without dimension/goal should be -32602, got %+v", resp.Error)
+	}
+}
+
+func TestToolsCall_PropsList(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{props: []storage.PropNameRow{{Name: "plan", SampleValues: []string{"pro", "free"}}}}
+
+	resp := call(t, newTestServer(store), wildcardActor(), "tools/call", callParams{
+		Name:      "props_list",
+		Arguments: json.RawMessage(`{"site":"1","scope":"session"}`),
+	})
+
+	ct := mustCallResult(t, resp)
+	if arr, ok := ct.StructuredContent.([]any); !ok || len(arr) != 1 {
+		t.Fatalf("props_list = %v, want 1 row", ct.StructuredContent)
+	}
+}
+
+func TestToolsCall_GoalsList(t *testing.T) {
+	t.Parallel()
+
+	// newTestServer seeds one enabled goal on site 1.
+	resp := call(t, newTestServer(&fakeStore{}), wildcardActor(), "tools/call", callParams{
+		Name:      "goals_list",
+		Arguments: json.RawMessage(`{"site":"1"}`),
+	})
+
+	ct := mustCallResult(t, resp)
+	arr, ok := ct.StructuredContent.([]any)
+
+	if !ok || len(arr) != 1 {
+		t.Fatalf("goals_list = %v, want 1 goal", ct.StructuredContent)
+	}
+
+	row := arr[0].(map[string]any)
+	if row["name"] != "Purchase" || row["match_type"] != "event_name_equals" {
+		t.Errorf("goal summary wrong: %v", row)
+	}
+}
+
+func TestToolsCall_GeoEnabled(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{
+		geoTop: []storage.GeoTopRow{{CountryCode: "DE", Visitors: 50}},
+		geo:    []storage.GeoRow{{CountryCode: "DE", City: "Berlin", Visitors: 50}},
+	}
+
+	resp := call(t, newTestServer(store), wildcardActor(), "tools/call", callParams{
+		Name:      "geo",
+		Arguments: json.RawMessage(`{"site":"1","range":"7d"}`),
+	})
+
+	ct := mustCallResult(t, resp)
+	if ct.IsError {
+		t.Fatalf("geo (enabled) should not error: %+v", ct)
+	}
+
+	sc, _ := ct.StructuredContent.(map[string]any)
+	if top, _ := sc["top"].([]any); len(top) != 1 {
+		t.Errorf("geo top = %v, want 1", sc["top"])
+	}
+}
+
+func TestToolsCall_GeoDisabledIsNotImplemented(t *testing.T) {
+	t.Parallel()
+
+	s := New(Config{
+		Store:      &fakeStore{geo: []storage.GeoRow{{CountryCode: "DE"}}},
+		Registry:   newTestRegistry(),
+		Version:    "t",
+		GeoEnabled: false,
+		Budget:     BudgetConfig{CallsPerMin: 100, WildcardFactor: 1},
+		Now:        func() time.Time { return testNow },
+	})
+
+	resp := call(t, s, wildcardActor(), "tools/call", callParams{
+		Name:      "geo",
+		Arguments: json.RawMessage(`{"site":"1","range":"7d"}`),
+	})
+
+	ct := mustCallResult(t, resp)
+	if !ct.IsError {
+		t.Fatal("geo when disabled should return isError (not yet available)")
 	}
 }
 

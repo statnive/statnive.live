@@ -12,6 +12,7 @@ import (
 	"github.com/statnive/statnive.live/internal/alerts"
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
+	"github.com/statnive/statnive.live/internal/goals"
 	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
 )
@@ -47,6 +48,18 @@ type analyticsStore interface {
 	Realtime(ctx context.Context, f *storage.Filter) (*storage.RealtimeResult, error)
 	Devices(ctx context.Context, f *storage.Filter) ([]storage.DeviceRow, error)
 	Funnel(ctx context.Context, f *storage.Filter, steps []string) (*storage.FunnelResult, error)
+	Geo(ctx context.Context, f *storage.Filter) ([]storage.GeoRow, error)
+	GeoTopCountries(ctx context.Context, f *storage.Filter) ([]storage.GeoTopRow, error)
+	PropNames(ctx context.Context, f *storage.Filter, scope string, limit int) ([]storage.PropNameRow, error)
+	Compare(ctx context.Context, f *storage.Filter, dimension, goal string) (*storage.CompareResult, error)
+}
+
+// goalLister is the narrow read view onto goals.Snapshot the goals_list tool
+// uses. *goals.Snapshot satisfies it directly; nil disables the tool's data
+// (returns an empty list). Kept here so internal/mcp need not import the goals
+// package's full surface beyond the Goal type.
+type goalLister interface {
+	GoalsForSite(siteID uint32) []goals.Goal
 }
 
 // registry is the subset of *sites.Registry the server needs.
@@ -61,6 +74,7 @@ type registry interface {
 type Config struct {
 	Store      analyticsStore
 	Registry   registry
+	Goals      goalLister // optional — nil ⇒ goals_list returns an empty list
 	Audit      *audit.Logger
 	Log        *slog.Logger
 	Alerts     *alerts.Sink
@@ -76,6 +90,7 @@ type Config struct {
 type Server struct {
 	store      analyticsStore
 	registry   registry
+	goals      goalLister
 	audit      *audit.Logger
 	log        *slog.Logger
 	budgets    *budgetSet
@@ -105,6 +120,7 @@ func New(cfg Config) *Server {
 	s := &Server{
 		store:      cfg.Store,
 		registry:   cfg.Registry,
+		goals:      cfg.Goals,
 		audit:      cfg.Audit,
 		log:        log,
 		budgets:    newBudgetSet(cfg.Budget, now),

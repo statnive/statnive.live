@@ -20,6 +20,7 @@ import (
 	"github.com/statnive/statnive.live/internal/alerts"
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
+	"github.com/statnive/statnive.live/internal/goals"
 	"github.com/statnive/statnive.live/internal/ingest"
 	"github.com/statnive/statnive.live/internal/mcp"
 	"github.com/statnive/statnive.live/internal/sites"
@@ -94,9 +95,18 @@ func runMCP(args []string) error {
 
 	defer func() { _ = store.Close() }()
 
+	// Enabled-goals snapshot powers the goals_list tool (in-memory; no CH on
+	// the read path). A snapshot-load failure is non-fatal — goals_list just
+	// returns an empty list.
+	goalSnap, gerr := goals.NewSnapshot(rootCtx, goals.NewClickHouseStore(store.Conn(), cfg.ClickHouse.Database))
+	if gerr != nil {
+		logger.Warn("mcp: goals snapshot load failed; goals_list will be empty", "err", gerr)
+	}
+
 	srv := mcp.New(mcp.Config{
 		Store:      storage.NewCachedStore(storage.NewClickhouseQueryStore(store), dashboardCacheCapacity),
 		Registry:   sites.New(store.Conn()),
+		Goals:      goalSnap,
 		Audit:      auditLog,
 		Log:        logger,
 		Alerts:     alertsSink,

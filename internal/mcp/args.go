@@ -27,6 +27,14 @@ type toolArgs struct {
 	Sort    string     `json:"sort"`
 	Dir     string     `json:"dir"`
 	Search  string     `json:"search"`
+
+	// Tool-specific extras. compare uses Dimension+Goal; props_list uses
+	// Scope. Present on the shared struct so the dispatcher's single decode
+	// accepts them; the per-tool input schema (additionalProperties:false)
+	// is what advertises them to the client for the tools that use them.
+	Dimension string `json:"dimension"`
+	Goal      string `json:"goal"`
+	Scope     string `json:"scope"`
 }
 
 // filtersArg maps 1:1 onto the optional dimension filters of storage.Filter.
