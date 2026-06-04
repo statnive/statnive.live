@@ -17,19 +17,20 @@ var testNow = time.Date(2026, 6, 4, 13, 0, 0, 0, time.UTC)
 // --- fakes -----------------------------------------------------------------
 
 type fakeStore struct {
-	overview  *storage.OverviewResult
-	trend     []storage.DailyPoint
-	sources   []storage.SourceRow
-	byChannel []storage.SourceChannelRow
-	pages     []storage.PageRow
-	seo       []storage.SEORow
-	campaigns []storage.CampaignRow
-	realtime  *storage.RealtimeResult
-	geo       []storage.GeoRow
-	geoTop    []storage.GeoTopRow
-	props     []storage.PropNameRow
-	compare   *storage.CompareResult
-	err       error
+	overview    *storage.OverviewResult
+	trend       []storage.DailyPoint
+	sources     []storage.SourceRow
+	byChannel   []storage.SourceChannelRow
+	pages       []storage.PageRow
+	seo         []storage.SEORow
+	campaigns   []storage.CampaignRow
+	realtime    *storage.RealtimeResult
+	geo         []storage.GeoRow
+	geoTop      []storage.GeoTopRow
+	props       []storage.PropNameRow
+	compare     *storage.CompareResult
+	eventCounts []storage.EventNameCount
+	err         error
 }
 
 func (f *fakeStore) Overview(_ context.Context, _ *storage.Filter) (*storage.OverviewResult, error) {
@@ -90,6 +91,11 @@ func (f *fakeStore) Compare(_ context.Context, _ *storage.Filter, _, _ string) (
 	return f.compare, f.err
 }
 
+// EventNameCardinality satisfies eventAuditReader (the off-interface read).
+func (f *fakeStore) EventNameCardinality(_ context.Context, _ uint32, _, _ time.Time) ([]storage.EventNameCount, error) {
+	return f.eventCounts, f.err
+}
+
 // fakeGoals is a goalLister stub for the goals_list tool.
 type fakeGoals struct {
 	bySite map[uint32][]goals.Goal
@@ -146,9 +152,10 @@ func newTestRegistry() *fakeRegistry {
 	}
 }
 
-func newTestServer(store analyticsStore) *Server {
+func newTestServer(store *fakeStore) *Server {
 	return New(Config{
 		Store:    store,
+		Concrete: store, // *fakeStore also satisfies eventAuditReader
 		Registry: newTestRegistry(),
 		Goals: fakeGoals{bySite: map[uint32][]goals.Goal{
 			1: {{Name: "Purchase", Pattern: "purchase", MatchType: goals.MatchTypeEventNameEquals, Value: 100, Enabled: true}},
@@ -291,7 +298,8 @@ func TestToolsList(t *testing.T) {
 
 	for _, want := range []string{
 		"list_sites", "overview", "trend", "sources", "pages", "campaigns",
-		"seo", "realtime", "geo", "compare", "props_list", "goals_list", "devices", "funnel",
+		"seo", "realtime", "geo", "compare", "props_list", "goals_list",
+		"my_access", "event_audit", "site_config", "devices", "funnel",
 	} {
 		if !names[want] {
 			t.Errorf("missing tool %q", want)

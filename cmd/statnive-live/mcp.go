@@ -107,6 +107,7 @@ func runMCP(args []string) error {
 		Store:      storage.NewCachedStore(storage.NewClickhouseQueryStore(store), dashboardCacheCapacity),
 		Registry:   sites.New(store.Conn()),
 		Goals:      goalSnap,
+		Concrete:   store, // off-interface reads (event_audit) live on the concrete store
 		Audit:      auditLog,
 		Log:        logger,
 		Alerts:     alertsSink,

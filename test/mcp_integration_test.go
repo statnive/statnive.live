@@ -44,6 +44,7 @@ func mcpTestServer(t *testing.T, store *storage.ClickHouseStore) *mcp.Server {
 
 	return mcp.New(mcp.Config{
 		Store:      cached,
+		Concrete:   store, // off-interface event_audit read
 		Registry:   sites.New(store.Conn()),
 		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Version:    "itest",
@@ -227,6 +228,65 @@ func TestMCP_CrossTenant_RealCH(t *testing.T) {
 	}
 }
 
+func TestMCP_EventAudit_RealCH(t *testing.T) {
+	siteID, hostname := uniqueSite()
+
+	stack := newIntegrationStack(t, siteID, hostname)
+	defer stack.shutdown()
+
+	// Ingest a few pageviews → one distinct event_name ("pageview") in
+	// events_raw → event_audit reports it via the off-interface
+	// EventNameCardinality read, under the CNIL ceiling → cap_status "ok".
+	ingestPageviews(t, stack, hostname, siteID, 4)
+
+	srv := mcpTestServer(t, stack.store)
+
+	// allowAll=true → an admin-role wildcard actor (event_audit is admin-only).
+	resp := callTool(t, srv, true, nil, fmt.Sprintf(
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"event_audit","arguments":{"site":"%d","range":"30d"}}}`,
+		siteID))
+
+	result, _ := resp["result"].(map[string]any)
+	if result == nil {
+		t.Fatalf("no result: %v", resp)
+	}
+
+	if isErr, _ := result["isError"].(bool); isErr {
+		t.Fatalf("event_audit returned isError: %v", result)
+	}
+
+	sc, _ := result["structuredContent"].(map[string]any)
+	if toUint(t, sc["distinct"]) < 1 {
+		t.Errorf("event_audit distinct = %v, want >=1", sc["distinct"])
+	}
+
+	if sc["cap_status"] != "ok" {
+		t.Errorf("event_audit cap_status = %v, want ok (1 event name under the 3-ceiling)", sc["cap_status"])
+	}
+}
+
+func TestMCP_EventAudit_DeniedForAPIRole_RealCH(t *testing.T) {
+	siteID, hostname := uniqueSite()
+
+	stack := newIntegrationStack(t, siteID, hostname)
+	defer stack.shutdown()
+
+	srv := mcpTestServer(t, stack.store)
+
+	// allowAll=false + allow-sites=[siteID] → a SCOPED wildcard? No: the stdio
+	// scoped operator is admin-role, so it would pass. To exercise the api-role
+	// denial we'd need an api token — that's covered exhaustively in the unit
+	// suite (TestAdminTools_DeniedForAPIRole). Here we just confirm a scoped
+	// admin operator that lacks the site is denied at the tenancy gate.
+	resp := callTool(t, srv, false, []uint32{999999}, fmt.Sprintf(
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"event_audit","arguments":{"site":"%d","range":"7d"}}}`,
+		siteID))
+
+	if errObj, _ := resp["error"].(map[string]any); errObj == nil || toInt(t, errObj["code"]) != -32602 {
+		t.Errorf("event_audit cross-tenant should be -32602, got %v", resp)
+	}
+}
+
 func TestMCP_Stdio_ToolsList_RealCH(t *testing.T) {
 	siteID, hostname := uniqueSite()
 
@@ -240,8 +300,8 @@ func TestMCP_Stdio_ToolsList_RealCH(t *testing.T) {
 	result, _ := resp["result"].(map[string]any)
 	tools, _ := result["tools"].([]any)
 
-	if len(tools) != 14 {
-		t.Fatalf("tools/list returned %d tools, want 14 (PR2b catalog, geo enabled)", len(tools))
+	if len(tools) != 17 {
+		t.Fatalf("tools/list returned %d tools, want 17 (PR3 catalog, geo enabled)", len(tools))
 	}
 }
 

@@ -27,10 +27,21 @@ func catalog() []toolDef {
 		compareTool(),
 		propsListTool(),
 		goalsListTool(),
+		myAccessTool(),
+		eventAuditTool(),
+		siteConfigTool(),
 		devicesTool(),
 		funnelTool(),
 	}
 }
+
+// eventNameCapCeiling is the CNIL consent-free event-name ceiling. event_audit
+// reports cap_status="over" when a site's distinct event-name count exceeds it.
+const eventNameCapCeiling = 3
+
+// maxEventAuditNames bounds the event-name list event_audit returns (the query
+// is already bounded; this is a defensive output cap).
+const maxEventAuditNames = 500
 
 // analyticsInputSchema is the shared site+range+filters schema for every
 // site-scoped analytics tool. additionalProperties:false makes a typo'd or
@@ -241,6 +252,39 @@ var goalsListOutputSchema = json.RawMessage(`{
   "items": {"type": "object", "properties": {
     "name": {"type": "string"}, "pattern": {"type": "string"},
     "match_type": {"type": "string"}, "value": {"type": "integer"}}}
+}`)
+
+var myAccessOutputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "role": {"type": "string"},
+    "wildcard": {"type": "boolean"},
+    "sites": {"type": "array", "items": {"type": "object", "properties": {
+      "site_id": {"type": "integer"}, "role": {"type": "string"}}}}
+  }
+}`)
+
+var eventAuditOutputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "events": {"type": "array", "items": {"type": "object", "properties": {
+      "name": {"type": "string"}, "count": {"type": "integer"}}}},
+    "distinct": {"type": "integer"},
+    "cap": {"type": "integer"},
+    "cap_status": {"type": "string", "enum": ["ok", "over"]}
+  }
+}`)
+
+var siteConfigOutputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "site_id": {"type": "integer"}, "hostname": {"type": "string"}, "slug": {"type": "string"},
+    "plan": {"type": "string"}, "enabled": {"type": "boolean"}, "tz": {"type": "string"},
+    "currency": {"type": "string"}, "jurisdiction": {"type": "string"}, "consent_mode": {"type": "string"},
+    "respect_dnt": {"type": "boolean"}, "respect_gpc": {"type": "boolean"}, "track_bots": {"type": "boolean"},
+    "event_allowlist": {"type": "array", "items": {"type": "string"}},
+    "allowed_origins": {"type": "array", "items": {"type": "string"}}
+  }
 }`)
 
 // listSitesTool is the discovery entry point: it tells the client which
@@ -551,6 +595,134 @@ func goalsListTool() toolDef {
 			}
 
 			return out, len(out), nil
+		},
+	}
+}
+
+// siteGrant is one (site_id, role) entry in a my_access response.
+type siteGrant struct {
+	SiteID uint32 `json:"site_id"`
+	Role   string `json:"role"`
+}
+
+// accessInfo is the my_access wire shape — the ACTOR'S OWN access only. Never
+// carries email / user_id / other users (Privacy Rule 4).
+type accessInfo struct {
+	Role     string      `json:"role"`
+	Wildcard bool        `json:"wildcard"` // true ⇒ may read every site (legacy bearer / --all-sites)
+	Sites    []siteGrant `json:"sites"`
+}
+
+// myAccessTool answers "what can I read / who has access to site X?" for the
+// CALLING actor only — its global role + per-site grants. Any authenticated
+// actor; global (no site arg). Privacy-safe: no email / user_id / other users.
+func myAccessTool() toolDef {
+	return toolDef{
+		Name:         "my_access",
+		Description:  "Report the calling actor's own analytics access: global role and the sites they may read (with per-site role). Use to answer \"what can I see?\" / \"do I have access to site X?\". Returns only the caller's own grants — never other users or any PII.",
+		RoleClass:    auth.RoleAPI,
+		Scoped:       false,
+		InputSchema:  emptyInputSchema,
+		OutputSchema: myAccessOutputSchema,
+		Annotations:  readOnly(),
+		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+			u := tc.actor
+			out := accessInfo{Role: string(u.Role)}
+
+			switch {
+			case isWildcardActor(u):
+				out.Wildcard = true
+			case u.Sites != nil:
+				for _, id := range u.SiteIDs() {
+					out.Sites = append(out.Sites, siteGrant{SiteID: id, Role: string(u.Sites[id])})
+				}
+			case u.SiteID != 0:
+				out.Sites = []siteGrant{{SiteID: u.SiteID, Role: string(u.Role)}}
+			}
+
+			return out, len(out.Sites) + 1, nil
+		},
+	}
+}
+
+// eventAuditTool reports a site's distinct event-name cardinality + CNIL
+// cap status (admin-only). Backed by the off-interface
+// *ClickHouseStore.EventNameCardinality. Event names are operator/UGC strings
+// → sanitized by the marshal choke point.
+func eventAuditTool() toolDef {
+	return toolDef{
+		Name:         "event_audit",
+		Description:  "Admin: per-site custom event-name cardinality over a range, plus cap_status against the CNIL consent-free 3-event ceiling. Use to answer \"am I over the consent-free event cap?\". Event names are untrusted user-generated content.",
+		RoleClass:    auth.RoleAdmin,
+		Scoped:       true,
+		InputSchema:  analyticsInputSchema,
+		OutputSchema: eventAuditOutputSchema,
+		Annotations:  readOnly(),
+		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+			if s.concrete == nil {
+				return nil, 0, storage.ErrNotImplemented
+			}
+
+			rows, err := s.concrete.EventNameCardinality(ctx, tc.siteID, tc.filter.From, tc.filter.To)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			distinct := len(rows)
+
+			if len(rows) > maxEventAuditNames {
+				rows = rows[:maxEventAuditNames]
+			}
+
+			status := "ok"
+			if distinct > eventNameCapCeiling {
+				status = "over"
+			}
+
+			return map[string]any{
+				"events":     rows,
+				"distinct":   distinct,
+				"cap":        eventNameCapCeiling,
+				"cap_status": status,
+			}, distinct, nil
+		},
+	}
+}
+
+// siteConfigTool returns a site's read-only configuration (admin-only):
+// enabled flag, timezone, currency, consent posture, jurisdiction, bot/GPC/DNT
+// flags, event allowlist, allowed origins, plan. No PII.
+func siteConfigTool() toolDef {
+	return toolDef{
+		Name:         "site_config",
+		Description:  "Admin: a site's read-only configuration — enabled, timezone, currency, plan, jurisdiction, consent_mode, respect_dnt/gpc, track_bots, event_allowlist, allowed_origins. Use to answer \"which sites enforce GPC?\" / \"what's site X's consent mode?\".",
+		RoleClass:    auth.RoleAdmin,
+		Scoped:       true,
+		InputSchema:  siteOnlyInputSchema,
+		OutputSchema: siteConfigOutputSchema,
+		Annotations:  readOnly(),
+		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+			sa, err := s.registry.LookupSiteByID(ctx, tc.siteID)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			return map[string]any{
+				"site_id":         sa.Site.ID,
+				"hostname":        sa.Site.Hostname,
+				"slug":            sa.Slug,
+				"plan":            sa.Plan,
+				"enabled":         sa.Site.Enabled,
+				"tz":              sa.Site.TZ,
+				"currency":        sa.Site.Currency,
+				"jurisdiction":    sa.Jurisdiction,
+				"consent_mode":    sa.ConsentMode,
+				"respect_dnt":     sa.RespectDNT,
+				"respect_gpc":     sa.RespectGPC,
+				"track_bots":      sa.TrackBots,
+				"event_allowlist": sa.EventAllowlist,
+				"allowed_origins": sa.AllowedOrigins,
+			}, 1, nil
 		},
 	}
 }

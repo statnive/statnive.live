@@ -62,6 +62,15 @@ type goalLister interface {
 	GoalsForSite(siteID uint32) []goals.Goal
 }
 
+// eventAuditReader is the off-interface read backing the event_audit tool —
+// EventNameCardinality lives on the concrete *storage.ClickHouseStore, NOT on
+// the Store interface, so it is wired separately. nil disables event_audit
+// (returns a graceful not-available result). The parity gate must reflect the
+// concrete type, not just the interface, to see this read.
+type eventAuditReader interface {
+	EventNameCardinality(ctx context.Context, siteID uint32, from, to time.Time) ([]storage.EventNameCount, error)
+}
+
 // registry is the subset of *sites.Registry the server needs.
 type registry interface {
 	List(ctx context.Context) ([]sites.Site, error)
@@ -74,7 +83,8 @@ type registry interface {
 type Config struct {
 	Store      analyticsStore
 	Registry   registry
-	Goals      goalLister // optional — nil ⇒ goals_list returns an empty list
+	Goals      goalLister       // optional — nil ⇒ goals_list returns an empty list
+	Concrete   eventAuditReader // optional off-interface reads (event_audit); nil ⇒ not available
 	Audit      *audit.Logger
 	Log        *slog.Logger
 	Alerts     *alerts.Sink
@@ -91,6 +101,7 @@ type Server struct {
 	store      analyticsStore
 	registry   registry
 	goals      goalLister
+	concrete   eventAuditReader
 	audit      *audit.Logger
 	log        *slog.Logger
 	budgets    *budgetSet
@@ -121,6 +132,7 @@ func New(cfg Config) *Server {
 		store:      cfg.Store,
 		registry:   cfg.Registry,
 		goals:      cfg.Goals,
+		concrete:   cfg.Concrete,
 		audit:      cfg.Audit,
 		log:        log,
 		budgets:    newBudgetSet(cfg.Budget, now),
