@@ -114,6 +114,18 @@ func TestLoadConfig_ExampleParity(t *testing.T) { //nolint:paralleltest // mutat
 		{"auth.bootstrap.username", cfg.Auth.Bootstrap.Username != ""},
 		{"auth.default_site_id", cfg.Auth.DefaultSiteID > 0},
 		{"consent.required", cfg.Consent.Required},
+		{"mcp.http.profile", cfg.MCP.HTTP.Profile != ""},
+		{"mcp.http.listen", cfg.MCP.HTTP.Listen != ""},
+		{"mcp.http.rate_limit_per_minute", cfg.MCP.HTTP.RateLimitPerMinute > 0},
+		{"mcp.budget.calls_per_min", cfg.MCP.Budget.CallsPerMin > 0},
+		{"mcp.budget.rows_per_min", cfg.MCP.Budget.RowsPerMin > 0},
+		{"mcp.budget.calls_per_session", cfg.MCP.Budget.CallsPerSession > 0},
+		{"mcp.budget.rows_per_session", cfg.MCP.Budget.RowsPerSession > 0},
+		{"mcp.budget.distinct_sites_per_min", cfg.MCP.Budget.DistinctSitesPerMin > 0},
+		{"mcp.budget.wildcard_tier_factor", cfg.MCP.Budget.WildcardTierFactor > 0},
+		// mcp.http.enabled / mcp.widgets.enabled / tls_* default false/empty;
+		// the truthy-only schema-parity check can't represent those (same
+		// carve-out as consent.respect_gpc below).
 		// consent.respect_gpc / consent.respect_dnt default false in the
 		// example (operators flip to true for EU posture); the truthy-
 		// only schema-parity check can't represent intentional false
