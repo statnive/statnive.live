@@ -14,6 +14,7 @@ import (
 
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
+	"github.com/statnive/statnive.live/internal/metrics"
 )
 
 // Config is the authorization-server configuration. Issuer + Audience are baked
@@ -67,30 +68,33 @@ func (c Config) withDefaults() Config {
 // /authorize + /consent, admin for /register, none for /token + /jwks +
 // metadata).
 type Server struct {
-	cfg    Config
-	store  *Store
-	key    *SigningKey
-	sites  auth.SitesStore // LoadUserSites for the consent intersection
-	audit  *audit.Logger
-	logger *slog.Logger
-	now    func() time.Time
+	cfg     Config
+	store   *Store
+	key     *SigningKey
+	sites   auth.SitesStore // LoadUserSites for the consent intersection
+	audit   *audit.Logger
+	metrics *metrics.Registry // nil-safe; every Inc* checks the nil receiver
+	logger  *slog.Logger
+	now     func() time.Time
 }
 
 // NewServer constructs the AS. sitesStore loads a user's per-site grants for the
-// consent screen + scope-clamp; nowFn defaults to time.Now.
-func NewServer(cfg Config, store *Store, key *SigningKey, sitesStore auth.SitesStore, auditLog *audit.Logger, logger *slog.Logger, nowFn func() time.Time) *Server {
+// consent screen + scope-clamp; metricsReg may be nil (its Inc* methods are
+// nil-safe); nowFn defaults to time.Now.
+func NewServer(cfg Config, store *Store, key *SigningKey, sitesStore auth.SitesStore, auditLog *audit.Logger, metricsReg *metrics.Registry, logger *slog.Logger, nowFn func() time.Time) *Server {
 	if nowFn == nil {
 		nowFn = time.Now
 	}
 
 	return &Server{
-		cfg:    cfg.withDefaults(),
-		store:  store,
-		key:    key,
-		sites:  sitesStore,
-		audit:  auditLog,
-		logger: logger,
-		now:    nowFn,
+		cfg:     cfg.withDefaults(),
+		store:   store,
+		key:     key,
+		sites:   sitesStore,
+		audit:   auditLog,
+		metrics: metricsReg,
+		logger:  logger,
+		now:     nowFn,
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
+	"github.com/statnive/statnive.live/internal/metrics"
 )
 
 // consentTmpl is the server-rendered consent screen. html/template auto-escapes
@@ -135,6 +136,7 @@ func (s *Server) Consent(w http.ResponseWriter, r *http.Request) {
 			slog.String("client_id", req.client.ID),
 			slog.String("user_id", user.UserID.String()),
 		)
+		s.metrics.IncOAuthAuthorize(metrics.OAuthDenied)
 		s.redirectErr(w, r, req.redirectURI, req.state, "access_denied", "user denied the request")
 
 		return
@@ -204,6 +206,7 @@ func (s *Server) issueCode(w http.ResponseWriter, r *http.Request, req authReque
 		slog.String("user_id", code.UserID.String()),
 		slog.Int("site_count", len(sites)),
 	)
+	s.metrics.IncOAuthAuthorize(metrics.OAuthGranted)
 	s.audit.Event(r.Context(), audit.EventOAuthCodeIssued,
 		slog.String("client_id", req.client.ID),
 		slog.String("user_id", code.UserID.String()),

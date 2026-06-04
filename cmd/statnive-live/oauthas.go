@@ -69,7 +69,7 @@ func mountOAuthAS(r chi.Router, p oauthASParams) error {
 		RefreshTTL:     time.Duration(as.RefreshTTLSeconds) * time.Second,
 		CodeTTL:        time.Duration(as.CodeTTLSeconds) * time.Second,
 		LoginPath:      as.LoginPath,
-	}, store, key, sites, p.audit, p.logger, time.Now)
+	}, store, key, sites, p.audit, p.metrics, p.logger, time.Now)
 
 	adminOnly := auth.RequireRole(p.audit, auth.RoleAdmin)
 	limit := httprate.LimitByIP(asEndpointRatePerMin, time.Minute)

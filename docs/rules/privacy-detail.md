@@ -70,6 +70,15 @@ Enforced by `blake3-hmac-identity-review` (checks the rotation path for `os.Remo
 
 **Where to find the DPA draft.** `docs/dpa-draft.md` — Phase 11 deliverable. Includes Recital 26 citation, C-413/23 citation, weekly-rebuild commitment, and Art. 28 processor language.
 
+## Rule 10 — AI-assistant (MCP / ChatGPT-app) access is read-only, consented, and aggregate-only
+
+Connecting an AI assistant (Claude via a dashboard-minted token, or ChatGPT via the OAuth-app path) lets that assistant — and therefore its provider's servers — read the customer's **aggregate** analytics through the read-only MCP tool surface. Privacy posture:
+
+- **No raw PII leaves the boundary.** The MCP tools return the same aggregates the dashboard shows (counts, sources, channels, revenue rollups). No raw IP (Rule 1), no raw `user_id` (Rule 4) — those never exist past the pipeline. The one UGC vector is `props_list.sample_values` (customer-supplied event metadata, which can contain PII if the customer mis-instruments); this is disclosed in the ChatGPT app store privacy statement.
+- **Read-only forever.** The MCP surface has no write tools (CLAUDE.md § Feature Scope "No broad MCP mutation surface"). An assistant cannot change configuration or data.
+- **Consented + scoped.** A token reads only the sites the user authorised — a dashboard token is clamped to the minter's grants; an OAuth token to the sites consented on statnive's `/authorize` screen, intersected with the deployment ceiling (per-token `site_ids`, enforced at the resource server). The user initiates and can revoke at any time.
+- **Sub-processor disclosure.** When the ChatGPT-app path ships, OpenAI becomes a US (DPF) sub-processor — see `docs/compliance/subprocessor-register.md` (Future table) and `docs/dpa-draft.md` § 6. Claude/Anthropic is reached by a customer-supplied client the user runs; statnive sends no data to it except in response to that user's authenticated requests.
+
 ## Salt rotation path sketch
 
 ```go

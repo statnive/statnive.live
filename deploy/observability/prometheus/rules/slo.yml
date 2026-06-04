@@ -47,3 +47,38 @@ groups:
         labels: { severity: critical, phase: 7e }
         annotations:
           summary: "WAL > 95% — drop-oldest will engage; events at risk"
+
+  # OAuth 2.1 authorization server (PR-E/PR-F, chatgpt_app deploys only). These
+  # series only exist once the AS is enabled + serving (the default/air-gap
+  # build never emits them), so the alerts are inert elsewhere. Metric source:
+  # internal/metrics statnive_mcp_oauth_{authorize,token}_total{outcome}.
+  - name: statnive-oauth-as
+    interval: 30s
+    rules:
+      # A rotated refresh token presented again = the canonical stolen-token
+      # signal (RFC 9700 §4.14.2). The server already revoked the whole family;
+      # ANY occurrence pages on-call to investigate the compromised client.
+      - alert: StatniveOAuthRefreshReuse
+        expr: increase(statnive_mcp_oauth_token_total{outcome="refresh_reuse"}[10m]) > 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "OAuth refresh-token reuse detected — possible token theft (family revoked)"
+          runbook: "docs/mcp.md § Authorization server + docs/runbook.md § On-Call"
+
+      # Sustained /token rejections = credential-stuffing / code-probing.
+      - alert: StatniveOAuthTokenRejectionSpike
+        expr: rate(statnive_mcp_oauth_token_total{outcome="rejected"}[5m]) > 0.2
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "OAuth /token rejection rate > 0.2/s (5m) — credential stuffing / probing?"
+
+      # Authorize is human-paced for the single ChatGPT client; a sustained
+      # consent flood is abnormal (abuse or a misbehaving client loop).
+      - alert: StatniveOAuthAuthorizeFlood
+        expr: sum(rate(statnive_mcp_oauth_authorize_total[5m])) > 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "OAuth consent decisions > 1/s (5m) — abnormal for a single connector"

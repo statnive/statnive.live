@@ -662,6 +662,7 @@ func run() error {
 		cfg:       cfg,
 		conn:      store.Conn(),
 		audit:     auditLog,
+		metrics:   metricsReg,
 		logger:    logger,
 		sessionMW: sessionMW,
 		authedMW:  requireAuthed,
