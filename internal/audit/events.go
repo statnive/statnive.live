@@ -196,6 +196,17 @@ const (
 	EventPrivacyPolicyViewed EventName = "legal.privacy_policy_viewed"
 )
 
+// MCP server events. Emitted by internal/mcp on every tool call / denial.
+// Field-shape invariant: site_id + tool name + non-PII actor label ONLY —
+// NEVER the filters/search/arguments values, never secrets, never visitor
+// identity (Privacy Rule 4). A pii_leak-style grep over MCP audit emission
+// pins this.
+const (
+	EventMCPToolCall       EventName = "mcp.tool_call"
+	EventMCPDenied         EventName = "mcp.denied"
+	EventMCPBudgetExceeded EventName = "mcp.budget_exceeded"
+)
+
 // Alert event names live in internal/alerts (not here) — alerts are a
 // separate JSONL sink with a different schema than audit. The audit
 // package owns completed-action events; alerts own ops-should-know-now

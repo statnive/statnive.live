@@ -89,6 +89,24 @@ func main() {
 		}
 	}
 
+	// Subcommand dispatch. Only a literal `mcp` first arg branches; bare
+	// `statnive-live` and `statnive-live -c cfg.yaml` still boot the daemon
+	// (systemd/Docker units unaffected). The optional `serve` sub-verb is
+	// stripped so the mcp flagset only sees flags.
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		rest := os.Args[2:]
+		if len(rest) > 0 && rest[0] == "serve" {
+			rest = rest[1:]
+		}
+
+		if err := runMCP(rest); err != nil {
+			fmt.Fprintf(os.Stderr, "statnive-live mcp: %v\n", err)
+			os.Exit(1)
+		}
+
+		return
+	}
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "statnive-live: %v\n", err)
 		os.Exit(1)
@@ -1327,6 +1345,31 @@ type appConfig struct {
 		// file (B3-A4 review).
 		SuppressionWALPath string
 	}
+	// MCP configures the read-only MCP server (the `statnive-live mcp serve`
+	// subcommand). The daemon (`run`) ignores it entirely; only runMCP reads
+	// it. stdio needs no config; the HTTP transport is opt-in + loopback +
+	// fail-closed by default.
+	MCP struct {
+		HTTP struct {
+			Enabled            bool
+			Profile            string // "loopback" | "chatgpt-app" (v2.5)
+			Listen             string
+			RateLimitPerMinute int
+			TLSCertFile        string
+			TLSKeyFile         string
+		}
+		Budget struct {
+			CallsPerMin         int
+			RowsPerMin          int
+			CallsPerSession     int
+			RowsPerSession      int
+			DistinctSitesPerMin int
+			WildcardTierFactor  float64
+		}
+		Widgets struct {
+			Enabled bool // v3 ChatGPT-app widgets — schema-only in v2
+		}
+	}
 }
 
 // operatorEmailRegex pins the shape of admin.operator_email so the
@@ -1432,6 +1475,22 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("dashboard.bearer_token", "")
 	v.SetDefault("dashboard.spa_enabled", false)
 	v.SetDefault("dashboard.geo_enabled", false)
+
+	// MCP read-only agent surface (statnive-live mcp serve). All defaults
+	// keep the daemon byte-identical and the HTTP transport off + loopback.
+	v.SetDefault("mcp.http.enabled", false)
+	v.SetDefault("mcp.http.profile", "loopback")
+	v.SetDefault("mcp.http.listen", "127.0.0.1:8081")
+	v.SetDefault("mcp.http.rate_limit_per_minute", 120)
+	v.SetDefault("mcp.http.tls_cert_file", "")
+	v.SetDefault("mcp.http.tls_key_file", "")
+	v.SetDefault("mcp.budget.calls_per_min", 60)
+	v.SetDefault("mcp.budget.rows_per_min", 20000)
+	v.SetDefault("mcp.budget.calls_per_session", 2000)
+	v.SetDefault("mcp.budget.rows_per_session", 500000)
+	v.SetDefault("mcp.budget.distinct_sites_per_min", 5)
+	v.SetDefault("mcp.budget.wildcard_tier_factor", 0.25)
+	v.SetDefault("mcp.widgets.enabled", false)
 
 	// Consent posture (CLAUDE.md Privacy Rules 5 + 9).
 	// `consent.required` stays a global flag (cookie + identity gate is
@@ -1545,6 +1604,20 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.Dashboard.BearerToken = v.GetString("dashboard.bearer_token")
 	cfg.Dashboard.SPAEnabled = v.GetBool("dashboard.spa_enabled")
 	cfg.Dashboard.GeoEnabled = v.GetBool("dashboard.geo_enabled")
+
+	cfg.MCP.HTTP.Enabled = v.GetBool("mcp.http.enabled")
+	cfg.MCP.HTTP.Profile = v.GetString("mcp.http.profile")
+	cfg.MCP.HTTP.Listen = v.GetString("mcp.http.listen")
+	cfg.MCP.HTTP.RateLimitPerMinute = v.GetInt("mcp.http.rate_limit_per_minute")
+	cfg.MCP.HTTP.TLSCertFile = v.GetString("mcp.http.tls_cert_file")
+	cfg.MCP.HTTP.TLSKeyFile = v.GetString("mcp.http.tls_key_file")
+	cfg.MCP.Budget.CallsPerMin = v.GetInt("mcp.budget.calls_per_min")
+	cfg.MCP.Budget.RowsPerMin = v.GetInt("mcp.budget.rows_per_min")
+	cfg.MCP.Budget.CallsPerSession = v.GetInt("mcp.budget.calls_per_session")
+	cfg.MCP.Budget.RowsPerSession = v.GetInt("mcp.budget.rows_per_session")
+	cfg.MCP.Budget.DistinctSitesPerMin = v.GetInt("mcp.budget.distinct_sites_per_min")
+	cfg.MCP.Budget.WildcardTierFactor = v.GetFloat64("mcp.budget.wildcard_tier_factor")
+	cfg.MCP.Widgets.Enabled = v.GetBool("mcp.widgets.enabled")
 
 	cfg.Consent.Required = v.GetBool("consent.required")
 	cfg.Consent.RequireForSegments = v.GetBool("consent.require_for_segments")

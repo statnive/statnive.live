@@ -50,6 +50,9 @@ jobs:
       - name: Tenancy gate (Architecture Rules 1 + 8)
         run: make tenancy-grep
 
+      - name: MCP parity gate (no read surface without an MCP tool)
+        run: make mcp-parity
+
       - name: Skill-content sanitizer (Phase 7d F6)
         run: make skill-sanitizer
 

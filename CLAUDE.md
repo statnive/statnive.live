@@ -251,6 +251,7 @@ Full inventory in [`docs/tooling.md`](docs/tooling.md): 4 original skill collect
 | `migrations/*.sql` / `internal/ingest/**` / `internal/query/**` / `prometheus/*.rules.yml` | [`clickhouse-operations-review`](.claude/skills/clickhouse-operations-review/README.md) |
 | `Engine=` or `{{if .Cluster}}` in migrations (advisory runbook) | [`clickhouse-upgrade-playbook`](.claude/skills/clickhouse-upgrade-playbook/README.md) |
 | `test/perf/gate/**` / `test/perf/chaos/**` / `test/perf/generator/**` / `deploy/observability/**` (scheduled Phase 7e) | `load-gate-harness` (to scaffold in Phase 7e; advisory until Phase 10 P1 cutover — HARD GATE thereafter) |
+| New read surface: `internal/storage/store.go` / concrete `*ClickHouseStore` read / `internal/{dashboard,admin}/router.go` / `cmd/statnive-live/main.go` route mount / new `daily_*` rollup / `internal/mcp/**` | [`mcp-parity-enforcer`](.claude/skills/mcp-parity-enforcer/README.md) (`make mcp-parity` — every read surface needs an MCP tool or a documented exclusion) |
 
 ### Anti-patterns (doc 28 §Anti-patterns) — absolute bans
 

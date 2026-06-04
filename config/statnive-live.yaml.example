@@ -123,6 +123,31 @@ dashboard:
   # returns 501 and the SPA's Geo panel renders a "coming soon" state.
   geo_enabled:  false     # STATNIVE_DASHBOARD_GEO_ENABLED
 
+# ─── MCP read-only agent surface (statnive-live mcp serve) ─────────────
+# Consumed ONLY by the `mcp` subcommand; the daemon ignores it. stdio
+# needs no config. The HTTP transport is opt-in, loopback-by-default, and
+# fail-closed: a non-loopback bind is refused unless posture=saas AND TLS
+# is configured. Per-actor budgets cap query volume (anti-exfiltration);
+# the wildcard actor (legacy bearer / --all-sites) gets every cap × the
+# tier factor.
+mcp:
+  http:
+    enabled:               false           # STATNIVE_MCP_HTTP_ENABLED
+    profile:               "loopback"      # loopback | chatgpt-app (v2.5)
+    listen:                "127.0.0.1:8081" # STATNIVE_MCP_HTTP_LISTEN
+    rate_limit_per_minute: 120
+    tls_cert_file:         ""
+    tls_key_file:          ""
+  budget:
+    calls_per_min:           60
+    rows_per_min:            20000
+    calls_per_session:       2000
+    rows_per_session:        500000
+    distinct_sites_per_min:  5
+    wildcard_tier_factor:    0.25
+  widgets:
+    enabled: false                          # v3 ChatGPT-app widgets (schema-only in v2)
+
 # ─── Auth (Phase 2b: sessions, RBAC, lockout) ──────────────────────────
 # First-run bootstrap reads STATNIVE_BOOTSTRAP_ADMIN_{EMAIL,PASSWORD,USERNAME}
 # and creates the initial admin user + site. After first boot the envs

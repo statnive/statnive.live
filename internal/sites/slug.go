@@ -12,6 +12,11 @@ import (
 // different site_id.
 var ErrSlugTaken = errors.New("sites: slug taken")
 
+// ErrUnknownSlug is returned by LookupSiteIDBySlug when no site owns the
+// slug (or it is a reserved name). Distinct from ErrUnknownHostname so the
+// MCP site resolver can map it to a clear "unknown site" -32602.
+var ErrUnknownSlug = errors.New("sites: unknown slug")
+
 // reservedSlugs block common route names + vendor-identifying strings
 // from being claimed via signup. Phase 11 uses this list to reject
 // hostile signups that would shadow /api, /app, or /admin URL
@@ -176,6 +181,47 @@ func (r *Registry) ReserveSlug(ctx context.Context, slug string, siteID uint32) 
 	}
 
 	return nil
+}
+
+// LookupSiteIDBySlug resolves a slug to its site_id — the reverse of
+// GenerateSlug / IsSlugAvailable. The MCP server's site resolver uses it so
+// an operator can name a site by its human slug instead of a numeric id.
+//
+// It does NOT filter on enabled: resolving a disabled site is allowed here;
+// whether the caller may READ it is decided downstream by
+// auth.User.ActorCanReadSite (historical analytics on a disabled site stays
+// valid for an authorized actor). Reserved slugs never map to a real site,
+// so they short-circuit to ErrUnknownSlug without a DB round-trip.
+func (r *Registry) LookupSiteIDBySlug(ctx context.Context, slug string) (uint32, error) {
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if slug == "" {
+		return 0, ErrUnknownSlug
+	}
+
+	if _, reserved := reservedSlugs[slug]; reserved {
+		return 0, ErrUnknownSlug
+	}
+
+	var siteID uint32
+
+	row := r.conn.QueryRow(ctx,
+		`SELECT site_id FROM statnive.sites WHERE slug = ? LIMIT 1`,
+		slug,
+	)
+
+	if err := row.Scan(&siteID); err != nil {
+		if strings.Contains(err.Error(), "no rows") {
+			return 0, ErrUnknownSlug
+		}
+
+		return 0, fmt.Errorf("sites slug→id lookup: %w", err)
+	}
+
+	if siteID == 0 {
+		return 0, ErrUnknownSlug
+	}
+
+	return siteID, nil
 }
 
 // ReservedSlugs returns the static blocklist for tests / admin UI
