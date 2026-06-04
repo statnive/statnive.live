@@ -201,6 +201,12 @@ jobs:
       - name: Run integration suite
         run: make test-integration
 
+      # MCP end-to-end: spawns the real compiled binary over stdio + HTTP
+      # against the same ClickHouse, with CH-oracle parity + bearer auth.
+      # Reuses the booted CH + the dist/ produced by make test-integration.
+      - name: Run MCP e2e (real binary, both transports)
+        run: make mcp-e2e
+
       - name: Tear down ClickHouse
         if: always()
         run: docker compose -f deploy/docker-compose.dev.yml down -v
