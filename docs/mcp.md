@@ -148,6 +148,21 @@ mcp:
 ```
 `geo` visibility follows `dashboard.geo_enabled`. To offer the **dashboard self-serve token** path, the operator enables both `mcp.http.enabled` (the transport the tokens authenticate against) and `mcp.tokens.enabled` (the mint UI/endpoints), and sets `mcp.public_url`.
 
+### Deploying the public `/mcp` (SaaS operators)
+
+For a managed SaaS where end-users connect over the internet:
+
+1. Run the MCP HTTP transport on the prod host (loopback) and `mcp.tokens.enabled: true`:
+   ```bash
+   statnive-live mcp serve --transport http --config /etc/statnive-live/config.yaml
+   ```
+   Dashboard-minted tokens authenticate here automatically — the `mcp serve` HTTP auth chain consults the same ClickHouse token store the dashboard mints into (no extra wiring).
+2. Reverse-proxy the existing public TLS edge (the one already terminating `app.statnive.live`) to route `POST /mcp` → `127.0.0.1:8081/mcp`. Keep the binary loopback-bound; the proxy owns TLS. (A direct non-loopback bind is refused unless `posture: saas` **and** `mcp.http.tls_cert_file`/`tls_key_file` are set.)
+3. Set `mcp.public_url: https://app.statnive.live/mcp` so the dashboard "Connect" screen emits the correct command.
+4. Post-deploy smoke (gated `STATNIVE_PROBE_MCP_ENABLED=true`): mint a token for the probe `site_id=9999`, `curl` `/mcp` with it, assert an oracle match, revoke, assert `401`. (Wired into `scripts/prod-probe.sh`.)
+
+Read-only forever: the token path adds no MCP write surface, and the air-gap/inside-iran default leaves `mcp.tokens.enabled` + `mcp.http.enabled` off.
+
 ## Verification
 
 ```bash

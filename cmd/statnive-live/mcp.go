@@ -119,6 +119,15 @@ func runMCP(args []string) error {
 		Now:        time.Now,
 	})
 
+	// Self-serve MCP tokens (PR-A): when enabled, dashboard-minted tokens
+	// resolve via the cached CH store on the HTTP transport. Off ⇒ nil ⇒
+	// only the config-static APITokens work (the stdio/air-gap contract).
+	var mcpTokenStore auth.APITokenStore
+	if cfg.MCP.Tokens.Enabled {
+		mcpTokenStore = auth.NewCachedAPITokenStore(
+			auth.NewClickHouseAPITokenStore(store.Conn(), cfg.ClickHouse.Database), 0)
+	}
+
 	switch transport {
 	case "stdio", "":
 		allowed, perr := parseAllowSites(allowSites)
@@ -131,7 +140,7 @@ func runMCP(args []string) error {
 
 		return srv.ServeStdio(rootCtx, os.Stdin, os.Stdout, actor)
 	case "http":
-		return serveMCPHTTP(rootCtx, srv, cfg, listen, auditLog, logger)
+		return serveMCPHTTP(rootCtx, srv, cfg, listen, mcpTokenStore, auditLog, logger)
 	default:
 		return fmt.Errorf("unknown --transport %q (want stdio or http)", transport)
 	}
@@ -142,7 +151,7 @@ func runMCP(args []string) error {
 // unless posture=saas AND TLS is configured (the first intentional posture
 // branch — the air-gap/Iran builds can never be internet-exposed by config
 // drift).
-func serveMCPHTTP(ctx context.Context, srv *mcp.Server, cfg appConfig, listenOverride string, auditLog *audit.Logger, logger *slog.Logger) error {
+func serveMCPHTTP(ctx context.Context, srv *mcp.Server, cfg appConfig, listenOverride string, tokens auth.APITokenStore, auditLog *audit.Logger, logger *slog.Logger) error {
 	if !cfg.MCP.HTTP.Enabled {
 		return errors.New("mcp http transport disabled: set mcp.http.enabled=true")
 	}
@@ -164,7 +173,10 @@ func serveMCPHTTP(ctx context.Context, srv *mcp.Server, cfg appConfig, listenOve
 		}
 	}
 
-	deps := auth.MiddlewareDeps{Audit: auditLog, APITokens: buildAPITokens(cfg), ClientIPFunc: ingest.ClientIP}
+	// DynamicTokens lets dashboard-minted (self-serve) tokens authenticate on
+	// /mcp, not just the config-static APITokens — the bridge that makes the
+	// "Connect your AI assistant" flow actually work against this endpoint.
+	deps := auth.MiddlewareDeps{Audit: auditLog, APITokens: buildAPITokens(cfg), ClientIPFunc: ingest.ClientIP, DynamicTokens: tokens}
 
 	handler := srv.HTTPHandler(mcp.HTTPOptions{})
 	authed := auth.APITokenMiddleware(deps)(auth.RequireAuthenticated(auditLog)(handler))
