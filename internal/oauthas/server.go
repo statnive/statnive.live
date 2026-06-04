@@ -22,14 +22,22 @@ import (
 // value the resource server enforces) so consent can never grant a site the RS
 // would reject. All zero-value lifespans fall back to the defaults below.
 type Config struct {
-	Issuer         string        // OAuth issuer, e.g. https://app.statnive.live
-	Audience       string        // RFC 8707 resource / aud, e.g. https://app.statnive.live/mcp
-	Scope          string        // the single granted scope, e.g. analytics:read
-	AllowedSiteIDs []uint32      // deployment ceiling; consent ∩ this ∩ user grants
-	AccessTTL      time.Duration // access-token lifespan (default 30m)
-	RefreshTTL     time.Duration // refresh-token lifespan (default 30d)
-	CodeTTL        time.Duration // authorization-code lifespan (default 60s)
-	LoginPath      string        // where to send an unauthenticated /authorize (default "/")
+	Issuer         string   // OAuth issuer, e.g. https://app.statnive.live
+	Audience       string   // RFC 8707 resource / aud, e.g. https://app.statnive.live/mcp
+	Scope          string   // the single granted scope, e.g. analytics:read
+	AllowedSiteIDs []uint32 // deployment ceiling; consent ∩ this ∩ user grants
+	// AccessTTL is the access-token lifespan (default 30m). Access tokens are
+	// stateless JWTs the resource server validates by signature alone — it does
+	// NOT consult the store per request — so a revoked client / refresh family
+	// keeps a live access token working until it expires (revocation lag ≤
+	// AccessTTL). That is the standard stateless-JWT tradeoff (Gate 2 A1); the
+	// real revocation point is refresh rotation (which re-checks the client +
+	// family on every /token refresh). Keep AccessTTL short so the lag stays
+	// small; the 30m default + 30d rotating refresh is the conventional balance.
+	AccessTTL  time.Duration
+	RefreshTTL time.Duration // refresh-token lifespan (default 30d)
+	CodeTTL    time.Duration // authorization-code lifespan (default 60s)
+	LoginPath  string        // where to send an unauthenticated /authorize (default "/")
 }
 
 const (

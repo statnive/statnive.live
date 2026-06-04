@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/statnive/statnive.live/internal/auth"
+	"github.com/statnive/statnive.live/internal/metrics"
 )
 
 // authRequest is the validated /authorize (and re-validated /consent) request.
@@ -37,6 +38,10 @@ func (s *Server) Authorize(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	// Count every authorize request (before validation) so the AuthorizeFlood
+	// alert measures GET /authorize volume, not just consent decisions (Gate 2 B3).
+	s.metrics.IncOAuthAuthorize(metrics.OAuthRequested)
 
 	q := r.URL.Query()
 

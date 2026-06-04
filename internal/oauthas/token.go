@@ -75,6 +75,9 @@ func (s *Server) authenticateClient(w http.ResponseWriter, r *http.Request) (Cli
 
 	client, err := s.store.GetClient(r.Context(), clientID)
 	if err != nil {
+		// Count unknown-client as a rejection so the rejection-spike alert
+		// catches client-id enumeration / stuffing (Gate 2 B2).
+		s.metrics.IncOAuthToken(metrics.OAuthRejected)
 		s.oauthError(w, http.StatusUnauthorized, "invalid_client", "unknown client")
 
 		return Client{}, false
@@ -102,6 +105,7 @@ func (s *Server) grantAuthorizationCode(w http.ResponseWriter, r *http.Request, 
 	verifier := r.PostFormValue("code_verifier")
 
 	if rawCode == "" {
+		s.metrics.IncOAuthToken(metrics.OAuthRejected)
 		s.oauthError(w, http.StatusBadRequest, "invalid_request", "missing code")
 
 		return
@@ -144,6 +148,7 @@ func (s *Server) grantAuthorizationCode(w http.ResponseWriter, r *http.Request, 
 func (s *Server) grantRefreshToken(w http.ResponseWriter, r *http.Request, client Client) {
 	rawRefresh := r.PostFormValue("refresh_token")
 	if rawRefresh == "" {
+		s.metrics.IncOAuthToken(metrics.OAuthRejected)
 		s.oauthError(w, http.StatusBadRequest, "invalid_request", "missing refresh_token")
 
 		return

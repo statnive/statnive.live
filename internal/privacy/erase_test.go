@@ -4,6 +4,8 @@ import (
 	"errors"
 	"regexp"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestEraseByCookieID_RejectsEmptyHash(t *testing.T) {
@@ -14,6 +16,19 @@ func TestEraseByCookieID_RejectsEmptyHash(t *testing.T) {
 	_, err := e.EraseByCookieID(t.Context(), 1, "")
 	if !errors.Is(err, errEraseEmptyHash) {
 		t.Errorf("empty hash should return errEraseEmptyHash, got %v", err)
+	}
+}
+
+// Gate 2 E1: the OAuth-grant eraser must reject a nil user_id so a malformed
+// account-deletion call can never mass-delete every user's grants.
+func TestEraseOAuthGrantsByUserID_RejectsNilUser(t *testing.T) {
+	t.Parallel()
+
+	e := NewEraseEnumerator(nil, "statnive")
+
+	_, err := e.EraseOAuthGrantsByUserID(t.Context(), uuid.Nil)
+	if !errors.Is(err, errEraseEmptyUserID) {
+		t.Errorf("nil user_id should return errEraseEmptyUserID, got %v", err)
 	}
 }
 

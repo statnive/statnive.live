@@ -354,7 +354,12 @@ func TestOAuthAS_HappyPath(t *testing.T) {
 		t.Errorf("access token site_ids = %v, want [%d]", got, f.siteA)
 	}
 
-	// Observability wiring: consent-granted + token-issued counters bumped.
+	// Observability wiring: authorize-requested (GET /authorize) +
+	// consent-granted + token-issued counters bumped.
+	if f.reg.OAuthAuthorizeFor(metrics.OAuthRequested) < 1 {
+		t.Error("metric statnive_mcp_oauth_authorize_total{requested} not incremented (Gate 2 B3)")
+	}
+
 	if f.reg.OAuthAuthorizeFor(metrics.OAuthGranted) < 1 {
 		t.Error("metric statnive_mcp_oauth_authorize_total{granted} not incremented")
 	}
@@ -587,6 +592,19 @@ func TestOAuthAS_RedTeam(t *testing.T) {
 		rec, tr := f.exchange(t, codeExchangeForm(clientID, "WRONG-SECRET", code, redirectURI, verifier))
 		if rec.Code != http.StatusUnauthorized || tr.Error != "invalid_client" {
 			t.Errorf("bad secret: status %d err %q, want 401 invalid_client", rec.Code, tr.Error)
+		}
+	})
+
+	t.Run("unknown client_id counted as rejected (Gate 2 B2)", func(t *testing.T) {
+		before := f.reg.OAuthTokenFor(metrics.OAuthRejected)
+
+		rec, tr := f.exchange(t, codeExchangeForm("nonexistent-client", "x", "x", redirectURI, verifier))
+		if rec.Code != http.StatusUnauthorized || tr.Error != "invalid_client" {
+			t.Errorf("unknown client: status %d err %q, want 401 invalid_client", rec.Code, tr.Error)
+		}
+
+		if f.reg.OAuthTokenFor(metrics.OAuthRejected) <= before {
+			t.Error("unknown client_id did not bump token{rejected} — stuffing alert stays blind")
 		}
 	})
 }

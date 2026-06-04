@@ -59,10 +59,11 @@ const (
 // statnive_mcp_oauth_{authorize,token}_total{outcome="..."} series. In the
 // default/air-gap build nothing emits these, so /metrics shows no oauth lines.
 const (
+	OAuthRequested    = "requested"     // a GET /authorize request arrived (flood signal)
 	OAuthGranted      = "granted"       // consent approved → code issued
 	OAuthDenied       = "denied"        // user denied consent
 	OAuthIssued       = "issued"        // /token minted an access token
-	OAuthRejected     = "rejected"      // /token rejected a grant (bad code/PKCE/refresh)
+	OAuthRejected     = "rejected"      // /token rejected a grant (bad code/PKCE/refresh/client)
 	OAuthRefreshReuse = "refresh_reuse" // rotated refresh token reused → family revoked (theft signal)
 )
 

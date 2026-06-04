@@ -74,11 +74,12 @@ groups:
         annotations:
           summary: "OAuth /token rejection rate > 0.2/s (5m) — credential stuffing / probing?"
 
-      # Authorize is human-paced for the single ChatGPT client; a sustained
-      # consent flood is abnormal (abuse or a misbehaving client loop).
+      # GET /authorize is human-paced for the single ChatGPT client; a sustained
+      # request flood is abnormal (abuse or a misbehaving client loop). Targets
+      # the {requested} series (every GET /authorize), not consent decisions.
       - alert: StatniveOAuthAuthorizeFlood
-        expr: sum(rate(statnive_mcp_oauth_authorize_total[5m])) > 1
+        expr: sum(rate(statnive_mcp_oauth_authorize_total{outcome="requested"}[5m])) > 1
         for: 5m
         labels: { severity: warning }
         annotations:
-          summary: "OAuth consent decisions > 1/s (5m) — abnormal for a single connector"
+          summary: "GET /authorize requests > 1/s (5m) — abnormal for a single connector"
