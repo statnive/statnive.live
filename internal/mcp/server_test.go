@@ -103,6 +103,11 @@ type fakeGoals struct {
 
 func (g fakeGoals) GoalsForSite(siteID uint32) []goals.Goal { return g.bySite[siteID] }
 
+// fakePinger is a healthChecker stub for system_health.
+type fakePinger struct{ err error }
+
+func (p fakePinger) Ping(_ context.Context) error { return p.err }
+
 type fakeRegistry struct {
 	list   []sites.Site
 	byID   map[uint32]sites.SiteAdmin
@@ -156,6 +161,7 @@ func newTestServer(store *fakeStore) *Server {
 	return New(Config{
 		Store:    store,
 		Concrete: store, // *fakeStore also satisfies eventAuditReader
+		Health:   fakePinger{},
 		Registry: newTestRegistry(),
 		Goals: fakeGoals{bySite: map[uint32][]goals.Goal{
 			1: {{Name: "Purchase", Pattern: "purchase", MatchType: goals.MatchTypeEventNameEquals, Value: 100, Enabled: true}},
@@ -299,7 +305,7 @@ func TestToolsList(t *testing.T) {
 	for _, want := range []string{
 		"list_sites", "overview", "trend", "sources", "pages", "campaigns",
 		"seo", "realtime", "geo", "compare", "props_list", "goals_list",
-		"my_access", "event_audit", "site_config", "devices", "funnel",
+		"my_access", "event_audit", "site_config", "about", "system_health", "devices", "funnel",
 	} {
 		if !names[want] {
 			t.Errorf("missing tool %q", want)

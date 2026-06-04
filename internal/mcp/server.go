@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/statnive/statnive.live/internal/about"
 	"github.com/statnive/statnive.live/internal/alerts"
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
@@ -71,6 +72,14 @@ type eventAuditReader interface {
 	EventNameCardinality(ctx context.Context, siteID uint32, from, to time.Time) ([]storage.EventNameCount, error)
 }
 
+// healthChecker is the liveness probe backing system_health. A *clickhouse*
+// driver.Conn satisfies it (Ping); nil ⇒ system_health reports CH status as
+// "unknown". The separate MCP process can only report what it can reach — CH
+// connectivity + build — not the daemon's in-memory WAL/cert state.
+type healthChecker interface {
+	Ping(ctx context.Context) error
+}
+
 // registry is the subset of *sites.Registry the server needs.
 type registry interface {
 	List(ctx context.Context) ([]sites.Site, error)
@@ -85,6 +94,8 @@ type Config struct {
 	Registry   registry
 	Goals      goalLister       // optional — nil ⇒ goals_list returns an empty list
 	Concrete   eventAuditReader // optional off-interface reads (event_audit); nil ⇒ not available
+	Health     healthChecker    // optional CH liveness probe (system_health); nil ⇒ "unknown"
+	Build      about.BuildInfo  // build version/sha/goversion for the about tool
 	Audit      *audit.Logger
 	Log        *slog.Logger
 	Alerts     *alerts.Sink
@@ -102,6 +113,8 @@ type Server struct {
 	registry   registry
 	goals      goalLister
 	concrete   eventAuditReader
+	health     healthChecker
+	build      about.BuildInfo
 	audit      *audit.Logger
 	log        *slog.Logger
 	budgets    *budgetSet
@@ -133,6 +146,8 @@ func New(cfg Config) *Server {
 		registry:   cfg.Registry,
 		goals:      cfg.Goals,
 		concrete:   cfg.Concrete,
+		health:     cfg.Health,
+		build:      cfg.Build,
 		audit:      cfg.Audit,
 		log:        log,
 		budgets:    newBudgetSet(cfg.Budget, now),

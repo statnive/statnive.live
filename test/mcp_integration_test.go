@@ -44,7 +44,8 @@ func mcpTestServer(t *testing.T, store *storage.ClickHouseStore) *mcp.Server {
 
 	return mcp.New(mcp.Config{
 		Store:      cached,
-		Concrete:   store, // off-interface event_audit read
+		Concrete:   store,        // off-interface event_audit read
+		Health:     store.Conn(), // CH liveness for system_health
 		Registry:   sites.New(store.Conn()),
 		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Version:    "itest",
@@ -300,8 +301,31 @@ func TestMCP_Stdio_ToolsList_RealCH(t *testing.T) {
 	result, _ := resp["result"].(map[string]any)
 	tools, _ := result["tools"].([]any)
 
-	if len(tools) != 17 {
-		t.Fatalf("tools/list returned %d tools, want 17 (PR3 catalog, geo enabled)", len(tools))
+	if len(tools) != 19 {
+		t.Fatalf("tools/list returned %d tools, want 19 (PR3b catalog, geo enabled)", len(tools))
+	}
+}
+
+func TestMCP_SystemHealth_RealCH(t *testing.T) {
+	siteID, hostname := uniqueSite()
+
+	stack := newIntegrationStack(t, siteID, hostname)
+	defer stack.shutdown()
+
+	srv := mcpTestServer(t, stack.store)
+
+	// allowAll=true → admin actor (system_health is admin-only). Real CH is up.
+	resp := callTool(t, srv, true, nil,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"system_health","arguments":{}}}`)
+
+	result, _ := resp["result"].(map[string]any)
+	if result == nil {
+		t.Fatalf("no result: %v", resp)
+	}
+
+	sc, _ := result["structuredContent"].(map[string]any)
+	if sc["clickhouse"] != "up" {
+		t.Errorf("system_health clickhouse = %v, want up (real CH reachable)", sc["clickhouse"])
 	}
 }
 

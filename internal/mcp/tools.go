@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/statnive/statnive.live/internal/about"
 	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/storage"
 )
@@ -30,6 +32,8 @@ func catalog() []toolDef {
 		myAccessTool(),
 		eventAuditTool(),
 		siteConfigTool(),
+		aboutTool(),
+		systemHealthTool(),
 		devicesTool(),
 		funnelTool(),
 	}
@@ -284,6 +288,24 @@ var siteConfigOutputSchema = json.RawMessage(`{
     "respect_dnt": {"type": "boolean"}, "respect_gpc": {"type": "boolean"}, "track_bots": {"type": "boolean"},
     "event_allowlist": {"type": "array", "items": {"type": "string"}},
     "allowed_origins": {"type": "array", "items": {"type": "string"}}
+  }
+}`)
+
+var aboutOutputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "version": {"type": "string"}, "git_sha": {"type": "string"}, "go_version": {"type": "string"},
+    "attributions": {"type": "array", "items": {"type": "object", "properties": {
+      "name": {"type": "string"}, "license": {"type": "string"}, "url": {"type": "string"}, "text": {"type": "string"}}}}
+  }
+}`)
+
+var systemHealthOutputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "clickhouse": {"type": "string", "enum": ["up", "down", "unknown"]},
+    "version": {"type": "string"},
+    "checked_at": {"type": "string", "format": "date-time"}
   }
 }`)
 
@@ -722,6 +744,62 @@ func siteConfigTool() toolDef {
 				"track_bots":      sa.TrackBots,
 				"event_allowlist": sa.EventAllowlist,
 				"allowed_origins": sa.AllowedOrigins,
+			}, 1, nil
+		},
+	}
+}
+
+// aboutTool returns the build version + third-party data attributions
+// (incl. the CC-BY-SA IP2Location LITE notice the license requires on the
+// /about surface). Any authenticated actor; global; no PII.
+func aboutTool() toolDef {
+	return toolDef{
+		Name:         "about",
+		Description:  "Build/version info for this statnive-live instance plus required third-party data attributions (e.g. IP2Location LITE). Use to report which build an answer came from.",
+		RoleClass:    auth.RoleAPI,
+		Scoped:       false,
+		InputSchema:  emptyInputSchema,
+		OutputSchema: aboutOutputSchema,
+		Annotations:  readOnly(),
+		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+			return map[string]any{
+				"version":      s.build.Version,
+				"git_sha":      s.build.GitSHA,
+				"go_version":   s.build.GoVersion,
+				"attributions": about.DefaultAttributions(),
+			}, 1, nil
+		},
+	}
+}
+
+// systemHealthTool reports what the separate MCP process can know about
+// backend health: ClickHouse connectivity (a Ping) + build version. It does
+// NOT report the daemon's in-memory WAL fill / cert expiry (that state lives
+// in the running daemon, not this process). Admin-only; global.
+func systemHealthTool() toolDef {
+	return toolDef{
+		Name:         "system_health",
+		Description:  "Admin: liveness of the analytics backend as seen by the MCP process — ClickHouse connectivity and build version. Does NOT include the daemon's WAL/cert/alert state (those live in the running server).",
+		RoleClass:    auth.RoleAdmin,
+		Scoped:       false,
+		InputSchema:  emptyInputSchema,
+		OutputSchema: systemHealthOutputSchema,
+		Annotations:  readOnly(),
+		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
+			ch := "unknown"
+
+			if s.health != nil {
+				if err := s.health.Ping(ctx); err != nil {
+					ch = "down"
+				} else {
+					ch = "up"
+				}
+			}
+
+			return map[string]any{
+				"clickhouse": ch,
+				"version":    s.version,
+				"checked_at": s.now().UTC().Format(time.RFC3339),
 			}, 1, nil
 		},
 	}

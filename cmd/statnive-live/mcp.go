@@ -107,7 +107,9 @@ func runMCP(args []string) error {
 		Store:      storage.NewCachedStore(storage.NewClickhouseQueryStore(store), dashboardCacheCapacity),
 		Registry:   sites.New(store.Conn()),
 		Goals:      goalSnap,
-		Concrete:   store, // off-interface reads (event_audit) live on the concrete store
+		Concrete:   store,        // off-interface reads (event_audit) live on the concrete store
+		Health:     store.Conn(), // CH liveness probe for system_health (driver.Conn has Ping)
+		Build:      readBuildInfo(),
 		Audit:      auditLog,
 		Log:        logger,
 		Alerts:     alertsSink,
