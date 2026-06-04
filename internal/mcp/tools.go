@@ -344,6 +344,7 @@ func overviewTool() toolDef {
 		InputSchema:  analyticsInputSchema,
 		OutputSchema: overviewOutputSchema,
 		Annotations:  readOnly(),
+		Widget:       defaultWidget(),
 		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
 			res, err := s.store.Overview(ctx, tc.filter)
 			if err != nil {
@@ -365,6 +366,7 @@ func trendTool() toolDef {
 		InputSchema:  analyticsInputSchema,
 		OutputSchema: trendOutputSchema,
 		Annotations:  readOnly(),
+		Widget:       defaultWidget(),
 		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
 			res, err := s.store.Trend(ctx, tc.filter)
 			if err != nil {
@@ -388,6 +390,7 @@ func sourcesTool() toolDef {
 		InputSchema:  analyticsInputSchema,
 		OutputSchema: sourcesOutputSchema,
 		Annotations:  readOnly(),
+		Widget:       defaultWidget(),
 		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
 			rows, err := s.store.Sources(ctx, tc.filter)
 			if err != nil {
@@ -502,6 +505,7 @@ func geoTool() toolDef {
 		InputSchema:  analyticsInputSchema,
 		OutputSchema: geoOutputSchema,
 		Annotations:  readOnly(),
+		Widget:       defaultWidget(),
 		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
 			if !s.geoEnabled {
 				return nil, 0, storage.ErrNotImplemented

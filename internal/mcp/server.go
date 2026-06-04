@@ -106,27 +106,32 @@ type Config struct {
 	// _meta.securitySchemes (noauth + oauth2) — the v2.5 ChatGPT-app seam.
 	// Empty for the v2 loopback/stdio profile (no _meta emitted).
 	OAuthScopes []string
-	Now         func() time.Time
+	// WidgetsEnabled turns on the v3 ChatGPT-app UI layer: advertise the
+	// resources capability, serve the ui:// widget, and emit per-tool
+	// _meta.ui. False (default) ⇒ the v2 surface is byte-identical.
+	WidgetsEnabled bool
+	Now            func() time.Time
 }
 
 // Server is the read-only MCP server. It is transport-agnostic: stdio and
 // HTTP both decode a request, supply the authenticated actor, and call
 // Handle.
 type Server struct {
-	store       analyticsStore
-	registry    registry
-	goals       goalLister
-	concrete    eventAuditReader
-	health      healthChecker
-	build       about.BuildInfo
-	audit       *audit.Logger
-	log         *slog.Logger
-	budgets     *budgetSet
-	anomaly     *anomalyDetector
-	now         func() time.Time
-	version     string
-	geoEnabled  bool
-	oauthScopes []string
+	store          analyticsStore
+	registry       registry
+	goals          goalLister
+	concrete       eventAuditReader
+	health         healthChecker
+	build          about.BuildInfo
+	audit          *audit.Logger
+	log            *slog.Logger
+	budgets        *budgetSet
+	anomaly        *anomalyDetector
+	now            func() time.Time
+	version        string
+	geoEnabled     bool
+	oauthScopes    []string
+	widgetsEnabled bool
 
 	tools map[string]toolDef
 	order []string
@@ -147,21 +152,22 @@ func New(cfg Config) *Server {
 	}
 
 	s := &Server{
-		store:       cfg.Store,
-		registry:    cfg.Registry,
-		goals:       cfg.Goals,
-		concrete:    cfg.Concrete,
-		health:      cfg.Health,
-		build:       cfg.Build,
-		audit:       cfg.Audit,
-		log:         log,
-		budgets:     newBudgetSet(cfg.Budget, now),
-		anomaly:     newAnomalyDetector(cfg.Alerts),
-		now:         now,
-		version:     cfg.Version,
-		geoEnabled:  cfg.GeoEnabled,
-		oauthScopes: cfg.OAuthScopes,
-		tools:       make(map[string]toolDef),
+		store:          cfg.Store,
+		registry:       cfg.Registry,
+		goals:          cfg.Goals,
+		concrete:       cfg.Concrete,
+		health:         cfg.Health,
+		build:          cfg.Build,
+		audit:          cfg.Audit,
+		log:            log,
+		budgets:        newBudgetSet(cfg.Budget, now),
+		anomaly:        newAnomalyDetector(cfg.Alerts),
+		now:            now,
+		version:        cfg.Version,
+		geoEnabled:     cfg.GeoEnabled,
+		oauthScopes:    cfg.OAuthScopes,
+		widgetsEnabled: cfg.WidgetsEnabled,
+		tools:          make(map[string]toolDef),
 	}
 
 	for _, td := range catalog() {
@@ -188,6 +194,10 @@ func (s *Server) handle(ctx context.Context, req request, actor *auth.User) *res
 		return s.toolsList(req)
 	case "tools/call":
 		return s.toolsCall(ctx, req, actor)
+	case "resources/list":
+		return s.resourcesList(req)
+	case "resources/read":
+		return s.resourcesRead(req)
 	default:
 		if req.isNotification() {
 			return nil
@@ -198,9 +208,15 @@ func (s *Server) handle(ctx context.Context, req request, actor *auth.User) *res
 }
 
 func (s *Server) initialize(req request) *response {
+	capabilities := map[string]any{"tools": map[string]any{}}
+	if s.widgetsEnabled {
+		// v3 ChatGPT-app: widgets are served as read-only MCP resources.
+		capabilities["resources"] = map[string]any{}
+	}
+
 	result := map[string]any{
 		"protocolVersion": mcpProtocolVersion,
-		"capabilities":    map[string]any{"tools": map[string]any{}},
+		"capabilities":    capabilities,
 		"serverInfo":      map[string]any{"name": serverName, "version": s.version},
 		"instructions":    serverInstructions,
 	}
@@ -238,7 +254,7 @@ func (s *Server) toolsList(req request) *response {
 			InputSchema:  td.InputSchema,
 			OutputSchema: td.OutputSchema,
 			Annotations:  td.Annotations,
-			Meta:         td.metaMap(s.oauthScopes),
+			Meta:         td.metaMap(s.oauthScopes, s.widgetsEnabled),
 		})
 	}
 
@@ -419,10 +435,10 @@ func (s *Server) emit(ctx context.Context, name audit.EventName, attrs ...slog.A
 // for the v2 loopback profile: Widget is nil for every tool and oauthScopes is
 // empty. The ChatGPT-app seams populate it — v2.5 adds per-tool
 // securitySchemes when OAuth is on; v3 adds the widget descriptor.
-func (td toolDef) metaMap(oauthScopes []string) map[string]any {
+func (td toolDef) metaMap(oauthScopes []string, widgetsEnabled bool) map[string]any {
 	meta := map[string]any{}
 
-	if td.Widget != nil {
+	if widgetsEnabled && td.Widget != nil {
 		ui := map[string]any{"resourceUri": td.Widget.TemplateURI}
 		meta["ui"] = ui
 

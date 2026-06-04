@@ -105,20 +105,21 @@ func runMCP(args []string) error {
 	}
 
 	srv := mcp.New(mcp.Config{
-		Store:       storage.NewCachedStore(storage.NewClickhouseQueryStore(store), dashboardCacheCapacity),
-		Registry:    sites.New(store.Conn()),
-		Goals:       goalSnap,
-		Concrete:    store,        // off-interface reads (event_audit) live on the concrete store
-		Health:      store.Conn(), // CH liveness probe for system_health (driver.Conn has Ping)
-		Build:       readBuildInfo(),
-		Audit:       auditLog,
-		Log:         logger,
-		Alerts:      alertsSink,
-		Budget:      mcpBudget(cfg),
-		Version:     mcpVersion(),
-		GeoEnabled:  cfg.Dashboard.GeoEnabled,
-		OAuthScopes: mcpOAuthScopes(cfg), // per-tool securitySchemes (chatgpt-app only)
-		Now:         time.Now,
+		Store:          storage.NewCachedStore(storage.NewClickhouseQueryStore(store), dashboardCacheCapacity),
+		Registry:       sites.New(store.Conn()),
+		Goals:          goalSnap,
+		Concrete:       store,        // off-interface reads (event_audit) live on the concrete store
+		Health:         store.Conn(), // CH liveness probe for system_health (driver.Conn has Ping)
+		Build:          readBuildInfo(),
+		Audit:          auditLog,
+		Log:            logger,
+		Alerts:         alertsSink,
+		Budget:         mcpBudget(cfg),
+		Version:        mcpVersion(),
+		GeoEnabled:     cfg.Dashboard.GeoEnabled,
+		OAuthScopes:    mcpOAuthScopes(cfg), // per-tool securitySchemes (chatgpt-app only)
+		WidgetsEnabled: cfg.MCP.Widgets.Enabled,
+		Now:            time.Now,
 	})
 
 	switch transport {
