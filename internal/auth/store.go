@@ -35,6 +35,14 @@ type Store interface {
 	DisableUser(ctx context.Context, userID uuid.UUID) error
 	ChangeRole(ctx context.Context, userID uuid.UUID, newRole Role) error
 
+	// DeleteUser HARD-deletes the users row (irreversible). Distinct from
+	// DisableUser (reversible). The CachedStore wrapper cascade-revokes the
+	// user's sessions (single-source CVE-2024-10924 contract); the bare
+	// ClickHouseStore.DeleteUser removes only the identity row. Callers should
+	// also erase the user's account-scoped data (privacy.EraseByUserID). Used
+	// by the admin hard-delete endpoint.
+	DeleteUser(ctx context.Context, userID uuid.UUID) error
+
 	// Session CRUD.
 	CreateSession(ctx context.Context, s *Session, ipHash [16]byte, userAgent string) error
 	LookupSession(ctx context.Context, hash [32]byte) (*SessionInfo, error)
@@ -323,6 +331,25 @@ func (s *ClickHouseStore) UpdateUserPassword(
 // DisableUser flips disabled=1 and bumps updated_at.
 func (s *ClickHouseStore) DisableUser(ctx context.Context, userID uuid.UUID) error {
 	return s.mutateUser(ctx, userID, "", "", true)
+}
+
+// DeleteUser HARD-deletes the users row via an ALTER ... DELETE mutation
+// (physical removal of the email + password_hash, irreversible) — distinct from
+// DisableUser's reversible tombstone. The auth users table is bounded
+// (operators × sites), so the WHERE user_id scan is microseconds. The single
+// `?` binds userID; never string-concatenated. Callers (admin hard-delete) must
+// revoke sessions + erase account-scoped data BEFORE calling this.
+func (s *ClickHouseStore) DeleteUser(ctx context.Context, userID uuid.UUID) error {
+	if userID == uuid.Nil {
+		return fmt.Errorf("%w: nil user_id", ErrInvalidInput)
+	}
+
+	const q = `ALTER TABLE %s.users DELETE WHERE user_id = ?`
+	if err := s.conn.Exec(ctx, fmt.Sprintf(q, s.db), userID); err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+
+	return nil
 }
 
 // ChangeRole swaps the role on a user. RBAC demotion that doesn't
@@ -777,6 +804,15 @@ func (c *CachedStore) UpdateUserPassword(
 func (c *CachedStore) DisableUser(ctx context.Context, userID uuid.UUID) error {
 	return c.cascadeRevoke(ctx, userID, func() error {
 		return c.Store.DisableUser(ctx, userID)
+	})
+}
+
+// DeleteUser hard-deletes the user row and cascade-revokes sessions — so the
+// single-source CVE-2024-10924 cascade contract holds for EVERY caller of the
+// Store interface, not just the admin handler that happens to revoke first.
+func (c *CachedStore) DeleteUser(ctx context.Context, userID uuid.UUID) error {
+	return c.cascadeRevoke(ctx, userID, func() error {
+		return c.Store.DeleteUser(ctx, userID)
 	})
 }
 

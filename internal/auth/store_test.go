@@ -105,6 +105,34 @@ func TestCachedStore_CascadesOnRoleChange(t *testing.T) {
 	}
 }
 
+func TestCachedStore_CascadesOnDelete(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeStore()
+	cs := NewCachedStore(fs, time.Second)
+	ctx := context.Background()
+
+	u := &User{UserID: uuid.New(), SiteID: 1, Email: "a@b.c", Role: RoleViewer}
+	_ = cs.CreateUser(ctx, u, "hash")
+
+	p, _ := NewToken()
+	sess := &Session{
+		IDHash: p.Hash, UserID: u.UserID, SiteID: 1, Role: RoleViewer,
+		CreatedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(time.Hour).Unix(),
+	}
+	_ = cs.CreateSession(ctx, sess, [16]byte{}, "ua")
+
+	if err := cs.DeleteUser(ctx, u.UserID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+
+	// The cascade must hold for ANY DeleteUser caller, not only the admin
+	// handler that revokes first — the single-source CVE-2024-10924 contract.
+	if _, err := cs.LookupSession(ctx, p.Hash); err == nil {
+		t.Error("deleted user's session still valid — cascade not enforced at the store layer")
+	}
+}
+
 func TestCachedStore_Caches(t *testing.T) {
 	t.Parallel()
 

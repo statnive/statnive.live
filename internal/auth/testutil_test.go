@@ -172,6 +172,19 @@ func (f *fakeStore) ChangeRole(_ context.Context, id uuid.UUID, role Role) error
 	return nil
 }
 
+func (f *fakeStore) DeleteUser(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if _, ok := f.usersByID[id]; !ok {
+		return ErrNotFound
+	}
+
+	delete(f.usersByID, id)
+
+	return nil
+}
+
 func (f *fakeStore) CreateSession(
 	_ context.Context, s *Session, _ [16]byte, _ string,
 ) error {

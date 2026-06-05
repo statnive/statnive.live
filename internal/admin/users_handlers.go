@@ -584,6 +584,137 @@ func (h *Users) setEnabled(
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Delete handles DELETE /api/admin/users/{id} — HARD-delete an account
+// (irreversible; distinct from the reversible Disable). It (1) revokes every
+// active session, (2) revokes every per-site grant, (3) erases the account's
+// data (self-serve MCP tokens + OAuth grants) via the eraser, then (4) removes
+// the users row, and audits the deletion. Guards: an admin cannot delete their
+// own account (self-lockout), nor the last enabled admin on the target's site
+// (org-lockout). Order kills live access first, then erases, then removes the
+// identity — so a mid-sequence failure leaves a recoverable, still-revoked user
+// rather than orphaned grants/tokens.
+func (h *Users) Delete(w http.ResponseWriter, r *http.Request) {
+	actor := auth.UserFrom(r.Context())
+	if actor == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+
+		return
+	}
+
+	userID, ok := parseUUIDParam(r)
+	if !ok {
+		http.Error(w, "bad request", http.StatusBadRequest)
+
+		return
+	}
+
+	if userID == actor.UserID {
+		http.Error(w, "cannot delete your own account", http.StatusForbidden)
+
+		return
+	}
+
+	u, err := h.deps.Auth.GetUserByID(r.Context(), userID) // nosemgrep: auth-return-nil-guard
+	if err != nil || u == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+
+		return
+	}
+
+	if !h.canManageUser(r.Context(), actor, u) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+
+		return
+	}
+
+	if u.Role == auth.RoleAdmin {
+		other, cErr := h.hasOtherEnabledAdmin(r.Context(), u)
+		if cErr != nil {
+			h.deps.emitDashboardError(r, "delete_user_admin_count", cErr)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+
+			return
+		}
+
+		if !other {
+			http.Error(w, "cannot delete the last enabled admin", http.StatusConflict)
+
+			return
+		}
+	}
+
+	if reason, cErr := h.cascadeEraseAndDelete(r.Context(), userID); cErr != nil {
+		h.deps.emitDashboardError(r, reason, cErr)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
+	h.emitUserEvent(r, audit.EventAdminUserDeleted, actor, u)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// cascadeEraseAndDelete is the destructive half of Delete, split out to keep the
+// handler's complexity in check. Ordered so a mid-sequence failure leaves a
+// recoverable, still-revoked user rather than orphaned grants/tokens:
+//  1. revoke all sessions (kill live access; cascade-invalidates the cache),
+//  2. revoke every per-site grant,
+//  3. erase account-scoped data (MCP tokens + OAuth grants) — GDPR Art. 17,
+//  4. remove the identity row last.
+//
+// Returns the dashboard-error reason + the error on the first failure ("" / nil
+// on success) so the caller emits one audit + a single 500.
+func (h *Users) cascadeEraseAndDelete(ctx context.Context, userID uuid.UUID) (string, error) {
+	if err := h.deps.Auth.RevokeAllUserSessions(ctx, userID); err != nil {
+		return "delete_user_revoke_sessions", err
+	}
+
+	if h.deps.UserSites != nil {
+		grants, err := h.deps.UserSites.LoadUserSites(ctx, userID)
+		if err != nil {
+			return "delete_user_load_grants", err
+		}
+
+		for siteID := range grants {
+			if rvErr := h.deps.UserSites.Revoke(ctx, userID, siteID); rvErr != nil {
+				return "delete_user_revoke_grant", rvErr
+			}
+		}
+	}
+
+	if h.deps.Eraser != nil {
+		if _, err := h.deps.Eraser.EraseByUserID(ctx, userID); err != nil {
+			return "delete_user_erase", err
+		}
+	}
+
+	if err := h.deps.Auth.DeleteUser(ctx, userID); err != nil {
+		return "delete_user", err
+	}
+
+	return "", nil
+}
+
+// hasOtherEnabledAdmin reports whether an enabled admin OTHER than target
+// exists on target's site — the last-admin lockout guard. Scoped to
+// target.SiteID (the users-row site) because that is the lookup ListUsers
+// supports; the common single-site operator model is exactly what this
+// protects.
+func (h *Users) hasOtherEnabledAdmin(ctx context.Context, target *auth.User) (bool, error) {
+	users, err := h.deps.Auth.ListUsers(ctx, target.SiteID)
+	if err != nil {
+		return false, err
+	}
+
+	for _, u := range users {
+		if u.UserID != target.UserID && u.Role == auth.RoleAdmin && !u.Disabled {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func (h *Users) emitUserEvent(
 	r *http.Request, evt audit.EventName, actor, target *auth.User,
 ) {

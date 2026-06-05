@@ -140,6 +140,7 @@ const (
 	EventAdminUserDisabled EventName = "admin.user.disabled"
 	EventAdminUserEnabled  EventName = "admin.user.enabled"
 	EventAdminUserPwReset  EventName = "admin.user.password_reset"
+	EventAdminUserDeleted  EventName = "admin.user.deleted"
 	EventAdminGoalCreated  EventName = "admin.goal.created"
 	EventAdminGoalUpdated  EventName = "admin.goal.updated"
 	EventAdminGoalDisabled EventName = "admin.goal.disabled"

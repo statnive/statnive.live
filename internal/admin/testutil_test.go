@@ -143,6 +143,20 @@ func (f *fakeAuthStore) ChangeRole(_ context.Context, id uuid.UUID, role auth.Ro
 	return nil
 }
 
+func (f *fakeAuthStore) DeleteUser(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if _, ok := f.usersByID[id]; !ok {
+		return auth.ErrNotFound
+	}
+
+	delete(f.usersByID, id)
+	delete(f.passwords, id)
+
+	return nil
+}
+
 func (f *fakeAuthStore) CreateSession(_ context.Context, s *auth.Session, _ [16]byte, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
