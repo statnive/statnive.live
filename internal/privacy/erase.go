@@ -154,6 +154,33 @@ func (e *EraseEnumerator) EraseOAuthGrantsByUserID(ctx context.Context, userID u
 	return out, nil
 }
 
+// EraseByUserID is the single account-scoped erasure entry point: it purges
+// EVERY dashboard-user-linked store for userID — self-serve MCP tokens
+// (mcp_tokens, via EraseTokensByUserID) AND OAuth grants (oauth_auth_codes +
+// oauth_refresh_tokens, via EraseOAuthGrantsByUserID).
+//
+// An account-deletion / user-scoped DSAR path MUST call THIS rather than the
+// individual erasers, so a future user_id-keyed table can't be silently left
+// out of erasure — the exact bug class LEARN.md Lesson 40 records (a new table
+// added without an erase path). This is also the prod-enable gate referenced in
+// docs/runbook.md § "ChatGPT-app OAuth AS — go-live": confirm the account-erase
+// path calls privacy.EraseByUserID before enabling oauth_as in a GDPR
+// deployment.
+//
+// Token erasure runs first and aborts the call on error (returned wrapped) so a
+// partial erase is visible; otherwise the per-table oauth results are returned.
+func (e *EraseEnumerator) EraseByUserID(ctx context.Context, userID uuid.UUID) ([]EraseResult, error) {
+	if userID == uuid.Nil {
+		return nil, errEraseEmptyUserID
+	}
+
+	if err := e.EraseTokensByUserID(ctx, userID); err != nil {
+		return nil, fmt.Errorf("erase mcp tokens for user %s: %w", userID, err)
+	}
+
+	return e.EraseOAuthGrantsByUserID(ctx, userID)
+}
+
 // discoverTablesWithCookieID queries system.columns + system.tables to
 // find every base MergeTree (or Replicated*MergeTree) in the schema
 // that has a `cookie_id` column. Filters out materialized views and

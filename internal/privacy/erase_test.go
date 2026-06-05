@@ -32,6 +32,20 @@ func TestEraseOAuthGrantsByUserID_RejectsNilUser(t *testing.T) {
 	}
 }
 
+// EraseByUserID is the single account-scoped erase entry point (tokens + oauth
+// grants); a nil user_id must be rejected so a malformed account-deletion can't
+// mass-delete every user's data.
+func TestEraseByUserID_RejectsNilUser(t *testing.T) {
+	t.Parallel()
+
+	e := NewEraseEnumerator(nil, "statnive")
+
+	_, err := e.EraseByUserID(t.Context(), uuid.Nil)
+	if !errors.Is(err, errEraseEmptyUserID) {
+		t.Errorf("nil user_id should return errEraseEmptyUserID, got %v", err)
+	}
+}
+
 func TestEraseByCookieID_RejectsZeroSiteID(t *testing.T) {
 	t.Parallel()
 

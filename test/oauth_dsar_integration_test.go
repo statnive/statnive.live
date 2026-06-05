@@ -129,3 +129,83 @@ func TestDSAR_EraseOAuthGrantsByUserID(t *testing.T) {
 		t.Error("nil user_id accepted; want rejection")
 	}
 }
+
+// TestDSAR_EraseByUserID proves the single account-scoped orchestrator clears
+// BOTH the token store (mcp_tokens) AND the OAuth grant tables for a user —
+// the Lesson-40 anti-forgetting guarantee — while a bystander survives.
+func TestDSAR_EraseByUserID(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	store, err := storage.NewClickHouseStore(ctx, storage.Config{
+		Addrs: []string{clickhouseAddr()}, Database: testDatabase, Username: "default",
+	}, logger)
+	if err != nil {
+		t.Fatalf("clickhouse: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	if mErr := storage.NewMigrationRunner(store.Conn(), storage.MigrationConfig{Database: testDatabase}, logger).Run(ctx); mErr != nil {
+		t.Fatalf("migrate: %v", mErr)
+	}
+
+	conn := store.Conn()
+	victim, bystander := uuid.New(), uuid.New()
+	h64 := func(seed string) string { return (seed + strings.Repeat("0", 64))[:64] }
+
+	insToken := func(u uuid.UUID, seed string) {
+		t.Helper()
+		if err := conn.Exec(ctx,
+			"INSERT INTO "+testDatabase+".mcp_tokens (token_id, user_id, token_hash_hex, name, site_ids, role, version) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			uuid.New(), u, h64(seed), "tok", []uint32{1}, "api", uint64(time.Now().UnixNano()),
+		); err != nil {
+			t.Fatalf("insert mcp_token: %v", err)
+		}
+	}
+	insOAuth := func(u uuid.UUID, seed string) {
+		t.Helper()
+		if err := conn.Exec(ctx,
+			"INSERT INTO "+testDatabase+".oauth_refresh_tokens (token_hash, family_id, client_id, user_id, scope, audience, site_ids, expires_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			h64(seed), uuid.New(), "c1", u, "analytics:read", "aud", []uint32{1}, time.Now().Add(time.Hour), uint64(time.Now().UnixNano()),
+		); err != nil {
+			t.Fatalf("insert oauth refresh: %v", err)
+		}
+	}
+
+	insToken(victim, "vtok")
+	insOAuth(victim, "voauth")
+	insToken(bystander, "btok")
+	insOAuth(bystander, "boauth")
+
+	count := func(table string, u uuid.UUID) uint64 {
+		t.Helper()
+		var n uint64
+		if err := conn.QueryRow(ctx, fmt.Sprintf("SELECT count() FROM %s.%s FINAL WHERE user_id = ?", testDatabase, table), u).Scan(&n); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		return n
+	}
+
+	if count("mcp_tokens", victim) == 0 || count("oauth_refresh_tokens", victim) == 0 {
+		t.Fatal("seed precondition failed")
+	}
+
+	if _, err := privacy.NewEraseEnumerator(conn, testDatabase).EraseByUserID(ctx, victim); err != nil {
+		t.Fatalf("EraseByUserID: %v", err)
+	}
+
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if count("mcp_tokens", victim) == 0 && count("oauth_refresh_tokens", victim) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("victim rows not erased: tokens=%d oauth=%d", count("mcp_tokens", victim), count("oauth_refresh_tokens", victim))
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	if count("mcp_tokens", bystander) != 1 || count("oauth_refresh_tokens", bystander) != 1 {
+		t.Errorf("bystander erased (cross-user): tokens=%d oauth=%d", count("mcp_tokens", bystander), count("oauth_refresh_tokens", bystander))
+	}
+}
