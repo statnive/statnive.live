@@ -459,12 +459,23 @@ func run() error {
 
 	apiTokens := buildAPITokens(cfg)
 
+	// Self-serve MCP token store (gap #1/#6/#8). Constructed only when
+	// mcp.tokens.enabled so the air-gap / inside-iran default keeps the
+	// pre-self-serve contract (config-static tokens only, nil dynamic path).
+	// The cached wrapper fronts the per-request LookupActive hot path.
+	var mcpTokenStore auth.APITokenStore
+	if cfg.MCP.Tokens.Enabled {
+		mcpTokenStore = auth.NewCachedAPITokenStore(
+			auth.NewClickHouseAPITokenStore(store.Conn(), cfg.ClickHouse.Database), 0)
+	}
+
 	authDeps := auth.MiddlewareDeps{
-		Store:        authStore,
-		Audit:        auditLog,
-		CookieCfg:    cookieCfg,
-		APITokens:    apiTokens,
-		ClientIPFunc: ingest.ClientIP,
+		Store:         authStore,
+		Audit:         auditLog,
+		CookieCfg:     cookieCfg,
+		APITokens:     apiTokens,
+		ClientIPFunc:  ingest.ClientIP,
+		DynamicTokens: mcpTokenStore,
 	}
 
 	sessionMW := auth.SessionMiddleware(authDeps)
@@ -489,6 +500,17 @@ func run() error {
 	)
 	if err != nil {
 		return fmt.Errorf("login ratelimit: %w", err)
+	}
+
+	// Token mint/list/revoke abuse limiter (per-IP); the per-user bound is
+	// the max-active-tokens cap in the handler. 30/min/IP comfortably covers
+	// dashboard interactions while throttling automated mint floods.
+	mcpTokenRateLimitMW, err := ratelimit.Middleware(
+		30, time.Minute,
+		ratelimit.Config{Audit: auditLog, Metrics: metricsReg},
+	)
+	if err != nil {
+		return fmt.Errorf("mcp token ratelimit: %w", err)
 	}
 
 	router := chi.NewRouter()
@@ -623,6 +645,35 @@ func run() error {
 
 		dashboard.MountSiteScoped(r, dashboardDeps)
 	})
+
+	// Self-serve MCP token endpoints (gap #1/#5/#6/#7/#8). Mounted only when
+	// mcp.tokens.enabled. Stack: mint limiter → session/api-token auth →
+	// require-authed → role floor (admin/viewer; api-token actors are
+	// rejected in the handler) → HydrateActorGrants (so the mint scope-clamp
+	// reads the actor's site grants). Read-only MCP — these are admin-surface
+	// writes, NOT a new MCP tool.
+	if cfg.MCP.Tokens.Enabled && mcpTokenStore != nil {
+		mcpTokenDeps := dashboard.MCPTokenDeps{
+			Tokens:         mcpTokenStore,
+			Audit:          auditLog,
+			Logger:         logger,
+			MaxPerUser:     cfg.MCP.Tokens.MaxPerUser,
+			DefaultTTLDays: cfg.MCP.Tokens.TTLDefaultDays,
+			PublicMCPURL:   cfg.MCP.PublicURL,
+			HTTPEnabled:    cfg.MCP.HTTP.Enabled,
+		}
+
+		router.Group(func(r chi.Router) {
+			r.Use(mcpTokenRateLimitMW)
+			r.Use(sessionMW)
+			r.Use(apiTokenMW)
+			r.Use(requireAuthed)
+			r.Use(auth.RequireRole(auditLog, auth.RoleAdmin, auth.RoleViewer))
+			r.Use(auth.HydrateActorGrants(userSitesStore))
+
+			dashboard.MountMCPTokens(r, mcpTokenDeps)
+		})
+	}
 
 	jurisdictionNoticeStore := auth.NewClickHouseStore(store.Conn(), cfg.ClickHouse.Database)
 
@@ -1361,9 +1412,11 @@ type appConfig struct {
 		SuppressionWALPath string
 	}
 	// MCP configures the read-only MCP server (the `statnive-live mcp serve`
-	// subcommand). The daemon (`run`) ignores it entirely; only runMCP reads
-	// it. stdio needs no config; the HTTP transport is opt-in + loopback +
-	// fail-closed by default.
+	// subcommand). runMCP reads the HTTP/Budget/Widgets sub-structs. The
+	// daemon (`run`) reads ONLY the Tokens + PublicURL sub-structs — the
+	// self-serve token mint/list/revoke endpoints live in the daemon
+	// dashboard, not in `mcp serve`. stdio needs no config; the HTTP
+	// transport is opt-in + loopback + fail-closed by default.
 	MCP struct {
 		HTTP struct {
 			Enabled            bool
@@ -1386,7 +1439,21 @@ type appConfig struct {
 				AllowedSiteIDs      []uint32 // sites a verified token may read (deployment-scoped; NOT wildcard). Required for chatgpt-app.
 			}
 		}
-		Budget struct {
+		// Tokens governs the daemon's self-serve MCP-token endpoints
+		// (POST/GET/DELETE /api/mcp/tokens + /api/mcp/connection). Default
+		// off — operators flip mcp.tokens.enabled for the SaaS dashboard.
+		Tokens struct {
+			Enabled        bool
+			MaxPerUser     int    // default 20
+			TTLDefaultDays int    // default 90
+			MinPlan        string // gating seam — empty = all tiers (future toggle)
+		}
+		// PublicURL is the customer-facing MCP base URL surfaced in the
+		// dashboard "Connect your AI assistant" command (e.g.
+		// https://app.statnive.live/mcp). Empty ⇒ the /connection endpoint
+		// reports the template with a placeholder.
+		PublicURL string
+		Budget    struct {
 			CallsPerMin         int
 			RowsPerMin          int
 			CallsPerSession     int
@@ -1543,6 +1610,13 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("mcp.budget.distinct_sites_per_min", 5)
 	v.SetDefault("mcp.budget.wildcard_tier_factor", 0.25)
 	v.SetDefault("mcp.widgets.enabled", false)
+	// Self-serve MCP tokens (daemon dashboard). Default off; air-gap/iran
+	// deploys leave it off. PublicURL is the customer-facing /mcp base.
+	v.SetDefault("mcp.tokens.enabled", false)
+	v.SetDefault("mcp.tokens.max_per_user", 20)
+	v.SetDefault("mcp.tokens.ttl_default_days", 90)
+	v.SetDefault("mcp.tokens.min_plan", "")
+	v.SetDefault("mcp.public_url", "")
 
 	// OAuth 2.1 authorization server (PR-E). Default off; SaaS-only +
 	// chatgpt_app-tag-gated. Reuses mcp.http.oauth.{issuer,audience,
@@ -1694,6 +1768,11 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.MCP.Budget.DistinctSitesPerMin = v.GetInt("mcp.budget.distinct_sites_per_min")
 	cfg.MCP.Budget.WildcardTierFactor = v.GetFloat64("mcp.budget.wildcard_tier_factor")
 	cfg.MCP.Widgets.Enabled = v.GetBool("mcp.widgets.enabled")
+	cfg.MCP.Tokens.Enabled = v.GetBool("mcp.tokens.enabled")
+	cfg.MCP.Tokens.MaxPerUser = v.GetInt("mcp.tokens.max_per_user")
+	cfg.MCP.Tokens.TTLDefaultDays = v.GetInt("mcp.tokens.ttl_default_days")
+	cfg.MCP.Tokens.MinPlan = v.GetString("mcp.tokens.min_plan")
+	cfg.MCP.PublicURL = v.GetString("mcp.public_url")
 
 	cfg.MCP.OAuthAS.Enabled = v.GetBool("mcp.oauth_as.enabled")
 	cfg.MCP.OAuthAS.SigningKeyFile = v.GetString("mcp.oauth_as.signing_key_file")

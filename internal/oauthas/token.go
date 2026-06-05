@@ -212,7 +212,7 @@ func (s *Server) writeTokens(w http.ResponseWriter, r *http.Request, g grant, re
 
 	s.audit.Event(r.Context(), event,
 		slog.String("client_id", g.ClientID),
-		slog.String("user_id", g.UserID.String()),
+		slog.String("actor_user_id", g.UserID.String()),
 	)
 	s.metrics.IncOAuthToken(metrics.OAuthIssued)
 

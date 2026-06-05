@@ -30,6 +30,11 @@ type MiddlewareDeps struct {
 	CookieCfg    SessionCookieConfig
 	APITokens    []APIToken
 	ClientIPFunc func(*http.Request) string // reuse internal/ingest.ClientIP
+	// DynamicTokens resolves dashboard-minted, DB-backed MCP tokens after
+	// the static APITokens miss. nil ⇒ only the config-static tokens work
+	// (the pre-self-serve contract). Production wires the
+	// CachedAPITokenStore so the per-request lookup is cache-fronted.
+	DynamicTokens APITokenStore
 }
 
 // SessionMiddleware reads the session cookie, looks it up via Store
@@ -149,6 +154,28 @@ func APITokenMiddleware(deps MiddlewareDeps) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r.WithContext(ctx))
 
 				return
+			}
+
+			// No static match → try the dynamic (dashboard-minted) tokens.
+			// Reuse `got` (already SHA-256 of the raw bearer) as the lookup
+			// key. Fail-closed: any store error falls through to 401.
+			if deps.DynamicTokens != nil {
+				hashHex := hex.EncodeToString(got[:])
+
+				if meta, found, err := deps.DynamicTokens.LookupActive(r.Context(), hashHex); err == nil && found {
+					u := &User{
+						UserID:   meta.UserID, // non-nil ⇒ grant-map branch of ActorCanReadSite
+						Role:     meta.Role,   // never wildcard
+						Username: "mcp-token:" + meta.Name,
+						Sites:    meta.Grants(), // scoped to exactly the consented site_ids
+					}
+					s := &Session{IDHash: got, UserID: meta.UserID, Role: meta.Role}
+
+					ctx := WithSession(r.Context(), u, s)
+					next.ServeHTTP(w, r.WithContext(ctx))
+
+					return
+				}
 			}
 
 			// Wrong bearer token → pass through without auth so

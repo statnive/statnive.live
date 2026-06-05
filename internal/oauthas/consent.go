@@ -134,7 +134,7 @@ func (s *Server) Consent(w http.ResponseWriter, r *http.Request) {
 	if r.PostFormValue("decision") != "approve" {
 		s.audit.Event(r.Context(), audit.EventOAuthConsentDenied,
 			slog.String("client_id", req.client.ID),
-			slog.String("user_id", user.UserID.String()),
+			slog.String("actor_user_id", user.UserID.String()),
 		)
 		s.metrics.IncOAuthAuthorize(metrics.OAuthDenied)
 		s.redirectErr(w, r, req.redirectURI, req.state, "access_denied", "user denied the request")
@@ -203,13 +203,13 @@ func (s *Server) issueCode(w http.ResponseWriter, r *http.Request, req authReque
 
 	s.audit.Event(r.Context(), audit.EventOAuthConsentGranted,
 		slog.String("client_id", req.client.ID),
-		slog.String("user_id", code.UserID.String()),
+		slog.String("actor_user_id", code.UserID.String()),
 		slog.Int("site_count", len(sites)),
 	)
 	s.metrics.IncOAuthAuthorize(metrics.OAuthGranted)
 	s.audit.Event(r.Context(), audit.EventOAuthCodeIssued,
 		slog.String("client_id", req.client.ID),
-		slog.String("user_id", code.UserID.String()),
+		slog.String("actor_user_id", code.UserID.String()),
 	)
 
 	u, err := url.Parse(req.redirectURI)

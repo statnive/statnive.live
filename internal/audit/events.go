@@ -154,6 +154,15 @@ const (
 	EventGoalsReloadFailed EventName = "goals.reload_failed"
 )
 
+// Self-serve MCP token events. Emitted by the dashboard token handlers.
+// NEVER log the raw token — only token_id, actor_user_id, scope (site_ids
+// + role). The raw secret is shown once in the HTTP response and discarded.
+const (
+	EventMCPTokenCreated  EventName = "mcp.token_created"  //nolint:gosec // G101: audit event name, not a credential
+	EventMCPTokenRevoked  EventName = "mcp.token_revoked"  //nolint:gosec // G101: audit event name, not a credential
+	EventMCPTokenRejected EventName = "mcp.token_rejected" //nolint:gosec // G101: audit event name, not a credential — mint denied (scope/cap/validation)
+)
+
 // GeoIP hot-reload events. Emitted by internal/enrich/geoip.go on
 // SIGHUP; the pre-swap validation probe (doc 28 §Gap 1) means a failed
 // reload leaves the previous DB active — emit the reload_failed event
