@@ -3,12 +3,31 @@ import {
   listUsers,
   createUser,
   disableUser,
+  deleteUser,
+  HttpError,
   type AdminUser,
 } from '../../api/admin';
 import { activeSiteSignal } from '../../state/site';
 import { errorMessage } from '../../lib/errorMessage';
 import { validators } from '../../lib/field';
 import StatusPill from '../../components/StatusPill';
+
+// deleteErrorMessage maps the hard-delete guards to plain sentences (the
+// generic errorMessage 403/409 copy is wrong for self / last-admin).
+function deleteErrorMessage(e: unknown): string {
+  if (e instanceof HttpError) {
+    if (e.status === 403) {
+      return e.serverMessage?.includes('your own')
+        ? "You can't delete your own account. Ask another admin to remove it."
+        : "You can only delete users on a site where you're an admin.";
+    }
+    if (e.status === 409) {
+      return 'This is the last enabled admin on the site. Promote another admin first, then delete this one.';
+    }
+  }
+
+  return errorMessage(e, "Couldn't delete this user.");
+}
 
 export function UsersTab() {
   const [rows, setRows] = useState<AdminUser[] | null>(null);
@@ -29,15 +48,6 @@ export function UsersTab() {
     void refresh();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteID]);
-
-  async function onDisable(id: string) {
-    try {
-      await disableUser(id);
-      await refresh();
-    } catch (e) {
-      setErr(errorMessage(e, "Couldn't disable user."));
-    }
-  }
 
   return (
     <div class="statnive-admin-users">
@@ -88,21 +98,92 @@ export function UsersTab() {
                   <StatusPill state={u.disabled ? 'disabled' : 'active'} />
                 </td>
                 <td>
-                  {u.disabled ? null : (
-                    <button
-                      type="button"
-                      class="is-destructive"
-                      onClick={() => void onDisable(u.user_id)}
-                    >
-                      Disable user
-                    </button>
-                  )}
+                  <UserActions user={u} onDone={refresh} onError={setErr} />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// UserActions renders the per-row admin actions: the reversible Disable, and
+// the irreversible Delete. Delete uses an inline two-step confirm (no modal) —
+// clicking it expands the cell into a consequence sentence + Cancel / Delete
+// forever, so an irreversible cascade (sessions + tokens + OAuth grants + the
+// account) needs one deliberate second click in place, keeping the row context.
+function UserActions({
+  user,
+  onDone,
+  onError,
+}: {
+  user: AdminUser;
+  onDone: () => void | Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function onDisable() {
+    try {
+      await disableUser(user.user_id);
+      await onDone();
+    } catch (e) {
+      onError(errorMessage(e, "Couldn't disable user."));
+    }
+  }
+
+  async function onDelete() {
+    setBusy(true);
+    try {
+      await deleteUser(user.user_id);
+      await onDone(); // row disappears on refresh
+    } catch (e) {
+      onError(deleteErrorMessage(e));
+      setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  if (confirming) {
+    return (
+      <div class="statnive-admin-confirm" role="group" aria-label="Confirm permanent delete">
+        <p class="statnive-admin-alert is-error">
+          <span class="statnive-admin-alert-glyph" aria-hidden="true">{'▪'}</span>
+          <span class="statnive-admin-alert-body">
+            Permanently delete this account? Sessions, API tokens, and
+            connected-assistant access are erased. This cannot be undone.
+          </span>
+        </p>
+        <div class="statnive-admin-confirm-actions">
+          <button type="button" onClick={() => setConfirming(false)} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="is-destructive-confirm"
+            onClick={() => void onDelete()}
+            disabled={busy}
+          >
+            {busy ? 'Deleting…' : 'Delete forever'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div class="statnive-admin-row-actions">
+      {user.disabled ? null : (
+        <button type="button" class="is-destructive" onClick={() => void onDisable()}>
+          Disable user
+        </button>
+      )}
+      <button type="button" class="is-destructive" onClick={() => setConfirming(true)}>
+        Delete
+      </button>
     </div>
   );
 }
