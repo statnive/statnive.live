@@ -2757,3 +2757,145 @@ The Geo report (country / region / city visitor + revenue panel) ships behind th
 - ✅ Rolling back the flag is a single config edit + SIGHUP. No PR revert, no data migration, no customer-visible churn.
 - ⚠️ The MV adds one GROUP-BY computation per insert block to the ingest pipeline. The release-gate bench (`make bench`) must show ≤ 5 % p99 regression; if it doesn't, drop the MV and the panel reads from a 1-hour-cached on-demand query against `events_raw` (carve-out under Architecture Rule 1) until the MV is tuned.
 - ⚠️ At country + region + city dimensions, `daily_geo` rollup size per day per site can hit ~ 400 KB for high-traffic, high-geo-diversity sites (SamplePlatform doc-30 numbers). That's 4× the 100 KB Architecture Rule 2 target — flag for re-evaluation if any single tenant exceeds 1 MB / day / site.
+
+## ChatGPT-app OAuth AS — go-live runbook (SaaS, `chatgpt_app` build)
+
+Brings the OAuth 2.1 authorization server (PR-E) + the ChatGPT-app resource server (#186/#187) live on `app.statnive.live`. **SaaS-only.** Every step is reversible by a single config flag + SIGHUP until the OpenAI store listing is published. **Never run any of this on an air-gap / inside-iran deployment** — the binary there ships the no-op stub and will refuse `mcp.oauth_as.enabled=true`.
+
+### 0 — Preconditions
+
+- Build the SaaS binary **with the tag**: `go build -tags chatgpt_app ./cmd/statnive-live` (the default/air-gap build has zero AS code).
+- `posture: saas` and TLS terminate at the reverse proxy (daemon runs loopback HTTP behind it, per § Phase 10b).
+- **DSAR merge gate (Gate 2 E1 / LEARN Lesson 40):** before enabling the AS on any GDPR deployment, confirm the user-account eraser calls `privacy.EraseOAuthGrantsByUserID` (lands with PR-A #188's `EraseByUserID`). The capability + tests exist; the wiring is a merge-time integration. Do **not** enable `oauth_as` in prod until that call is in place — otherwise a deleted user's OAuth grants persist (Art. 17 breach).
+
+### 1 — Provision the RSA signing key (operator laptop or the box; never in git)
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out oauth_signing_key.pem
+chmod 0600 oauth_signing_key.pem        # the loader REFUSES a group/world-readable key
+age -p -o oauth_signing_key.pem.age oauth_signing_key.pem   # encrypted backup (store off-box)
+# place at the configured path on the prod host, owned by the statnive service user:
+install -o statnive -g statnive -m 0600 oauth_signing_key.pem /etc/statnive-live/oauth_signing_key.pem
+```
+
+Rotation: generate a new key, point `mcp.oauth_as.signing_key_file` at it, and add the **old public** key to `mcp.oauth_as.retired_key_files` for a 24 h grace (in-flight tokens keep verifying); SIGHUP/restart; remove the retired entry after the window.
+
+### 2 — Config (render into the prod config; never commit secrets)
+
+```yaml
+posture: saas
+mcp:
+  http:
+    profile: "chatgpt-app"            # the resource server for /mcp
+    oauth:
+      enabled: true
+      issuer:   "https://app.statnive.live"
+      audience: "https://app.statnive.live/mcp"
+      allowed_site_ids: [ ... ]        # the deployment ceiling (REQUIRED, never empty)
+      # resource_metadata_url left empty → auto-derived to the audience origin
+  oauth_as:
+    enabled: true
+    signing_key_file: "/etc/statnive-live/oauth_signing_key.pem"
+```
+
+### 3 — Reverse-proxy routes (TLS edge → loopback daemon / `mcp serve`)
+
+The **main daemon** serves the AS (it shares the dashboard origin + session); the **`mcp serve`** process serves `/mcp`. Example nginx (Caddy/HAProxy analogous):
+
+```nginx
+# Authorization server + dashboard → main daemon (e.g. 127.0.0.1:8080)
+location ~ ^/(authorize|token|register|consent)$ { proxy_pass http://127.0.0.1:8080; proxy_set_header X-Forwarded-For $remote_addr; }
+location = /.well-known/oauth-authorization-server { proxy_pass http://127.0.0.1:8080; }
+location = /.well-known/jwks.json                  { proxy_pass http://127.0.0.1:8080; }
+# Resource server → mcp serve (e.g. 127.0.0.1:8081)
+location = /mcp                                     { proxy_pass http://127.0.0.1:8081; proxy_set_header X-Forwarded-For $remote_addr; }
+location = /.well-known/oauth-protected-resource    { proxy_pass http://127.0.0.1:8081; }
+```
+
+> **X-Forwarded-For is load-bearing** (Gate 2 B1): the AS + `/mcp` rate limiters key on the forwarded client IP via `ingest.ClientIP`. The proxy MUST set a forwarded header and MUST strip any client-supplied one, or per-client throttling collapses / is spoofable.
+
+### 4 — Rollout order (each step independently reversible)
+
+1. **Migration** — deploy the binary; migration 023 creates the (empty) oauth tables. Safe on every build.
+2. **Binary** — install the `chatgpt_app` SaaS binary; restart. AS still dormant (`oauth_as.enabled=false`).
+3. **Enable AS** — flip `mcp.oauth_as.enabled=true` + the `mcp.http.profile=chatgpt-app` config; SIGHUP/restart. **Kill-switch = set it back to `false` + SIGHUP.**
+4. **Proxy routes** — add the routes in § 3; reload the proxy. **Rollback = remove the routes + reload.**
+5. **Register the ChatGPT client** (§ 5).
+6. **Store submission** (§ 6) — last, and the only step that's externally visible/irreversible.
+
+**Per-step rollback:** any code regression → re-deploy the prior tag (`deploy/statnive-deploy.sh` auto-reverts on a failed prod-probe). The AS itself rolls back with the `oauth_as.enabled` flag — no data migration, no customer-visible churn (the token tables are inert when disabled).
+
+### 5 — Register the ChatGPT client (admin DCR, after deploy, before store submit)
+
+```bash
+curl -sX POST https://app.statnive.live/register \
+  -H "Cookie: statnive_session=<a logged-in ADMIN session>" -H 'Content-Type: application/json' \
+  -d '{"client_name":"ChatGPT","redirect_uris":["<the ChatGPT-provided callback URI>"]}'
+# → {"client_id":"…","client_secret":"… COPY NOW (shown once)","redirect_uris":[…]}
+```
+
+`redirect_uris` are **exact-match**, https-only, no fragments/wildcards. Pre-flight before submitting: `SELECT count() FROM statnive.oauth_clients FINAL WHERE revoked=0` must be ≥ 1.
+
+### 6 — OpenAI ChatGPT app store submission checklist
+
+Submission happens in the OpenAI Platform Dashboard (`platform.openai.com/apps-manage`). Steps are ordered the way you actually do them; do the gating ones (1–2) early because they take time.
+
+1. **Verify your identity first (gates everything else).** In the Platform Dashboard, complete identity verification under the exact name we'll publish as. Two paths:
+   - **Individual** (publish under a person) — a valid **physical** government photo ID (passport / driver's licence; digital/mobile IDs are not accepted) + a **live selfie / liveness check**.
+   - **Business** (publish under "Statnive" — the path we use) — the above for a real person, **plus** the legal business entity details (legal company name + registration info).
+   - ⚠️ **One ID can verify only one OpenAI org per 90 days**, and that ID is then bound to that org. Pick whose ID verifies the Statnive org before starting — if it verified another org in the last 90 days, business verification fails until the window passes. Nothing can be submitted until this clears.
+2. **Confirm submitter permissions.** Whoever submits needs `api.apps.write` (create/submit drafts) and `api.apps.read` (view review status) in the OpenAI org. Org owners have both by default.
+3. **Make the prod endpoint submission-ready.** The MCP server must be on a public HTTPS domain (no localhost/tunnels) and must send a Content-Security-Policy. Our `/mcp` is served by `mcp serve` behind the TLS edge (§ 3) — confirm it answers over `https://app.statnive.live/mcp` before submitting.
+4. **Keep tool definitions least-privilege.** Single `analytics:read` scope; tokens site-scoped (per-token `site_ids`, never wildcard). Tool annotations already shipped: `readOnlyHint:true, destructiveHint:false, openWorldHint:false` — these must match real behaviour (mismatched hints are a top rejection reason). The `_meta["mcp/www_authenticate"]` 401 carries the RFC 9728 `resource_metadata` hint (auto-derived, Gate 2 H2).
+5. **Return only task-relevant data.** Tool responses must carry analytics fields only — strip internal session IDs, request timestamps, and diagnostic/logging metadata. Never return payment-card, health, government-ID, or auth-secret data (we don't hold any, but the reviewer checks). Request the minimum input; never pull full chat history or precise location.
+6. **Publish a privacy policy that matches the returned fields.** It must list data categories, purpose, recipients, retention, and user controls. Disclose that `props_list.sample_values` is customer UGC (may carry PII if mis-instrumented) and the OpenAI sub-processor relationship (see `docs/compliance/subprocessor-register.md`, `docs/dpa-draft.md` § 6).
+7. **Prepare a complete demo, not a trial.** MFA-free demo account + a dedicated test site with sample data, so the reviewer can exercise the full authorize → consent → scoped-answer flow (§ 7). Demo/trial-only apps are rejected.
+8. **Test before submitting.** Run the MCP Inspector against the prod endpoint, then connect it in ChatGPT **Settings → Connectors → Developer mode** and run the golden prompt set (direct, indirect, and negative cases) on desktop + mobile. Confirm the model picks the right tool with correct args and the consent screen appears. This is our § 7 manual gate; § 8 is the automated discovery-surface smoke.
+9. **Fill the listing + submit.** App name (specific, not a generic dictionary word), logo, screenshots (accurate, correct dimensions), **non-comparative** description (no "best"/"official"), company + privacy-policy URLs, MCP server URL, OAuth credentials (the client from § 5), test prompts with expected responses, support contact, localization info. Confirm the compliance checkboxes → **Submit for review** → save the Case ID from the confirmation email.
+10. **After the verdict.** Approved → publish from the dashboard (listed; found by direct link + name search; featured placement is not requestable). Rejected → fix and resubmit, or appeal by email. **Updates** = new draft → re-scan the endpoint → resubmit; the live version stays up until the new one is approved. **Add** new tools/fields rather than removing them — breaking changes to published apps aren't supported.
+
+#### Legal / personal / company information to gather before you start
+
+| Category | Item | Statnive value / note |
+|---|---|---|
+| **Identity (personal)** | Physical government photo ID + live selfie | The individual who owns the Statnive org's verification |
+| **Identity (company)** | Legal entity name + registration info | Must match the published developer name "Statnive" |
+| **Contact** | Customer support contact (mandatory, reviewer-checked) | `support@statnive.com` |
+| **Company** | Public homepage URL | `statnive.live` (or `statnive.com`) |
+| **Company** | Published developer/company name | Statnive (must match business verification) |
+| **Legal** | Public privacy-policy URL (data categories, purpose, recipients, retention, user controls) | Must disclose `props_list.sample_values` UGC + OpenAI sub-processor — see `docs/dpa-draft.md` § 6, `docs/compliance/subprocessor-register.md` |
+| **Auth** | OAuth `client_id` / `client_secret` | The client minted in § 5 |
+
+**Not required for our model:** no payout/tax/banking info (OpenAI commerce is physical-goods only; Statnive is a free read-only connector); no separate Terms-of-Service URL is hard-gated (privacy policy is the only mandatory legal doc); no PCI/health/government-ID handling disclosures (we collect none).
+
+**Sources (OpenAI Apps SDK docs, verified 2026-06-05):**
+
+- Submit & maintain — <https://developers.openai.com/apps-sdk/deploy/submission>
+- App submission guidelines — <https://developers.openai.com/apps-sdk/app-submission-guidelines>
+- Testing before submit — <https://developers.openai.com/apps-sdk/deploy/testing>
+- Org / identity verification — <https://help.openai.com/en/articles/10910291-api-organization-verification>
+
+### 7 — Real-client validation (manual acceptance gate)
+
+- **ChatGPT app:** install → "Connect" → statnive `/authorize` (already logged into the dashboard) → consent screen lists your sites → approve → ask "How did organic search convert last week?" → scoped answer. Then revoke from the dashboard and confirm access stops.
+- **Claude path (token):** ships on the token stack (#188–#191); validate after that merges — mint a token in the dashboard "Connect your AI assistant" screen, paste the `claude mcp add …` command into Claude Desktop + Claude Code, confirm a CH-oracle-accurate answer, revoke, confirm 401.
+- **Cross-client smoke:** one other MCP host (e.g. Cursor) connects via a minted token.
+- **SPA "Connect ChatGPT" deep-link** (cross-stack, post-merge): add a button on the token-stack `ConnectAssistant` screen that opens `/authorize?…`; the SPA login must honor the `return_to` the AS appends so the user lands back on the authorize request. Tracked for the post-merge integration PR.
+
+### 8 — Automated prod smoke
+
+```bash
+STATNIVE_PROBE_MCP_ENABLED=true \
+STATNIVE_PROBE_HOST=https://app.statnive.live \
+STATNIVE_PROBE_SITE_ID=9999 STATNIVE_PROBE_HOSTNAME=probe.statnive.live \
+STATNIVE_PROBE_SSH=<host> STATNIVE_METRICS_TOKEN=<token> \
+  make prod-probe
+```
+
+The MCP block (gated on `STATNIVE_PROBE_MCP_ENABLED=true`) smoke-checks the **public** AS discovery surface: RFC 8414 metadata advertises S256 PKCE + the endpoints, JWKS serves an RSA key, and the RFC 9728 protected-resource metadata is reachable. The full authorize→consent→token→`/mcp` flow needs a session + a registered client and is the manual § 7 gate.
+
+### 9 — Announcement (draft; publish on `statnive.com`, not this repo)
+
+> **Connect your analytics to ChatGPT (and Claude).** Statnive now speaks MCP: ask your numbers in plain language. Read-only, privacy-first, and scoped to the sites you choose — your data never leaves your account except to the assistant you explicitly connect. Free on every tier during the rollout.
+
+Pair with a CHANGELOG entry + the locale-mirror sync (`/statnive-*-sync`) per the website i18n rules. Do not announce before § 7 passes on real clients.

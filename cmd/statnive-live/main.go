@@ -706,6 +706,21 @@ func run() error {
 		admin.Mount(r, adminDeps)
 	})
 
+	// OAuth 2.1 authorization server (PR-E, ChatGPT-app onboarding). No-op in
+	// the default/air-gap build (stub returns nil unless enabled). Mounted on
+	// the main router so /authorize shares the dashboard origin + session.
+	if err := mountOAuthAS(router, oauthASParams{
+		cfg:       cfg,
+		conn:      store.Conn(),
+		audit:     auditLog,
+		metrics:   metricsReg,
+		logger:    logger,
+		sessionMW: sessionMW,
+		authedMW:  requireAuthed,
+	}); err != nil {
+		return fmt.Errorf("mount oauth as: %w", err)
+	}
+
 	router.Method(http.MethodGet, "/healthz", health.Handler(health.Reporter{
 		Store:     store,
 		WAL:       wal,
@@ -1410,6 +1425,19 @@ type appConfig struct {
 			RateLimitPerMinute int
 			TLSCertFile        string
 			TLSKeyFile         string
+			// OAuth is the v2.5 ChatGPT-app resource-server config. SaaS-only;
+			// inert unless Profile=="chatgpt-app". The JWT/JWKS verifier that
+			// consumes it is behind the `chatgpt_app` build tag, so the
+			// default + air-gap binaries never compile any IdP/outbound code.
+			OAuth struct {
+				Enabled             bool
+				Issuer              string   // expected `iss` + JWKS discovery base
+				Audience            string   // expected `aud` (this resource server)
+				JWKSURL             string   // optional explicit JWKS endpoint (else issuer/.well-known)
+				RequiredScope       string   // optional scope the access token must carry
+				ResourceMetadataURL string   // RFC 9728 URL advertised in the 401 WWW-Authenticate
+				AllowedSiteIDs      []uint32 // sites a verified token may read (deployment-scoped; NOT wildcard). Required for chatgpt-app.
+			}
 		}
 		// Tokens governs the daemon's self-serve MCP-token endpoints
 		// (POST/GET/DELETE /api/mcp/tokens + /api/mcp/connection). Default
@@ -1435,6 +1463,23 @@ type appConfig struct {
 		}
 		Widgets struct {
 			Enabled bool // v3 ChatGPT-app widgets — schema-only in v2
+		}
+		// OAuthAS is statnive's own OAuth 2.1 authorization server (PR-E) —
+		// the AS half of the ChatGPT-app onboarding path. Mounted on the main
+		// daemon (same origin as the dashboard, so /authorize reuses the
+		// dashboard session). SaaS-only + behind the `chatgpt_app` build tag:
+		// the default + air-gap binaries ship a no-op stub (oauthas_stub.go).
+		// Reuses HTTP.OAuth.{Issuer,Audience,AllowedSiteIDs,RequiredScope} as
+		// the issuer / RFC 8707 audience / deployment ceiling / scope, so the
+		// AS and the resource-server verifier share one source of truth.
+		OAuthAS struct {
+			Enabled           bool
+			SigningKeyFile    string   // RSA private-key PEM (chmod 0600); signs RS256 access tokens
+			RetiredKeyFiles   []string // public-key PEMs served from /jwks.json during a rotation grace window (M7)
+			AccessTTLSeconds  int      // access-token lifespan (default 1800 = 30m)
+			RefreshTTLSeconds int      // refresh-token lifespan (default 2592000 = 30d)
+			CodeTTLSeconds    int      // authorization-code lifespan (default 60s)
+			LoginPath         string   // where to bounce an unauthenticated /authorize (default "/")
 		}
 	}
 }
@@ -1551,6 +1596,13 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("mcp.http.rate_limit_per_minute", 120)
 	v.SetDefault("mcp.http.tls_cert_file", "")
 	v.SetDefault("mcp.http.tls_key_file", "")
+	v.SetDefault("mcp.http.oauth.enabled", false)
+	v.SetDefault("mcp.http.oauth.issuer", "")
+	v.SetDefault("mcp.http.oauth.audience", "")
+	v.SetDefault("mcp.http.oauth.jwks_url", "")
+	v.SetDefault("mcp.http.oauth.required_scope", "")
+	v.SetDefault("mcp.http.oauth.resource_metadata_url", "")
+	v.SetDefault("mcp.http.oauth.allowed_site_ids", []int{})
 	v.SetDefault("mcp.budget.calls_per_min", 60)
 	v.SetDefault("mcp.budget.rows_per_min", 20000)
 	v.SetDefault("mcp.budget.calls_per_session", 2000)
@@ -1565,6 +1617,17 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	v.SetDefault("mcp.tokens.ttl_default_days", 90)
 	v.SetDefault("mcp.tokens.min_plan", "")
 	v.SetDefault("mcp.public_url", "")
+
+	// OAuth 2.1 authorization server (PR-E). Default off; SaaS-only +
+	// chatgpt_app-tag-gated. Reuses mcp.http.oauth.{issuer,audience,
+	// allowed_site_ids,required_scope}.
+	v.SetDefault("mcp.oauth_as.enabled", false)
+	v.SetDefault("mcp.oauth_as.signing_key_file", "")
+	v.SetDefault("mcp.oauth_as.retired_key_files", []string{})
+	v.SetDefault("mcp.oauth_as.access_ttl_seconds", 1800)
+	v.SetDefault("mcp.oauth_as.refresh_ttl_seconds", 2592000)
+	v.SetDefault("mcp.oauth_as.code_ttl_seconds", 60)
+	v.SetDefault("mcp.oauth_as.login_path", "/")
 
 	// Consent posture (CLAUDE.md Privacy Rules 5 + 9).
 	// `consent.required` stays a global flag (cookie + identity gate is
@@ -1685,6 +1748,19 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.MCP.HTTP.RateLimitPerMinute = v.GetInt("mcp.http.rate_limit_per_minute")
 	cfg.MCP.HTTP.TLSCertFile = v.GetString("mcp.http.tls_cert_file")
 	cfg.MCP.HTTP.TLSKeyFile = v.GetString("mcp.http.tls_key_file")
+	cfg.MCP.HTTP.OAuth.Enabled = v.GetBool("mcp.http.oauth.enabled")
+	cfg.MCP.HTTP.OAuth.Issuer = v.GetString("mcp.http.oauth.issuer")
+	cfg.MCP.HTTP.OAuth.Audience = v.GetString("mcp.http.oauth.audience")
+	cfg.MCP.HTTP.OAuth.JWKSURL = v.GetString("mcp.http.oauth.jwks_url")
+	cfg.MCP.HTTP.OAuth.RequiredScope = v.GetString("mcp.http.oauth.required_scope")
+	cfg.MCP.HTTP.OAuth.ResourceMetadataURL = v.GetString("mcp.http.oauth.resource_metadata_url")
+
+	for _, id := range v.GetIntSlice("mcp.http.oauth.allowed_site_ids") {
+		if id > 0 && id <= 0xFFFF_FFFF {
+			cfg.MCP.HTTP.OAuth.AllowedSiteIDs = append(cfg.MCP.HTTP.OAuth.AllowedSiteIDs, uint32(id))
+		}
+	}
+
 	cfg.MCP.Budget.CallsPerMin = v.GetInt("mcp.budget.calls_per_min")
 	cfg.MCP.Budget.RowsPerMin = v.GetInt("mcp.budget.rows_per_min")
 	cfg.MCP.Budget.CallsPerSession = v.GetInt("mcp.budget.calls_per_session")
@@ -1697,6 +1773,14 @@ func loadConfigFromPath(configFile string) (appConfig, error) {
 	cfg.MCP.Tokens.TTLDefaultDays = v.GetInt("mcp.tokens.ttl_default_days")
 	cfg.MCP.Tokens.MinPlan = v.GetString("mcp.tokens.min_plan")
 	cfg.MCP.PublicURL = v.GetString("mcp.public_url")
+
+	cfg.MCP.OAuthAS.Enabled = v.GetBool("mcp.oauth_as.enabled")
+	cfg.MCP.OAuthAS.SigningKeyFile = v.GetString("mcp.oauth_as.signing_key_file")
+	cfg.MCP.OAuthAS.RetiredKeyFiles = v.GetStringSlice("mcp.oauth_as.retired_key_files")
+	cfg.MCP.OAuthAS.AccessTTLSeconds = v.GetInt("mcp.oauth_as.access_ttl_seconds")
+	cfg.MCP.OAuthAS.RefreshTTLSeconds = v.GetInt("mcp.oauth_as.refresh_ttl_seconds")
+	cfg.MCP.OAuthAS.CodeTTLSeconds = v.GetInt("mcp.oauth_as.code_ttl_seconds")
+	cfg.MCP.OAuthAS.LoginPath = v.GetString("mcp.oauth_as.login_path")
 
 	cfg.Consent.Required = v.GetBool("consent.required")
 	cfg.Consent.RequireForSegments = v.GetBool("consent.require_for_segments")
