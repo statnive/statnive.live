@@ -90,8 +90,46 @@ func (s *Server) HTTPHandler(opts HTTPOptions) http.Handler {
 			return
 		}
 
+		// Streamable HTTP content negotiation: a client that sent
+		// `Accept: text/event-stream` (the ChatGPT-app shape) gets the
+		// response as a single SSE event; everyone else gets plain JSON. We
+		// stay stateless either way — one message, then close (no long-lived
+		// stream, no session id).
+		if acceptsSSE(r) {
+			writeSSE(w, *resp)
+
+			return
+		}
+
 		writeJSON(w, http.StatusOK, *resp)
 	})
+}
+
+// acceptsSSE reports whether the client offered the text/event-stream media
+// type in its Accept header.
+func acceptsSSE(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+}
+
+// writeSSE emits a single JSON-RPC response as one Server-Sent Event then
+// returns (the connection closes). One-shot, stateless — no keep-alive loop.
+func writeSSE(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+
+	_, _ = w.Write([]byte("event: message\ndata: "))
+	_, _ = w.Write(b)
+	_, _ = w.Write([]byte("\n\n"))
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

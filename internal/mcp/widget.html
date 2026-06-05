@@ -1,0 +1,116 @@
+<!doctype html>
+<!--
+  statnive-live MCP widget (v3 ChatGPT-app UI layer).
+
+  Self-contained, dependency-free, zero outbound (no CDN, no fonts, no
+  analytics) so it stays air-gap-safe and embeddable via go:embed. It is a
+  GENERIC renderer: it reads the calling tool's structuredContent from the MCP
+  Apps bridge (window.openai.toolOutput) and renders KPI cards for an object or
+  a table for an array. Per-tool ECharts visualisations are an increment on top
+  of this contract — the data shape is the tool's outputSchema, unchanged.
+
+  Built on the portable MCP Apps surface (window.openai.*), not a vendor global,
+  so the same widget works in ChatGPT and other MCP hosts.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>statnive-live</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 12px;
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #1a1a1a; background: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e8e8e8; background: #1b1b1b; }
+    .card, table { background: #242424; border-color: #383838; }
+    th { background: #2c2c2c; }
+  }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+  .card { border: 1px solid #e3e3e3; border-radius: 10px; padding: 12px; background: #fafafa; }
+  .card .k { font-size: 12px; opacity: 0.7; text-transform: capitalize; }
+  .card .v { font-size: 22px; font-weight: 650; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; border: 1px solid #e3e3e3; border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #ededed; }
+  th { background: #f3f3f3; font-weight: 600; text-transform: capitalize; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .empty { opacity: 0.6; padding: 16px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="root" class="empty">Loading…</div>
+<script>
+  "use strict";
+
+  // Minimal HTML escaping — tool output is untrusted user-generated content.
+  // (The server already strips invisible/HTML/secret payloads; this is belt
+  // and suspenders so values never become markup in the widget.)
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function isNum(v) { return typeof v === "number"; }
+
+  function fmt(v) {
+    if (isNum(v)) { return v.toLocaleString(); }
+    return esc(v);
+  }
+
+  function renderObject(obj) {
+    var keys = Object.keys(obj).filter(function (k) {
+      var t = typeof obj[k];
+      return t === "number" || t === "string" || t === "boolean";
+    });
+    if (!keys.length) { return '<div class="empty">No displayable fields.</div>'; }
+    var cards = keys.map(function (k) {
+      return '<div class="card"><div class="k">' + esc(k.replace(/_/g, " ")) +
+        '</div><div class="v">' + fmt(obj[k]) + "</div></div>";
+    });
+    return '<div class="cards">' + cards.join("") + "</div>";
+  }
+
+  function renderArray(rows) {
+    if (!rows.length) { return '<div class="empty">No rows.</div>'; }
+    var cols = Object.keys(rows[0]).filter(function (k) {
+      return typeof rows[0][k] !== "object";
+    });
+    var head = cols.map(function (c) {
+      return '<th class="' + (isNum(rows[0][c]) ? "num" : "") + '">' + esc(c.replace(/_/g, " ")) + "</th>";
+    }).join("");
+    var body = rows.slice(0, 100).map(function (r) {
+      return "<tr>" + cols.map(function (c) {
+        return '<td class="' + (isNum(r[c]) ? "num" : "") + '">' + fmt(r[c]) + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+    return "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
+  }
+
+  function render(data) {
+    var root = document.getElementById("root");
+    root.className = "";
+    if (data == null) { root.className = "empty"; root.textContent = "No data."; return; }
+    if (Array.isArray(data)) { root.innerHTML = renderArray(data); return; }
+    // Common wrapper shapes: {rows:[...]} / {variants:[...]} / {events:[...]}.
+    for (var _i = 0, ks = ["rows", "variants", "events", "top"]; _i < ks.length; _i++) {
+      if (Array.isArray(data[ks[_i]])) { root.innerHTML = renderArray(data[ks[_i]]); return; }
+    }
+    if (typeof data === "object") { root.innerHTML = renderObject(data); return; }
+    root.className = "empty"; root.textContent = String(data);
+  }
+
+  function pull() {
+    var api = window.openai;
+    return api && (api.toolOutput || (api.toolResponse && api.toolResponse.structuredContent)) || null;
+  }
+
+  // Render now, and re-render if the host pushes updated output.
+  render(pull());
+  window.addEventListener("openai:set_globals", function () { render(pull()); });
+</script>
+</body>
+</html>

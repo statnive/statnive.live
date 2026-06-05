@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -15,14 +17,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/httprate"
-
 	"github.com/statnive/statnive.live/internal/alerts"
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/goals"
 	"github.com/statnive/statnive.live/internal/ingest"
 	"github.com/statnive/statnive.live/internal/mcp"
+	"github.com/statnive/statnive.live/internal/ratelimit"
 	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
 )
@@ -104,19 +105,21 @@ func runMCP(args []string) error {
 	}
 
 	srv := mcp.New(mcp.Config{
-		Store:      storage.NewCachedStore(storage.NewClickhouseQueryStore(store), dashboardCacheCapacity),
-		Registry:   sites.New(store.Conn()),
-		Goals:      goalSnap,
-		Concrete:   store,        // off-interface reads (event_audit) live on the concrete store
-		Health:     store.Conn(), // CH liveness probe for system_health (driver.Conn has Ping)
-		Build:      readBuildInfo(),
-		Audit:      auditLog,
-		Log:        logger,
-		Alerts:     alertsSink,
-		Budget:     mcpBudget(cfg),
-		Version:    mcpVersion(),
-		GeoEnabled: cfg.Dashboard.GeoEnabled,
-		Now:        time.Now,
+		Store:          storage.NewCachedStore(storage.NewClickhouseQueryStore(store), dashboardCacheCapacity),
+		Registry:       sites.New(store.Conn()),
+		Goals:          goalSnap,
+		Concrete:       store,        // off-interface reads (event_audit) live on the concrete store
+		Health:         store.Conn(), // CH liveness probe for system_health (driver.Conn has Ping)
+		Build:          readBuildInfo(),
+		Audit:          auditLog,
+		Log:            logger,
+		Alerts:         alertsSink,
+		Budget:         mcpBudget(cfg),
+		Version:        mcpVersion(),
+		GeoEnabled:     cfg.Dashboard.GeoEnabled,
+		OAuthScopes:    mcpOAuthScopes(cfg), // per-tool securitySchemes (chatgpt-app only)
+		WidgetsEnabled: cfg.MCP.Widgets.Enabled,
+		Now:            time.Now,
 	})
 
 	switch transport {
@@ -164,14 +167,35 @@ func serveMCPHTTP(ctx context.Context, srv *mcp.Server, cfg appConfig, listenOve
 		}
 	}
 
-	deps := auth.MiddlewareDeps{Audit: auditLog, APITokens: buildAPITokens(cfg), ClientIPFunc: ingest.ClientIP}
-
-	handler := srv.HTTPHandler(mcp.HTTPOptions{})
-	authed := auth.APITokenMiddleware(deps)(auth.RequireAuthenticated(auditLog)(handler))
-	limited := httprate.LimitByIP(cfg.MCP.HTTP.RateLimitPerMinute, time.Minute)(authed)
+	profile := cfg.MCP.HTTP.Profile
+	if profile == "" {
+		profile = "loopback"
+	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", limited)
+
+	protected, wellKnown, err := buildMCPAuthChain(cfg, srv.HTTPHandler(mcp.HTTPOptions{}), auditLog, logger, tlsConfigured, mcpAddrIsLoopback(addr))
+	if err != nil {
+		return err
+	}
+
+	if wellKnown != nil {
+		// RFC 9728 protected-resource metadata for IdP/ChatGPT discovery.
+		mux.Handle("/.well-known/oauth-protected-resource", wellKnown)
+	}
+
+	// Proxy-aware limiter (Gate 2 B1 parity): the public /mcp surface sits behind
+	// the SaaS reverse proxy in the chatgpt-app posture, so keying on RemoteAddr
+	// would collapse every client into the proxy's single bucket. ratelimit
+	// .Middleware keys on the forwarded client IP (ingest.ClientIP) and emits
+	// audit + the rate_limited metric on each 429. Falls back to RemoteAddr for
+	// the loopback profile (no forwarded headers), so behaviour is unchanged there.
+	rl, err := ratelimit.Middleware(cfg.MCP.HTTP.RateLimitPerMinute, time.Minute, ratelimit.Config{Audit: auditLog})
+	if err != nil {
+		return fmt.Errorf("mcp http rate limiter: %w", err)
+	}
+
+	mux.Handle("/mcp", rl(protected))
 
 	httpSrv := &http.Server{
 		Addr:              addr,
@@ -189,7 +213,7 @@ func serveMCPHTTP(ctx context.Context, srv *mcp.Server, cfg appConfig, listenOve
 		_ = httpSrv.Shutdown(shutCtx)
 	}()
 
-	logger.Info("mcp http serving", "addr", addr, "tls", tlsConfigured)
+	logger.Info("mcp http serving", "addr", addr, "tls", tlsConfigured, "profile", profile)
 
 	var serveErr error
 	if tlsConfigured {
@@ -203,6 +227,129 @@ func serveMCPHTTP(ctx context.Context, srv *mcp.Server, cfg appConfig, listenOve
 	}
 
 	return serveErr
+}
+
+// buildMCPAuthChain wraps the base MCP handler in the auth middleware for the
+// configured profile and returns it plus an optional extra route handler (the
+// RFC 9728 .well-known for chatgpt-app; nil for loopback). Split out of
+// serveMCPHTTP to keep that function's complexity in check.
+func buildMCPAuthChain(cfg appConfig, base http.Handler, auditLog *audit.Logger, logger *slog.Logger, tlsConfigured, loopback bool) (http.Handler, http.HandlerFunc, error) {
+	if cfg.MCP.HTTP.Profile != "chatgpt-app" {
+		// loopback — static Bearer tokens, the v2 contract.
+		deps := auth.MiddlewareDeps{Audit: auditLog, APITokens: buildAPITokens(cfg), ClientIPFunc: ingest.ClientIP}
+
+		return auth.APITokenMiddleware(deps)(auth.RequireAuthenticated(auditLog)(base)), nil, nil
+	}
+
+	// SaaS-only public ChatGPT-app profile: an OAuth 2.1 resource server.
+	// Fail closed — never let an air-gap/Iran build into this state.
+	switch {
+	case cfg.Posture != "saas":
+		return nil, nil, errors.New("mcp http profile=chatgpt-app requires posture=saas")
+	case !cfg.MCP.HTTP.OAuth.Enabled:
+		return nil, nil, errors.New("mcp http profile=chatgpt-app requires mcp.http.oauth.enabled=true")
+	case len(cfg.MCP.HTTP.OAuth.AllowedSiteIDs) == 0:
+		// Fail closed — never authorize an OAuth token for every tenant.
+		return nil, nil, errors.New("mcp http profile=chatgpt-app requires mcp.http.oauth.allowed_site_ids (the sites a token may read)")
+	case !tlsConfigured && !loopback:
+		return nil, nil, errors.New("mcp http profile=chatgpt-app requires TLS on a public bind")
+	}
+
+	// The verifier lives behind the `chatgpt_app` build tag; the default (and
+	// air-gap) binary ships a stub that errors here — so no IdP/JWKS code is
+	// ever compiled into those builds.
+	oauthMW, err := oauthMiddleware(mcpOAuthFromConfig(cfg), logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mcp oauth: %w", err)
+	}
+
+	return oauthMW(auth.RequireAuthenticated(auditLog)(base)), wellKnownOAuthHandler(cfg), nil
+}
+
+// mcpOAuthConfig is the named view of the OAuth settings the build-tagged
+// verifier + the .well-known handler consume (the config field is an
+// anonymous struct, awkward to pass across functions).
+type mcpOAuthConfig struct {
+	Enabled             bool
+	Issuer              string
+	Audience            string
+	JWKSURL             string
+	RequiredScope       string
+	ResourceMetadataURL string
+	AllowedSiteIDs      []uint32 // sites a verified token may read (deployment-scoped; never wildcard)
+}
+
+func mcpOAuthFromConfig(cfg appConfig) mcpOAuthConfig {
+	o := cfg.MCP.HTTP.OAuth
+
+	return mcpOAuthConfig{
+		Enabled:             o.Enabled,
+		Issuer:              o.Issuer,
+		Audience:            o.Audience,
+		JWKSURL:             o.JWKSURL,
+		RequiredScope:       o.RequiredScope,
+		ResourceMetadataURL: resourceMetadataURL(o.ResourceMetadataURL, o.Audience),
+		AllowedSiteIDs:      o.AllowedSiteIDs,
+	}
+}
+
+// resourceMetadataURL returns the configured RFC 9728 protected-resource
+// metadata URL, or derives it from the audience's origin when unset, so the 401
+// WWW-Authenticate always carries a resource_metadata discovery hint (Gate 2
+// H2 — ChatGPT/the IdP needs it to find the authorization server). Falls back
+// to the raw configured value if the audience can't be parsed.
+func resourceMetadataURL(configured, audience string) string {
+	if configured != "" {
+		return configured
+	}
+
+	u, err := url.Parse(audience)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return configured
+	}
+
+	return u.Scheme + "://" + u.Host + "/.well-known/oauth-protected-resource"
+}
+
+// mcpOAuthScopes returns the scopes tools/list advertises in per-tool
+// _meta.securitySchemes — non-empty only for an OAuth-enabled chatgpt-app
+// deployment, so the v2 loopback/stdio surface stays byte-identical.
+func mcpOAuthScopes(cfg appConfig) []string {
+	if cfg.MCP.HTTP.Profile != "chatgpt-app" || !cfg.MCP.HTTP.OAuth.Enabled {
+		return nil
+	}
+
+	if s := cfg.MCP.HTTP.OAuth.RequiredScope; s != "" {
+		return []string{s}
+	}
+
+	return []string{"analytics:read"}
+}
+
+// wellKnownOAuthHandler serves RFC 9728 OAuth Protected Resource Metadata so
+// ChatGPT/the IdP can discover the authorization server. Static JSON — no
+// crypto, no outbound — safe in every build.
+func wellKnownOAuthHandler(cfg appConfig) http.HandlerFunc {
+	o := cfg.MCP.HTTP.OAuth
+
+	body, _ := json.Marshal(map[string]any{
+		"resource":                 o.Audience,
+		"authorization_servers":    []string{o.Issuer},
+		"scopes_supported":         mcpOAuthScopes(cfg),
+		"bearer_methods_supported": []string{"header"},
+	})
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}
 }
 
 // mcpBudget maps the typed config into the mcp package's BudgetConfig.

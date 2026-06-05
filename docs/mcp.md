@@ -1,5 +1,7 @@
 # statnive-live MCP server (read-only agent surface)
 
+> **New to this?** Start with the plain-language guide: **[mcp-guide.md](mcp-guide.md)** (what it is, how to use it, creative examples). This page is the precise operator reference.
+
 > **Status:** v2 "agent surface" — read-only. Lets an MCP client (Claude Code, Claude Desktop, or any MCP host) answer analytics questions directly from statnive-live's rollups, with the **same tenancy isolation and role rules as the dashboard/REST API**.
 >
 > **No LLM in the server.** It is a deterministic adapter over the existing `storage.Store` — zero model/inference code, zero new dependencies, air-gap-safe. The intelligence (natural-language → tool selection) is the *client's* job.
@@ -170,6 +172,107 @@ printf '%s\n%s\n' \
 - **Privacy.** No raw IP / raw user_id / master_secret / email in any output or audit event. Audit (`mcp.tool_call` / `mcp.denied`) carries `site_id` + tool + actor label **only** — never filter values.
 - **Output bounds.** `limit` is clamped to ≤500 server-side; per-call ClickHouse cost guards (execution-time / rows-read / memory ceilings) apply.
 
+## ChatGPT-app profile (v2.5, SaaS-only)
+
+A ChatGPT app is an MCP server reachable over public HTTPS with OAuth. The v2.5 `chatgpt-app` profile turns the same read-only tool surface into a **text-only ChatGPT app** — no widgets (those are v3) — without touching the air-gap build.
+
+**It is gated, fail-closed, and built separately:**
+
+- The OAuth 2.1 / JWKS verifier is compiled **only with `-tags chatgpt_app`**. The default and air-gap binaries ship a stub that refuses `profile=chatgpt-app` — so no IdP/outbound/JWKS code ever enters those builds (`make licenses` / `air-gap-validator` stay clean). Build the SaaS binary with `go build -tags chatgpt_app ./cmd/statnive-live`.
+- Activation requires **all** of: `posture: saas`, `mcp.http.profile: chatgpt-app`, `mcp.http.oauth.enabled: true`, a non-empty `mcp.http.oauth.allowed_site_ids`, and TLS on a public bind. Any missing piece → the server refuses to start.
+
+```yaml
+posture: saas
+mcp:
+  http:
+    enabled: true
+    profile: "chatgpt-app"
+    listen: ":443"
+    tls_cert_file: "/etc/.../fullchain.pem"
+    tls_key_file:  "/etc/.../privkey.pem"
+    oauth:
+      enabled: true
+      issuer:   "https://your-idp.example.com"
+      audience: "https://mcp.statnive.live"
+      required_scope: "analytics:read"          # optional
+      resource_metadata_url: "https://mcp.statnive.live/.well-known/oauth-protected-resource"
+      allowed_site_ids: [1, 4]                   # REQUIRED: the sites a verified token may read
+```
+
+**How it behaves:**
+- Every request must carry a valid Bearer **access token** (RS256/ES256 JWT). The verifier checks signature (against the issuer's JWKS), `iss`, `aud`, `exp`/`nbf`, and the required scope; `alg=none`/HS* are rejected (alg-confusion guard). Invalid/absent → `401` with a `WWW-Authenticate: Bearer resource_metadata=…` discovery hint.
+- `GET /.well-known/oauth-protected-resource` serves RFC 9728 metadata so ChatGPT/the IdP can discover the authorization server.
+- `tools/list` advertises per-tool `_meta.securitySchemes` (`noauth` + `oauth2`) so ChatGPT knows to run the auth-code + PKCE flow.
+- Responses are returned as SSE when the client sends `Accept: text/event-stream` (stateless, one event per response), or plain JSON otherwise.
+- The authenticated principal is an `api`-role actor scoped to the token's consented `site_ids` **intersected with** `allowed_site_ids` (the deployment ceiling) — never a wildcard. A token issued by the statnive AS (below) carries a `site_ids` consent claim, so the actor reads only the sites the user consented to (PR-E M1); a token with no claim (a legacy/external-IdP token) falls back to the full ceiling. The same four authz gates (role floor → grant hydration → `ActorCanReadSite` → SQL choke point) + budgets + sanitizer apply exactly as on every other transport.
+
+## Authorization server — statnive issues its own tokens (PR-E, SaaS-only)
+
+The v2.5 profile above is the **resource server** (it *verifies* tokens). For a turnkey ChatGPT app, statnive is also the **authorization server** (it *issues* them) — so an end-user connects with their existing **dashboard account**, no third-party IdP. Auth-code + PKCE S256 + a consent screen; refresh-token rotation with reuse-detection. Same build-tag + posture gating as the verifier (zero AS code, zero new deps in the default/air-gap binary — the AS is hand-rolled stdlib, not a library: `make licenses`/`air-gap-validator` stay clean).
+
+**Where it runs:** the AS mounts on the **main daemon** (not `mcp serve`) so `/authorize` shares the dashboard origin + session. The reverse proxy routes `/authorize`, `/token`, `/register`, `/.well-known/oauth-authorization-server`, `/.well-known/jwks.json`, `/consent` to the daemon; `/mcp` + `/.well-known/oauth-protected-resource` to `mcp serve`. Build the daemon with `-tags chatgpt_app`.
+
+**Endpoints:** `GET /.well-known/oauth-authorization-server` (RFC 8414; advertises `code_challenge_methods_supported:["S256"]` only) · `GET /.well-known/jwks.json` (the signing key the verifier fetches) · `POST /register` (RFC 7591 DCR, **admin-authed**) · `GET /authorize` (dashboard-session login → consent) · `POST /consent` · `POST /token` (auth-code + refresh grants).
+
+```yaml
+posture: saas
+mcp:
+  http:
+    oauth:
+      issuer:   "https://app.statnive.live"        # the AS issuer
+      audience: "https://app.statnive.live/mcp"     # RFC 8707 resource / aud
+      allowed_site_ids: [1, 4]                       # the ceiling (shared with the verifier)
+  oauth_as:
+    enabled: true
+    signing_key_file: "/etc/statnive-live/oauth_signing_key.pem"   # RSA, chmod 0600
+    # access_ttl_seconds: 1800   refresh_ttl_seconds: 2592000   code_ttl_seconds: 60
+```
+
+**Provision the signing key** (operator laptop or the box; chmod 0600, never in git):
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out oauth_signing_key.pem
+chmod 0600 oauth_signing_key.pem      # the loader REFUSES a group/world-readable key
+```
+
+Rotation: generate a new key, point `signing_key_file` at it, and list the **old public** key in `retired_key_files` for a grace window (default 24h) so in-flight tokens keep verifying; remove it after the window.
+
+**Register the ChatGPT client** (after deploy, before store submission) — an admin POSTs DCR; the `client_secret` is shown **once**:
+
+```bash
+curl -sX POST https://app.statnive.live/register \
+  -H "Cookie: statnive_session=<admin session>" -H 'Content-Type: application/json' \
+  -d '{"client_name":"ChatGPT","redirect_uris":["https://chatgpt.com/connector_platform_oauth_redirect"]}'
+# → {"client_id":"…","client_secret":"… (copy now)","redirect_uris":[…]}
+```
+
+`redirect_uris` are **exact-match** (no wildcards, no fragments, https-only except loopback). Pre-flight check before submitting: `SELECT count() FROM statnive.oauth_clients WHERE revoked=0` must be ≥ 1.
+
+**End-user flow:** install the app → "Connect" → statnive `/authorize` (already logged into the dashboard) → consent screen lists the sites they may grant (their grants ∩ the ceiling) → approve → ChatGPT exchanges the code at `/token` → done. The issued JWT carries the consented `site_ids`, which the verifier enforces (M1).
+
+**Security posture** (pinned by the J red-team in `test/oauth_as_integration_test.go`): PKCE S256 mandatory (plain/none rejected); exact redirect-URI match (open-redirect/smuggle rejected); single-use short-TTL codes (replay rejected); code bound to client + verifier (cross-client/PKCE-strip rejected); refresh rotation + family-revoke on reuse; consent server-clamped to the user's real grants (escalation rejected); codes/secrets/refresh-tokens SHA-256-hashed at rest, raw never logged.
+
+## ChatGPT-app widgets (v3)
+
+v3 adds the **UI layer**: an interactive widget so a tool's result renders as cards/tables (and, as an increment, charts) inside ChatGPT instead of plain text.
+
+- Turn it on with `mcp.widgets.enabled: true`. The server then advertises the MCP **`resources`** capability, serves the widget at `ui://widget/statnive.html` (`resources/list` + `resources/read`), and `tools/list` emits per-tool `_meta.ui.resourceUri` for the top tools (`overview`, `trend`, `sources`, `geo`).
+- **Air-gap-safe by construction:** the widget is a single, dependency-free, **zero-outbound** HTML file `go:embed`-ded into the binary (no CDN, no fonts, no analytics). Default off. Because it's static embedded content (no JS bundle deps), it needs no build tag — unlike the OAuth verifier.
+- The widget is a **generic renderer**: it reads the calling tool's `structuredContent` via the portable MCP Apps bridge (`window.openai`) and renders KPI cards (object) or a table (array). Per-tool ECharts visualisations are an increment on the same contract — the data shape is each tool's `outputSchema`, unchanged. (ECharts adds a ~200 KB chunk; a future widget bundle gets its own size-limit profile.)
+- All tool values are escaped in the widget (defence-in-depth on top of the server-side sanitizer).
+
+### Submitting to the ChatGPT app store
+
+When publishing the v2.5 + v3 app, the top rejection causes are pre-handled:
+
+- **Tool annotations** — every tool ships `readOnlyHint:true, destructiveHint:false, openWorldHint:false` (the #1 rejection cause).
+- **No undisclosed data** — outputs are aggregate-only; audit/output discipline already forbids session/trace IDs.
+- **Privacy statement** — disclose that `props_list.sample_values` are customer-supplied UGC (may contain PII if mis-instrumented), and the data-retention / DSAR posture (`docs/rules/privacy-detail.md`).
+- **Descriptions** — no comparative/"best"/"official" language.
+- **Least-privilege OAuth** — a single `analytics:read` scope; the principal is site-scoped, never wildcard.
+- **WCAG-AA** — the widget uses system fonts/colours + honours `prefers-color-scheme`.
+- **Portable bridge** — the widget targets the MCP Apps surface (`window.openai`), not a legacy vendor global, so it also runs in Claude and other MCP hosts.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |
@@ -180,6 +283,10 @@ printf '%s\n%s\n' \
 | HTTP refuses to start on a public address | Non-loopback bind needs `posture: saas` + TLS cert/key. |
 | `isError: budget exhausted` | Per-actor query budget hit; back off or raise `mcp.budget.*`. |
 | `devices`/`funnel` return "not yet available" | Reserved tools; ship with the `daily_devices` rollup / `windowFunnel`. |
+| Daemon refuses to start with "mcp.oauth_as requires …" | The AS is fail-closed: needs `posture: saas`, `oauth.issuer`/`audience`, a `signing_key_file`, and a non-empty `allowed_site_ids`. |
+| "signing key … is group/world-readable" at boot | `chmod 0600` the `signing_key_file` (a leaked key forges any token). `STATNIVE_DEV=1` bypasses the check for local dev only. |
+| `/token` returns `invalid_grant` after a refresh | Refresh tokens rotate + are single-use; reusing a rotated one revokes the whole family (theft defence). Re-run the connect flow. |
+| `mcp.oauth_as.enabled=true` but AS endpoints 404 / daemon errors about the stub | The binary was built without `-tags chatgpt_app`. Rebuild the SaaS binary with the tag (never ship it inside-iran/air-gap). |
 
 ## Without MCP
 

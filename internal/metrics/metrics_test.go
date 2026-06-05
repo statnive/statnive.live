@@ -23,6 +23,56 @@ func TestRegistry_Received(t *testing.T) {
 	}
 }
 
+func TestRegistry_OAuthCounters(t *testing.T) {
+	t.Parallel()
+
+	r := metrics.New()
+	r.IncOAuthAuthorize(metrics.OAuthGranted)
+	r.IncOAuthAuthorize(metrics.OAuthGranted)
+	r.IncOAuthAuthorize(metrics.OAuthDenied)
+	r.IncOAuthToken(metrics.OAuthIssued)
+	r.IncOAuthToken(metrics.OAuthRefreshReuse)
+
+	if got := r.OAuthAuthorizeFor(metrics.OAuthGranted); got != 2 {
+		t.Errorf("authorize{granted} = %d, want 2", got)
+	}
+
+	if got := r.OAuthTokenFor(metrics.OAuthRefreshReuse); got != 1 {
+		t.Errorf("token{refresh_reuse} = %d, want 1", got)
+	}
+
+	var buf bytes.Buffer
+	if err := r.WriteText(&buf); err != nil {
+		t.Fatalf("WriteText: %v", err)
+	}
+
+	for _, want := range []string{
+		`# TYPE statnive_mcp_oauth_authorize_total counter`,
+		`statnive_mcp_oauth_authorize_total{outcome="granted"} 2`,
+		`statnive_mcp_oauth_authorize_total{outcome="denied"} 1`,
+		`statnive_mcp_oauth_token_total{outcome="issued"} 1`,
+		`statnive_mcp_oauth_token_total{outcome="refresh_reuse"} 1`,
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("WriteText missing %q\n--- got:\n%s", want, buf.String())
+		}
+	}
+}
+
+// A fresh registry must emit NO oauth lines (air-gap/default build never emits).
+func TestRegistry_OAuthEmptyByDefault(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	if err := metrics.New().WriteText(&buf); err != nil {
+		t.Fatalf("WriteText: %v", err)
+	}
+
+	if strings.Contains(buf.String(), `statnive_mcp_oauth_authorize_total{`) {
+		t.Errorf("empty registry emitted an oauth data line:\n%s", buf.String())
+	}
+}
+
 func TestRegistry_AcceptedPerSite(t *testing.T) {
 	t.Parallel()
 
