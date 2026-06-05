@@ -64,6 +64,21 @@ jobs:
           version: v2.5.0
           args: --timeout=5m
 
+      # ChatGPT-app (v2.5) build: the OAuth/JWKS verifier is behind the
+      # `chatgpt_app` tag (kept out of the default + air-gap binaries). Build
+      # it + run its self-contained verifier tests, and lint the tagged files
+      # (golangci-lint with the default tag set skips them).
+      - name: ChatGPT-app build + OAuth verifier tests
+        run: |
+          go build -tags chatgpt_app ./...
+          go test -tags chatgpt_app -run 'TestVerifyToken|TestOAuth' ./cmd/statnive-live/...
+
+      - name: Lint (chatgpt_app tag)
+        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9  # v8
+        with:
+          version: v2.5.0
+          args: --timeout=5m --build-tags chatgpt_app ./cmd/statnive-live/...
+
   licenses:
     name: license check (no AGPL / strong-copyleft)
     runs-on: ubuntu-latest

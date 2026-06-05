@@ -144,6 +144,42 @@ printf '%s\n%s\n' \
 - **Privacy.** No raw IP / raw user_id / master_secret / email in any output or audit event. Audit (`mcp.tool_call` / `mcp.denied`) carries `site_id` + tool + actor label **only** — never filter values.
 - **Output bounds.** `limit` is clamped to ≤500 server-side; per-call ClickHouse cost guards (execution-time / rows-read / memory ceilings) apply.
 
+## ChatGPT-app profile (v2.5, SaaS-only)
+
+A ChatGPT app is an MCP server reachable over public HTTPS with OAuth. The v2.5 `chatgpt-app` profile turns the same read-only tool surface into a **text-only ChatGPT app** — no widgets (those are v3) — without touching the air-gap build.
+
+**It is gated, fail-closed, and built separately:**
+
+- The OAuth 2.1 / JWKS verifier is compiled **only with `-tags chatgpt_app`**. The default and air-gap binaries ship a stub that refuses `profile=chatgpt-app` — so no IdP/outbound/JWKS code ever enters those builds (`make licenses` / `air-gap-validator` stay clean). Build the SaaS binary with `go build -tags chatgpt_app ./cmd/statnive-live`.
+- Activation requires **all** of: `posture: saas`, `mcp.http.profile: chatgpt-app`, `mcp.http.oauth.enabled: true`, a non-empty `mcp.http.oauth.allowed_site_ids`, and TLS on a public bind. Any missing piece → the server refuses to start.
+
+```yaml
+posture: saas
+mcp:
+  http:
+    enabled: true
+    profile: "chatgpt-app"
+    listen: ":443"
+    tls_cert_file: "/etc/.../fullchain.pem"
+    tls_key_file:  "/etc/.../privkey.pem"
+    oauth:
+      enabled: true
+      issuer:   "https://your-idp.example.com"
+      audience: "https://mcp.statnive.live"
+      required_scope: "analytics:read"          # optional
+      resource_metadata_url: "https://mcp.statnive.live/.well-known/oauth-protected-resource"
+      allowed_site_ids: [1, 4]                   # REQUIRED: the sites a verified token may read
+```
+
+**How it behaves:**
+- Every request must carry a valid Bearer **access token** (RS256/ES256 JWT). The verifier checks signature (against the issuer's JWKS), `iss`, `aud`, `exp`/`nbf`, and the required scope; `alg=none`/HS* are rejected (alg-confusion guard). Invalid/absent → `401` with a `WWW-Authenticate: Bearer resource_metadata=…` discovery hint.
+- `GET /.well-known/oauth-protected-resource` serves RFC 9728 metadata so ChatGPT/the IdP can discover the authorization server.
+- `tools/list` advertises per-tool `_meta.securitySchemes` (`noauth` + `oauth2`) so ChatGPT knows to run the auth-code + PKCE flow.
+- Responses are returned as SSE when the client sends `Accept: text/event-stream` (stateless, one event per response), or plain JSON otherwise.
+- The authenticated principal is an `api`-role actor **scoped to `allowed_site_ids`** — never a wildcard (deployment-level tenancy scoping; per-token site claims are a v3 enhancement). The same four authz gates (role floor → grant hydration → `ActorCanReadSite` → SQL choke point) + budgets + sanitizer apply exactly as on every other transport.
+
+> v3 (interactive widgets served as `ui://` resources) is a further phase; the `_meta` widget descriptor seam is already reserved in the catalog.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

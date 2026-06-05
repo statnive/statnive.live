@@ -138,6 +138,19 @@ mcp:
     rate_limit_per_minute: 120
     tls_cert_file:         ""
     tls_key_file:          ""
+    # OAuth 2.1 resource-server config for the v2.5 ChatGPT-app profile.
+    # SaaS-only; inert unless profile=chatgpt-app. The JWT/JWKS verifier that
+    # consumes these is behind the `chatgpt_app` build tag — the default and
+    # air-gap binaries never compile any IdP/outbound code. NEVER set these in
+    # an inside-iran / air-gap deployment.
+    oauth:
+      enabled:               false
+      issuer:                ""   # expected `iss` + JWKS discovery base (https://...)
+      audience:              ""   # expected `aud` for this resource server
+      jwks_url:              ""   # explicit JWKS endpoint (else issuer/.well-known/jwks.json)
+      required_scope:        ""   # optional scope the access token must carry
+      resource_metadata_url: ""   # RFC 9728 URL in the 401 WWW-Authenticate
+      allowed_site_ids:      []   # site_ids a verified token may read (deployment-scoped, NOT wildcard). REQUIRED for profile=chatgpt-app. Per-token site claims are a v3 enhancement.
   budget:
     calls_per_min:           60
     rows_per_min:            20000
