@@ -220,7 +220,10 @@ export class HttpError extends Error {
   }
 }
 
-async function request<T>(
+// request is the shared typed client (session cookie + optional CI bearer,
+// JSON in/out, HttpError on non-2xx). Exported so sibling API modules
+// (api/mcp.ts) reuse it instead of re-implementing fetch + error parsing.
+export async function request<T>(
   method: string,
   path: string,
   body?: unknown,

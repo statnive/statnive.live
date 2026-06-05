@@ -35,6 +35,8 @@ function renderPanel() {
       return <LazyPanel name="admin" />;
     case 'compare':
       return <LazyPanel name="compare" />;
+    case 'connect':
+      return <LazyPanel name="connect" />;
     default:
       return <Overview />;
   }

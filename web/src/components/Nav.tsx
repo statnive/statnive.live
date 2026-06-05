@@ -31,6 +31,7 @@ const TABS: ReadonlyArray<TabDef> = [
   { id: 'geo', label: 'Geo' },
   { id: 'compare', label: 'Compare' },
   { id: 'realtime', label: 'Realtime', live: true },
+  { id: 'connect', label: 'Connect' },
   { id: 'admin', label: 'Admin', adminOnly: true },
   { id: 'devices', label: 'Devices', soon: true },
   { id: 'funnel', label: 'Funnel', soon: true },
