@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-privacy prod-probe smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks mcp-parity
+.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-privacy prod-probe smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks mcp-parity mcp-e2e
 
 all: lint test build
 
@@ -88,6 +88,14 @@ test-integration: web-build
 ## this target is the standalone gate for CI + `make release`.
 mcp-parity:
 	$(GO) test -mod=vendor -run '^TestParity' ./internal/mcp/...
+
+## mcp-e2e: End-to-end MCP test — drives the REAL compiled binary
+## (`statnive-live mcp serve`) as a subprocess over BOTH transports (stdio +
+## HTTP) against docker ClickHouse, with CH-oracle parity + HTTP bearer auth
+## (200 with token, 401 without). Exercises cmd dispatch + reduced boot + the
+## HTTP middleware chain that the in-process tests don't. Requires `make ch-up`.
+mcp-e2e: build
+	STATNIVE_E2E_BIN="$(abspath $(BIN_DIR)/statnive-live)" $(GO) test -mod=vendor -tags=e2e -v -timeout 120s ./test/e2e/...
 
 ## lint: Run golangci-lint + tenancy-grep + identity-gate + privacy-gate
 ##       + legacy-site-id-grep (v0.0.9 per-site-admin grant gate)

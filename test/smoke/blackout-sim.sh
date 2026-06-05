@@ -88,6 +88,78 @@ if ! make smoke; then
 	exit 1
 fi
 
+# ── MCP stdio air-gap probe ──────────────────────────────────────────────
+# The read-only MCP "agent surface" serves over stdin/stdout. Under the same
+# OUTPUT DROP it MUST: (a) complete a real initialize + tools/list round-trip
+# (CH reached over loopback / docker bridge — both allowed), and (b) open ZERO
+# TCP listeners (stdio binds nothing; HTTP is off by default). The final
+# DROP-policy counter below then proves it also made zero external egress.
+#
+# Runs backgrounded with stdin held open via a FIFO, so we can inspect the
+# process's listeners WHILE it is alive and pin the check to its PID (a global
+# listener count would be fooled by unrelated host sockets).
+echo "blackout-sim: MCP stdio probe"
+
+MCP_TMP="$(mktemp -d -t blackout-mcp.XXXXXX)"
+MCP_CFG="$MCP_TMP/config.yaml"
+MCP_FIFO="$MCP_TMP/in.fifo"
+MCP_RESP="$MCP_TMP/out.jsonl"
+mkfifo "$MCP_FIFO"
+
+cat > "$MCP_CFG" <<YAML
+clickhouse:
+  addr: "${STATNIVE_SMOKE_CH_ADDR:-127.0.0.1:19000}"
+  database: "statnive"
+  username: "default"
+audit:
+  path: "$MCP_TMP/audit.jsonl"
+alerts:
+  sink_path: "$MCP_TMP/alerts.jsonl"
+mcp:
+  budget:
+    calls_per_min:          10000
+    rows_per_min:           100000000
+    calls_per_session:      100000
+    rows_per_session:       1000000000
+    distinct_sites_per_min: 1000
+    wildcard_tier_factor:   1.0
+YAML
+
+./bin/statnive-live mcp serve --transport=stdio --all-sites -c "$MCP_CFG" \
+	< "$MCP_FIFO" > "$MCP_RESP" 2>/dev/null &
+MCP_PID=$!
+exec 9>"$MCP_FIFO" # hold the FIFO open so the MCP doesn't see EOF yet
+
+printf '%s\n%s\n' \
+	'{"jsonrpc":"2.0","id":1,"method":"initialize"}' \
+	'{"jsonrpc":"2.0","id":2,"method":"tools/list"}' >&9
+
+sleep 1 # let it boot + (if it were going to) bind a listener
+
+# Listener gate, pinned to the MCP PID: the stdio transport must open zero
+# TCP listeners.
+if ss -ltnp 2>/dev/null | grep -q "pid=${MCP_PID},"; then
+	echo "blackout-sim: MCP stdio FAIL — process opened a TCP listener (stdio must bind nothing)" >&2
+	ss -ltnp 2>/dev/null | grep "pid=${MCP_PID}," >&2
+	exec 9>&-
+	kill "$MCP_PID" 2>/dev/null || true
+	rm -rf "$MCP_TMP"
+	exit 1
+fi
+
+exec 9>&-                       # close FIFO → EOF → MCP drains + exits
+wait "$MCP_PID" 2>/dev/null || true
+
+if ! grep -q '"protocolVersion"' "$MCP_RESP" || ! grep -q '"tools"' "$MCP_RESP"; then
+	echo "blackout-sim: MCP stdio FAIL — incomplete initialize/tools round-trip under blackout" >&2
+	cat "$MCP_RESP" >&2
+	rm -rf "$MCP_TMP"
+	exit 1
+fi
+
+rm -rf "$MCP_TMP"
+echo "blackout-sim: MCP stdio OK — round-trip succeeded, zero listeners opened by PID ${MCP_PID}"
+
 # Final packet-count gate: every non-default-policy OUTPUT rule above
 # is an ACCEPT for loopback or docker bridge. If the DROP policy
 # accumulated any packets, the binary tried to reach an external
