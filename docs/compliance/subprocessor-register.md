@@ -32,6 +32,7 @@
 | IP2Location DB23 paid distribution endpoint | DB23 BIN download (replaces LITE at Phase 10) | US (DPF) | First paid DB23 download | Before Phase 10 procurement |
 | SMTP provider (TBD) | Transactional email (signup verification, password reset, weekly digest) — gated by `email.enabled` | (provider-dependent) | First call to `email.Send` | Before Phase 11a `email.enabled=true` |
 | Telegram Bot API | Optional alert fan-out (v1.1, gated by `alerts.telegram.enabled`) | UK (operator-elected) | First operator opt-in | Before flipping the config flag |
+| OpenAI, Inc. (ChatGPT) | **ChatGPT-app path only** (gated by `mcp.http.profile=chatgpt-app` + `mcp.oauth_as.enabled`, `chatgpt_app` build). When a customer's end-user connects the published ChatGPT app, ChatGPT (OpenAI's servers) reads that user's **aggregate analytics** (the read-only MCP tool surface) via an OAuth token the user authorised. OpenAI receives the query + returned aggregates — no raw IP, no raw `user_id` (Privacy Rules 1/4); `props_list.sample_values` may carry customer-supplied UGC. The end-user initiates the connection. | US (DPF) | First ChatGPT-app install / store listing going live | Before the ChatGPT app store listing is published |
 
 ## Procedural reminders
 
