@@ -20,9 +20,15 @@
 --   * NO raw secrets at rest — client_secret, authorization code, and refresh
 --     token are each SHA-256-hashed (hex, FixedString(64)); the raw values
 --     live only in the HTTP response and the client. Privacy Rule 3 (SHA-256+).
---   * user_id links a code/refresh-token to the consenting dashboard user →
---     DSAR erasure deletes WHERE user_id=? (internal/privacy; PR-E extends the
---     user-scoped eraser). site_ids is the consented (scope-clamped) set.
+--   * user_id links a code/refresh-token to the consenting dashboard user (PII
+--     under GDPR Art. 17). Erasure is privacy.EraseOAuthGrantsByUserID
+--     (internal/privacy/erase.go) which runs `ALTER TABLE ... DELETE WHERE
+--     user_id=?` on both tables. KNOWN MERGE GAP: that helper is NOT yet invoked
+--     by an account-deletion path on this branch — the user-scoped account
+--     eraser (EraseByUserID) lands on the PR-A token stack (#188) and its
+--     integration checklist MUST call EraseOAuthGrantsByUserID before the AS is
+--     enabled in any GDPR deployment (tracked in LEARN.md). site_ids is the
+--     consented (scope-clamped) set.
 --   * code/token "consume"/"rotate"/"revoke" are higher-version upserts, never
 --     DELETEs (audit trail; latest version wins on FINAL).
 --

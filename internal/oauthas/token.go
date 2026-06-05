@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/metrics"
 )
 
 // tokenResponse is the RFC 6749 §5.1 success body. RefreshToken is omitted (via
@@ -74,6 +75,9 @@ func (s *Server) authenticateClient(w http.ResponseWriter, r *http.Request) (Cli
 
 	client, err := s.store.GetClient(r.Context(), clientID)
 	if err != nil {
+		// Count unknown-client as a rejection so the rejection-spike alert
+		// catches client-id enumeration / stuffing (Gate 2 B2).
+		s.metrics.IncOAuthToken(metrics.OAuthRejected)
 		s.oauthError(w, http.StatusUnauthorized, "invalid_client", "unknown client")
 
 		return Client{}, false
@@ -83,6 +87,9 @@ func (s *Server) authenticateClient(w http.ResponseWriter, r *http.Request) (Cli
 		// Constant-time compare of the SHA-256 hex digests (equal length).
 		got := HashToken(secret)
 		if subtle.ConstantTimeCompare([]byte(got), []byte(client.SecretHash)) != 1 {
+			// Count as a rejection so the rejection-spike alert catches
+			// client-secret credential stuffing (the likeliest /token attack).
+			s.metrics.IncOAuthToken(metrics.OAuthRejected)
 			s.oauthError(w, http.StatusUnauthorized, "invalid_client", "bad client credentials")
 
 			return Client{}, false
@@ -98,6 +105,7 @@ func (s *Server) grantAuthorizationCode(w http.ResponseWriter, r *http.Request, 
 	verifier := r.PostFormValue("code_verifier")
 
 	if rawCode == "" {
+		s.metrics.IncOAuthToken(metrics.OAuthRejected)
 		s.oauthError(w, http.StatusBadRequest, "invalid_request", "missing code")
 
 		return
@@ -113,6 +121,7 @@ func (s *Server) grantAuthorizationCode(w http.ResponseWriter, r *http.Request, 
 			)
 		}
 
+		s.metrics.IncOAuthToken(metrics.OAuthRejected)
 		s.oauthError(w, http.StatusBadRequest, "invalid_grant", "invalid or expired code")
 
 		return
@@ -127,6 +136,7 @@ func (s *Server) grantAuthorizationCode(w http.ResponseWriter, r *http.Request, 
 			slog.String("client_id", client.ID),
 			slog.String("reason", "code_binding_mismatch"),
 		)
+		s.metrics.IncOAuthToken(metrics.OAuthRejected)
 		s.oauthError(w, http.StatusBadRequest, "invalid_grant", "code binding mismatch")
 
 		return
@@ -138,6 +148,7 @@ func (s *Server) grantAuthorizationCode(w http.ResponseWriter, r *http.Request, 
 func (s *Server) grantRefreshToken(w http.ResponseWriter, r *http.Request, client Client) {
 	rawRefresh := r.PostFormValue("refresh_token")
 	if rawRefresh == "" {
+		s.metrics.IncOAuthToken(metrics.OAuthRejected)
 		s.oauthError(w, http.StatusBadRequest, "invalid_request", "missing refresh_token")
 
 		return
@@ -156,6 +167,9 @@ func (s *Server) grantRefreshToken(w http.ResponseWriter, r *http.Request, clien
 			s.audit.Event(r.Context(), audit.EventOAuthRefreshReuse,
 				slog.String("client_id", client.ID),
 			)
+			s.metrics.IncOAuthToken(metrics.OAuthRefreshReuse)
+		} else {
+			s.metrics.IncOAuthToken(metrics.OAuthRejected)
 		}
 
 		s.oauthError(w, http.StatusBadRequest, "invalid_grant", "invalid refresh token")
@@ -200,6 +214,7 @@ func (s *Server) writeTokens(w http.ResponseWriter, r *http.Request, g grant, re
 		slog.String("client_id", g.ClientID),
 		slog.String("user_id", g.UserID.String()),
 	)
+	s.metrics.IncOAuthToken(metrics.OAuthIssued)
 
 	s.writeJSON(w, http.StatusOK, tokenResponse{
 		AccessToken:  access,

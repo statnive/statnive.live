@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -16,14 +17,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/httprate"
-
 	"github.com/statnive/statnive.live/internal/alerts"
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/goals"
 	"github.com/statnive/statnive.live/internal/ingest"
 	"github.com/statnive/statnive.live/internal/mcp"
+	"github.com/statnive/statnive.live/internal/ratelimit"
 	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
 )
@@ -184,8 +184,18 @@ func serveMCPHTTP(ctx context.Context, srv *mcp.Server, cfg appConfig, listenOve
 		mux.Handle("/.well-known/oauth-protected-resource", wellKnown)
 	}
 
-	limited := httprate.LimitByIP(cfg.MCP.HTTP.RateLimitPerMinute, time.Minute)(protected)
-	mux.Handle("/mcp", limited)
+	// Proxy-aware limiter (Gate 2 B1 parity): the public /mcp surface sits behind
+	// the SaaS reverse proxy in the chatgpt-app posture, so keying on RemoteAddr
+	// would collapse every client into the proxy's single bucket. ratelimit
+	// .Middleware keys on the forwarded client IP (ingest.ClientIP) and emits
+	// audit + the rate_limited metric on each 429. Falls back to RemoteAddr for
+	// the loopback profile (no forwarded headers), so behaviour is unchanged there.
+	rl, err := ratelimit.Middleware(cfg.MCP.HTTP.RateLimitPerMinute, time.Minute, ratelimit.Config{Audit: auditLog})
+	if err != nil {
+		return fmt.Errorf("mcp http rate limiter: %w", err)
+	}
+
+	mux.Handle("/mcp", rl(protected))
 
 	httpSrv := &http.Server{
 		Addr:              addr,
@@ -278,9 +288,27 @@ func mcpOAuthFromConfig(cfg appConfig) mcpOAuthConfig {
 		Audience:            o.Audience,
 		JWKSURL:             o.JWKSURL,
 		RequiredScope:       o.RequiredScope,
-		ResourceMetadataURL: o.ResourceMetadataURL,
+		ResourceMetadataURL: resourceMetadataURL(o.ResourceMetadataURL, o.Audience),
 		AllowedSiteIDs:      o.AllowedSiteIDs,
 	}
+}
+
+// resourceMetadataURL returns the configured RFC 9728 protected-resource
+// metadata URL, or derives it from the audience's origin when unset, so the 401
+// WWW-Authenticate always carries a resource_metadata discovery hint (Gate 2
+// H2 — ChatGPT/the IdP needs it to find the authorization server). Falls back
+// to the raw configured value if the audience can't be parsed.
+func resourceMetadataURL(configured, audience string) string {
+	if configured != "" {
+		return configured
+	}
+
+	u, err := url.Parse(audience)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return configured
+	}
+
+	return u.Scheme + "://" + u.Host + "/.well-known/oauth-protected-resource"
 }
 
 // mcpOAuthScopes returns the scopes tools/list advertises in per-tool

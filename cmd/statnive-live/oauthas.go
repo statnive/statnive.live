@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/httprate"
 
 	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/oauthas"
+	"github.com/statnive/statnive.live/internal/ratelimit"
 )
 
 // asEndpointRatePerMin caps per-IP requests to the AS endpoints — defence
@@ -69,10 +69,19 @@ func mountOAuthAS(r chi.Router, p oauthASParams) error {
 		RefreshTTL:     time.Duration(as.RefreshTTLSeconds) * time.Second,
 		CodeTTL:        time.Duration(as.CodeTTLSeconds) * time.Second,
 		LoginPath:      as.LoginPath,
-	}, store, key, sites, p.audit, p.logger, time.Now)
+	}, store, key, sites, p.audit, p.metrics, p.logger, time.Now)
 
 	adminOnly := auth.RequireRole(p.audit, auth.RoleAdmin)
-	limit := httprate.LimitByIP(asEndpointRatePerMin, time.Minute)
+
+	// Proxy-aware limiter: keys on the forwarded client IP (ingest.ClientIP via
+	// internal/ratelimit), not RemoteAddr — behind the SaaS reverse proxy
+	// RemoteAddr is the proxy's loopback, which would collapse every client into
+	// one global bucket (Gate 2 B1). Also emits audit.EventRateLimited + the
+	// rate_limited metric on each 429 (Gate 2 B4).
+	limit, err := ratelimit.Middleware(asEndpointRatePerMin, time.Minute, ratelimit.Config{Audit: p.audit, Metrics: p.metrics})
+	if err != nil {
+		return fmt.Errorf("oauth_as rate limiter: %w", err)
+	}
 
 	r.Group(func(gr chi.Router) {
 		gr.Use(limit)

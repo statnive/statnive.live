@@ -53,11 +53,27 @@ const (
 	ReasonTooManyProps    = "too_many_props" // props map exceeds the per-event entry cap
 )
 
+// OAuth authorization-server outcome labels (PR-E/PR-F). Emitted by the
+// chatgpt_app-tagged internal/oauthas handlers via IncOAuthAuthorize /
+// IncOAuthToken. Stable lowercase tokens for the
+// statnive_mcp_oauth_{authorize,token}_total{outcome="..."} series. In the
+// default/air-gap build nothing emits these, so /metrics shows no oauth lines.
+const (
+	OAuthRequested    = "requested"     // a GET /authorize request arrived (flood signal)
+	OAuthGranted      = "granted"       // consent approved → code issued
+	OAuthDenied       = "denied"        // user denied consent
+	OAuthIssued       = "issued"        // /token minted an access token
+	OAuthRejected     = "rejected"      // /token rejected a grant (bad code/PKCE/refresh/client)
+	OAuthRefreshReuse = "refresh_reuse" // rotated refresh token reused → family revoked (theft signal)
+)
+
 // Registry holds atomic counters surfaced via /metrics.
 type Registry struct {
-	received atomic.Uint64
-	accepted sync.Map // site_id (string) -> *atomic.Uint64
-	dropped  sync.Map // reason (string) -> *atomic.Uint64
+	received       atomic.Uint64
+	accepted       sync.Map // site_id (string) -> *atomic.Uint64
+	dropped        sync.Map // reason (string) -> *atomic.Uint64
+	oauthAuthorize sync.Map // outcome (string) -> *atomic.Uint64 (OAuth AS /authorize+/consent)
+	oauthToken     sync.Map // outcome (string) -> *atomic.Uint64 (OAuth AS /token)
 }
 
 // New returns a Registry with all counters at zero.
@@ -93,6 +109,43 @@ func (r *Registry) IncDropped(reason string) {
 	}
 
 	r.bumpMap(&r.dropped, reason)
+}
+
+// IncOAuthAuthorize bumps the OAuth authorize-outcome counter (granted/denied).
+func (r *Registry) IncOAuthAuthorize(outcome string) {
+	if r == nil {
+		return
+	}
+
+	r.bumpMap(&r.oauthAuthorize, outcome)
+}
+
+// IncOAuthToken bumps the OAuth /token-outcome counter
+// (issued/rejected/refresh_reuse).
+func (r *Registry) IncOAuthToken(outcome string) {
+	if r == nil {
+		return
+	}
+
+	r.bumpMap(&r.oauthToken, outcome)
+}
+
+// OAuthAuthorizeFor returns the current authorize-outcome counter. Test helper.
+func (r *Registry) OAuthAuthorizeFor(outcome string) uint64 {
+	if r == nil {
+		return 0
+	}
+
+	return loadCounter(&r.oauthAuthorize, outcome)
+}
+
+// OAuthTokenFor returns the current /token-outcome counter. Test helper.
+func (r *Registry) OAuthTokenFor(outcome string) uint64 {
+	if r == nil {
+		return 0
+	}
+
+	return loadCounter(&r.oauthToken, outcome)
 }
 
 // AcceptedFor returns the current accepted counter for siteID. Test helper.
@@ -184,6 +237,16 @@ func (r *Registry) WriteText(w io.Writer) error {
 
 	if err := writeLabelled(w, &r.dropped, "statnive_event_dropped_total", "reason",
 		"Events dropped before reaching WAL, partitioned by drop reason."); err != nil {
+		return err
+	}
+
+	if err := writeLabelled(w, &r.oauthAuthorize, "statnive_mcp_oauth_authorize_total", "outcome",
+		"OAuth AS consent decisions, partitioned by outcome (granted/denied)."); err != nil {
+		return err
+	}
+
+	if err := writeLabelled(w, &r.oauthToken, "statnive_mcp_oauth_token_total", "outcome",
+		"OAuth AS /token results, partitioned by outcome (issued/rejected/refresh_reuse)."); err != nil {
 		return err
 	}
 

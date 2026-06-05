@@ -19,6 +19,11 @@ const JWKSPath = "/.well-known/jwks.json"
 // authorization_code + refresh_token grants, and — critically —
 // code_challenge_methods_supported=["S256"] (no "plain", signalling the
 // mandatory-PKCE posture).
+//
+// registration_endpoint is deliberately NOT advertised (Gate 2 H3): /register
+// is admin-session-gated (operator pre-registers the one ChatGPT client; see
+// register.go), so advertising it would invite automated DCR that always 401s.
+// Clients fall back to the operator-issued credentials instead.
 func (s *Server) Metadata(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
@@ -33,7 +38,6 @@ func (s *Server) Metadata(w http.ResponseWriter, r *http.Request) {
 		"issuer":                                base,
 		"authorization_endpoint":                base + "/authorize",
 		"token_endpoint":                        base + "/token",
-		"registration_endpoint":                 base + "/register",
 		"jwks_uri":                              base + JWKSPath,
 		"scopes_supported":                      []string{s.cfg.Scope},
 		"response_types_supported":              []string{"code"},

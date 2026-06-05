@@ -36,6 +36,7 @@ import (
 
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
+	"github.com/statnive/statnive.live/internal/metrics"
 	"github.com/statnive/statnive.live/internal/oauthas"
 	"github.com/statnive/statnive.live/internal/storage"
 )
@@ -46,6 +47,7 @@ type asFixture struct {
 	srv      *oauthas.Server
 	store    *oauthas.Store
 	key      *oauthas.SigningKey
+	reg      *metrics.Registry
 	user     *auth.User // logged-in end-user with a grant on siteA only
 	admin    *auth.User // operator for DCR
 	siteA    uint32
@@ -133,6 +135,7 @@ func newASFixture(t *testing.T) *asFixture {
 	const issuer, audience = "https://app.statnive.live", "https://app.statnive.live/mcp"
 
 	asStore := oauthas.NewStore(store.Conn(), testDatabase)
+	reg := metrics.New()
 
 	srv := oauthas.NewServer(oauthas.Config{
 		Issuer:         issuer,
@@ -140,10 +143,10 @@ func newASFixture(t *testing.T) *asFixture {
 		Scope:          "analytics:read",
 		AllowedSiteIDs: []uint32{siteA, siteB},
 		CodeTTL:        60 * time.Second,
-	}, asStore, key, sites, auditLog, logger, time.Now)
+	}, asStore, key, sites, auditLog, reg, logger, time.Now)
 
 	return &asFixture{
-		srv: srv, store: asStore, key: key,
+		srv: srv, store: asStore, key: key, reg: reg,
 		user: user, admin: admin, siteA: siteA, siteB: siteB,
 		audience: audience, issuer: issuer,
 	}
@@ -349,6 +352,20 @@ func TestOAuthAS_HappyPath(t *testing.T) {
 
 	if got := jwtSiteIDs(t, tr.AccessToken); len(got) != 1 || got[0] != f.siteA {
 		t.Errorf("access token site_ids = %v, want [%d]", got, f.siteA)
+	}
+
+	// Observability wiring: authorize-requested (GET /authorize) +
+	// consent-granted + token-issued counters bumped.
+	if f.reg.OAuthAuthorizeFor(metrics.OAuthRequested) < 1 {
+		t.Error("metric statnive_mcp_oauth_authorize_total{requested} not incremented (Gate 2 B3)")
+	}
+
+	if f.reg.OAuthAuthorizeFor(metrics.OAuthGranted) < 1 {
+		t.Error("metric statnive_mcp_oauth_authorize_total{granted} not incremented")
+	}
+
+	if f.reg.OAuthTokenFor(metrics.OAuthIssued) < 1 {
+		t.Error("metric statnive_mcp_oauth_token_total{issued} not incremented")
 	}
 }
 
@@ -563,6 +580,10 @@ func TestOAuthAS_RedTeam(t *testing.T) {
 		if recSucc.Code == http.StatusOK {
 			t.Error("successor still valid after family revoke")
 		}
+
+		if f.reg.OAuthTokenFor(metrics.OAuthRefreshReuse) < 1 {
+			t.Error("metric statnive_mcp_oauth_token_total{refresh_reuse} not incremented on reuse")
+		}
 	})
 
 	t.Run("bad client secret rejected", func(t *testing.T) {
@@ -571,6 +592,19 @@ func TestOAuthAS_RedTeam(t *testing.T) {
 		rec, tr := f.exchange(t, codeExchangeForm(clientID, "WRONG-SECRET", code, redirectURI, verifier))
 		if rec.Code != http.StatusUnauthorized || tr.Error != "invalid_client" {
 			t.Errorf("bad secret: status %d err %q, want 401 invalid_client", rec.Code, tr.Error)
+		}
+	})
+
+	t.Run("unknown client_id counted as rejected (Gate 2 B2)", func(t *testing.T) {
+		before := f.reg.OAuthTokenFor(metrics.OAuthRejected)
+
+		rec, tr := f.exchange(t, codeExchangeForm("nonexistent-client", "x", "x", redirectURI, verifier))
+		if rec.Code != http.StatusUnauthorized || tr.Error != "invalid_client" {
+			t.Errorf("unknown client: status %d err %q, want 401 invalid_client", rec.Code, tr.Error)
+		}
+
+		if f.reg.OAuthTokenFor(metrics.OAuthRejected) <= before {
+			t.Error("unknown client_id did not bump token{rejected} — stuffing alert stays blind")
 		}
 	})
 }

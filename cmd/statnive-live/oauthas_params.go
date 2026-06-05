@@ -7,6 +7,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	"github.com/statnive/statnive.live/internal/audit"
+	"github.com/statnive/statnive.live/internal/metrics"
 )
 
 // oauthASParams is the dependency bundle for mountOAuthAS. It is defined here
@@ -18,6 +19,7 @@ type oauthASParams struct {
 	cfg       appConfig
 	conn      driver.Conn
 	audit     *audit.Logger
+	metrics   *metrics.Registry // /metrics counters (shared daemon registry)
 	logger    *slog.Logger
 	sessionMW func(http.Handler) http.Handler // populates the dashboard session
 	authedMW  func(http.Handler) http.Handler // 401s if no session (requireAuthed)
