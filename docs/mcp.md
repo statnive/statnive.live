@@ -178,7 +178,26 @@ mcp:
 - Responses are returned as SSE when the client sends `Accept: text/event-stream` (stateless, one event per response), or plain JSON otherwise.
 - The authenticated principal is an `api`-role actor **scoped to `allowed_site_ids`** — never a wildcard (deployment-level tenancy scoping; per-token site claims are a v3 enhancement). The same four authz gates (role floor → grant hydration → `ActorCanReadSite` → SQL choke point) + budgets + sanitizer apply exactly as on every other transport.
 
-> v3 (interactive widgets served as `ui://` resources) is a further phase; the `_meta` widget descriptor seam is already reserved in the catalog.
+## ChatGPT-app widgets (v3)
+
+v3 adds the **UI layer**: an interactive widget so a tool's result renders as cards/tables (and, as an increment, charts) inside ChatGPT instead of plain text.
+
+- Turn it on with `mcp.widgets.enabled: true`. The server then advertises the MCP **`resources`** capability, serves the widget at `ui://widget/statnive.html` (`resources/list` + `resources/read`), and `tools/list` emits per-tool `_meta.ui.resourceUri` for the top tools (`overview`, `trend`, `sources`, `geo`).
+- **Air-gap-safe by construction:** the widget is a single, dependency-free, **zero-outbound** HTML file `go:embed`-ded into the binary (no CDN, no fonts, no analytics). Default off. Because it's static embedded content (no JS bundle deps), it needs no build tag — unlike the OAuth verifier.
+- The widget is a **generic renderer**: it reads the calling tool's `structuredContent` via the portable MCP Apps bridge (`window.openai`) and renders KPI cards (object) or a table (array). Per-tool ECharts visualisations are an increment on the same contract — the data shape is each tool's `outputSchema`, unchanged. (ECharts adds a ~200 KB chunk; a future widget bundle gets its own size-limit profile.)
+- All tool values are escaped in the widget (defence-in-depth on top of the server-side sanitizer).
+
+### Submitting to the ChatGPT app store
+
+When publishing the v2.5 + v3 app, the top rejection causes are pre-handled:
+
+- **Tool annotations** — every tool ships `readOnlyHint:true, destructiveHint:false, openWorldHint:false` (the #1 rejection cause).
+- **No undisclosed data** — outputs are aggregate-only; audit/output discipline already forbids session/trace IDs.
+- **Privacy statement** — disclose that `props_list.sample_values` are customer-supplied UGC (may contain PII if mis-instrumented), and the data-retention / DSAR posture (`docs/rules/privacy-detail.md`).
+- **Descriptions** — no comparative/"best"/"official" language.
+- **Least-privilege OAuth** — a single `analytics:read` scope; the principal is site-scoped, never wildcard.
+- **WCAG-AA** — the widget uses system fonts/colours + honours `prefers-color-scheme`.
+- **Portable bridge** — the widget targets the MCP Apps surface (`window.openai`), not a legacy vendor global, so it also runs in Claude and other MCP hosts.
 
 ## Troubleshooting
 

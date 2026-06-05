@@ -159,7 +159,7 @@ mcp:
     distinct_sites_per_min:  5
     wildcard_tier_factor:    0.25
   widgets:
-    enabled: false                          # v3 ChatGPT-app widgets (schema-only in v2)
+    enabled: false                          # v3 ChatGPT-app widgets: serve the ui:// widget resource + per-tool _meta.ui. Default off (air-gap: embedded static HTML, zero outbound).
 
 # ─── Auth (Phase 2b: sessions, RBAC, lockout) ──────────────────────────
 # First-run bootstrap reads STATNIVE_BOOTSTRAP_ADMIN_{EMAIL,PASSWORD,USERNAME}
