@@ -20,6 +20,7 @@ import (
 //	POST   /api/admin/users/{id}/password
 //	POST   /api/admin/users/{id}/disable
 //	POST   /api/admin/users/{id}/enable
+//	DELETE /api/admin/users/{id}            (hard-delete: erase + remove)
 //	GET    /api/admin/goals
 //	POST   /api/admin/goals
 //	PATCH  /api/admin/goals/{id}
@@ -47,6 +48,7 @@ func Mount(r chi.Router, deps Deps) {
 	r.Method(http.MethodPost, "/api/admin/users/{id}/password", http.HandlerFunc(users.ResetPassword))
 	r.Method(http.MethodPost, "/api/admin/users/{id}/disable", http.HandlerFunc(users.Disable))
 	r.Method(http.MethodPost, "/api/admin/users/{id}/enable", http.HandlerFunc(users.Enable))
+	r.Method(http.MethodDelete, "/api/admin/users/{id}", http.HandlerFunc(users.Delete))
 
 	r.Method(http.MethodGet, "/api/admin/goals", http.HandlerFunc(goalsH.List))
 	r.Method(http.MethodPost, "/api/admin/goals", http.HandlerFunc(goalsH.Create))

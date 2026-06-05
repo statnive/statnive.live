@@ -12,9 +12,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/statnive/statnive.live/internal/audit"
 	"github.com/statnive/statnive.live/internal/auth"
 	"github.com/statnive/statnive.live/internal/goals"
+	"github.com/statnive/statnive.live/internal/privacy"
 	"github.com/statnive/statnive.live/internal/sites"
 	"github.com/statnive/statnive.live/internal/storage"
 )
@@ -40,6 +43,15 @@ type EventAuditStore interface {
 	EventNameCardinality(ctx context.Context, siteID uint32, from, to time.Time) ([]storage.EventNameCount, error)
 }
 
+// UserEraser purges a user's account-scoped data (self-serve MCP tokens + OAuth
+// grants) for the hard-delete endpoint. The production impl is
+// *privacy.EraseEnumerator (privacy.EraseByUserID); nil disables the erase step
+// (handler-tested with a fake). Kept as a narrow interface so the admin surface
+// doesn't take a direct dep on the ClickHouse-backed enumerator.
+type UserEraser interface {
+	EraseByUserID(ctx context.Context, userID uuid.UUID) ([]privacy.EraseResult, error)
+}
+
 // Deps bundles the dependencies every admin handler shares. One
 // construction point (cmd/statnive-live/main.go), one source of truth.
 // Every field is non-nil in production; tests may pass a subset where
@@ -50,6 +62,7 @@ type Deps struct {
 	Snapshot           *goals.Snapshot // for post-write Reload()
 	Sites              SitesStore
 	UserSites          auth.SitesStore
+	Eraser             UserEraser                   // nil disables hard-delete account-data erase
 	EventAudit         EventAuditStore              // nil disables /api/admin/event-audit
 	JurisdictionNotice auth.JurisdictionNoticeStore // nil disables /api/admin/jurisdiction-notice
 	Audit              *audit.Logger

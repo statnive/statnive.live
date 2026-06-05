@@ -677,12 +677,18 @@ func run() error {
 
 	jurisdictionNoticeStore := auth.NewClickHouseStore(store.Conn(), cfg.ClickHouse.Database)
 
+	// Shared user-scoped eraser — admin hard-delete (EraseByUserID) + the
+	// privacy DSAR handlers below both use it. Build-agnostic: the tables exist
+	// in every build via migrations, so it is safe to construct unconditionally.
+	eraseEnum := privacy.NewEraseEnumerator(store.Conn(), cfg.ClickHouse.Database)
+
 	adminDeps := admin.Deps{
 		Auth:               authStore,
 		Goals:              goalStore,
 		Snapshot:           goalSnapshot,
 		Sites:              registry,
 		UserSites:          userSitesStore,
+		Eraser:             eraseEnum,
 		EventAudit:         store,
 		JurisdictionNotice: jurisdictionNoticeStore,
 		Audit:              auditLog,
@@ -780,7 +786,6 @@ func run() error {
 	}
 
 	if cfg.Privacy.PrivacyAPI {
-		eraseEnum := privacy.NewEraseEnumerator(store.Conn(), cfg.ClickHouse.Database)
 		exporter := privacy.NewVisitorExporter(store.Conn(), cfg.ClickHouse.Database)
 
 		privacyHandlers, pErr := privacy.NewHandlers(privacy.Config{
