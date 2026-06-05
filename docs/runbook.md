@@ -2766,7 +2766,7 @@ Brings the OAuth 2.1 authorization server (PR-E) + the ChatGPT-app resource serv
 
 - Build the SaaS binary **with the tag**: `go build -tags chatgpt_app ./cmd/statnive-live` (the default/air-gap build has zero AS code).
 - `posture: saas` and TLS terminate at the reverse proxy (daemon runs loopback HTTP behind it, per § Phase 10b).
-- **DSAR merge gate (Gate 2 E1 / LEARN Lesson 40):** before enabling the AS on any GDPR deployment, confirm the user-account eraser calls `privacy.EraseOAuthGrantsByUserID` (lands with PR-A #188's `EraseByUserID`). The capability + tests exist; the wiring is a merge-time integration. Do **not** enable `oauth_as` in prod until that call is in place — otherwise a deleted user's OAuth grants persist (Art. 17 breach).
+- **DSAR enable gate (Gate 2 E1 / LEARN Lesson 40):** before enabling the AS on any GDPR deployment, confirm the account-deletion path calls **`privacy.EraseByUserID`** — the single account-scoped orchestrator that purges BOTH the self-serve MCP tokens (`mcp_tokens`) and the OAuth grants (`oauth_auth_codes` + `oauth_refresh_tokens`) for a user. The orchestrator + per-store erasers + integration tests are on `main`; what remains is wiring `EraseByUserID` into a hard-delete/erase-account handler (none exists yet — only soft-disable). Do **not** enable `oauth_as` in prod until an account-erase path calls `privacy.EraseByUserID` — otherwise a deleted user's tokens + OAuth grants persist (Art. 17 breach).
 
 ### 1 — Provision the RSA signing key (operator laptop or the box; never in git)
 
