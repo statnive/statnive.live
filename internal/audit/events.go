@@ -158,9 +158,9 @@ const (
 // NEVER log the raw token — only token_id, actor_user_id, scope (site_ids
 // + role). The raw secret is shown once in the HTTP response and discarded.
 const (
-	EventMCPTokenCreated  EventName = "mcp.token_created"
-	EventMCPTokenRevoked  EventName = "mcp.token_revoked"
-	EventMCPTokenRejected EventName = "mcp.token_rejected" // mint denied (scope/cap/validation)
+	EventMCPTokenCreated  EventName = "mcp.token_created"  //nolint:gosec // G101: audit event name, not a credential
+	EventMCPTokenRevoked  EventName = "mcp.token_revoked"  //nolint:gosec // G101: audit event name, not a credential
+	EventMCPTokenRejected EventName = "mcp.token_rejected" //nolint:gosec // G101: audit event name, not a credential — mint denied (scope/cap/validation)
 )
 
 // GeoIP hot-reload events. Emitted by internal/enrich/geoip.go on
