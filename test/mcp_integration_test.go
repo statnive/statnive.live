@@ -301,8 +301,11 @@ func TestMCP_Stdio_ToolsList_RealCH(t *testing.T) {
 	result, _ := resp["result"].(map[string]any)
 	tools, _ := result["tools"].([]any)
 
-	if len(tools) != 19 {
-		t.Fatalf("tools/list returned %d tools, want 19 (PR3b catalog, geo enabled)", len(tools))
+	// 17 published = catalog (19, geo enabled) minus the 2 reserved tools
+	// (devices, funnel) gated out of tools/list until their backing
+	// rollup/query ships (ChatGPT discovery-precision; toolDef.Reserved).
+	if len(tools) != 17 {
+		t.Fatalf("tools/list returned %d tools, want 17 (catalog 19 minus reserved devices+funnel, geo enabled)", len(tools))
 	}
 }
 

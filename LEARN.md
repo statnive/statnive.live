@@ -527,6 +527,17 @@ The point: avoid re-discovering bugs we already caught. Each lesson encodes a sp
 
 ---
 
+### Lesson 41
+
+**A change to a cross-package contract (MCP tool list, an embedded template, an HTTP header set) must update its assertions in `test/` too — the integration suite runs on push-to-main, NOT on PRs, so a stale integration assertion is green on the PR and only fails after merge (and then blocks `release.yml`, which DOES run integration).**
+
+1. **What we did** — #199 added `toolDef.Reserved` and gated `devices`/`funnel` out of the published `tools/list` (19 → 17). We updated the in-package unit assertions (`internal/mcp/server_test.go`, `transport_test.go` via a `publishedToolCount()` helper) but missed the cross-package integration assertion `test/mcp_integration_test.go:304` (`TestMCP_Stdio_ToolsList_RealCH`, hardcoded `want 19`). #199's PR CI was green, so it merged; the post-merge push-to-main `ci` run failed at the integration job, and — worse — `release.yml`'s "Release gate (lint + test + integration + audit + airgap-bundle)" ran the same suite, so the `v0.0.45` tag's release **failed at the gate and never published**, silently blocking the production deploy.
+2. **Why it broke** — Two compounding gaps. (a) The `integration-tests` job is gated to `push: main` (and the release gate), not `pull_request`, to keep PR CI fast — so any assertion living in `test/**` is invisible to PR review. (b) A contract change (the published tool count) had assertions in two places (in-package unit + cross-package integration) and only the nearer one was updated. An earlier same-session miss (the DPA byte-equal template test) is the same class: a test in a location my local gate + PR CI don't run.
+3. **The fix we applied** — Updated `test/mcp_integration_test.go` to `want 17` with a comment deriving it (catalog 19 − reserved devices+funnel, geo enabled); verified locally with `go test -tags integration -run TestMCP_Stdio_ToolsList_RealCH ./test/`. Then re-cut `v0.0.45` at the fixed commit so the release gate passes and the deploy proceeds.
+4. **Preventive measure** — When changing a contract with a numeric/shape assertion (tool count, schema, header set, embedded-template bytes), grep BOTH `internal/**/*_test.go` AND `test/**/*_test.go` for the old value before committing. Before cutting a release tag, run `make test-integration` locally (or confirm the latest push-to-main `ci` run is green) — never tag off a commit whose integration job is red, because `release.yml` re-runs it and a failed release gate blocks the deploy with no Release published. Consider running a fast subset of `test/**` MCP-contract tests on PRs too (the count/parity assertions are cheap and don't need ClickHouse if refactored to call the catalog directly).
+
+---
+
 ## How to add a new lesson
 
 When a cutover (Milestone N) completes, an outage is resolved, or a bug-discovery session catches ≥3 related bugs:
