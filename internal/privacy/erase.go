@@ -9,12 +9,20 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/google/uuid"
 )
 
 var (
 	errEraseEmptyHash   = errors.New("erase: empty cookie hash")
 	errEraseEmptySiteID = errors.New("erase: site_id is 0")
+	errEraseEmptyUserID = errors.New("erase: user_id is nil")
 )
+
+// oauthGrantTables are the migration-023 OAuth tables that key a grant to the
+// consenting dashboard user (Article 17 erasure targets). oauth_clients is
+// excluded — it is operator-owned (the registered ChatGPT connector), not the
+// data subject's PII.
+var oauthGrantTables = []string{"oauth_auth_codes", "oauth_refresh_tokens"}
 
 // completionPollInterval is how often WaitForCompletion polls
 // system.mutations. 250ms balances audit-event latency (small enough
@@ -90,6 +98,51 @@ func (e *EraseEnumerator) EraseByCookieID(ctx context.Context, siteID uint32, co
 		stmt := buildEraseSQL(e.database, table)
 
 		if execErr := e.conn.Exec(ctx, stmt, cookieIDHash, siteID); execErr != nil {
+			result.Err = execErr.Error()
+		} else {
+			result.MutationSent = true
+		}
+
+		out = append(out, result)
+	}
+
+	return out, nil
+}
+
+// EraseOAuthGrantsByUserID issues `ALTER TABLE ... DELETE WHERE user_id = ?`
+// against the OAuth grant tables (migration 023), erasing every authorization
+// code + refresh token tied to userID. The OAuth AS (chatgpt_app build) writes
+// user_id from the consenting dashboard account, so a user-account deletion /
+// user-scoped DSAR request MUST call this — otherwise those grants outlive the
+// data subject (GDPR Art. 17).
+//
+// Build-agnostic on purpose: plain SQL on driver.Conn, no chatgpt_app tag, so
+// the user-scoped account eraser can invoke it in EVERY build (the tables exist
+// in every build via migration 023; they are simply empty unless the AS ran).
+// The single `?` binds userID — never string-concatenated. Like EraseByCookieID,
+// mutations_sync is NOT set; the rows disappear at next merge and
+// WaitForCompletion can be used to confirm.
+//
+// NOTE (cross-branch): the user-scoped account eraser (EraseByUserID) lands on
+// the PR-A token stack (#188); its integration checklist MUST call this method.
+// Tracked in LEARN.md + the migration-023 header so the wiring is not dropped at
+// merge. See the dsar-completeness-checker contract.
+func (e *EraseEnumerator) EraseOAuthGrantsByUserID(ctx context.Context, userID uuid.UUID) ([]EraseResult, error) {
+	if userID == uuid.Nil {
+		return nil, errEraseEmptyUserID
+	}
+
+	out := make([]EraseResult, 0, len(oauthGrantTables))
+
+	for _, table := range oauthGrantTables {
+		result := EraseResult{Table: table}
+
+		stmt := fmt.Sprintf(
+			"ALTER TABLE %s.%s DELETE WHERE user_id = ?",
+			quoteIdent(e.database), quoteIdent(table),
+		)
+
+		if execErr := e.conn.Exec(ctx, stmt, userID); execErr != nil {
 			result.Err = execErr.Error()
 		} else {
 			result.MutationSent = true

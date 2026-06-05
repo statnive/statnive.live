@@ -234,6 +234,46 @@ for ev in "${REQUIRED_EVENTS[@]}"; do
     echo "       found: ${ev}"
 done
 
+# Optional: OAuth 2.1 authorization-server discovery smoke (chatgpt-app deploys
+# only). Gated on STATNIVE_PROBE_MCP_ENABLED=true so the default privacy/tracker
+# probe stays unchanged. Checks only PUBLIC, side-effect-free endpoints (no
+# credentials, no client registration, no token mint) — the full
+# authorize→consent→token→/mcp flow needs a dashboard session + a registered
+# ChatGPT client and is validated manually per docs/runbook.md
+# "ChatGPT-app OAuth AS — go-live runbook".
+if [ "${STATNIVE_PROBE_MCP_ENABLED:-}" = "true" ]; then
+    asfail() { printf "%s[probe MCP FAIL]%s %s\n" "${RED}" "${RESET}" "$*" 1>&2; exit 1; }
+    asstep() { printf "%s[probe MCP]%s %s\n" "${GREEN}" "${RESET}" "$1"; }
+
+    # AS metadata (RFC 8414): must advertise S256-only PKCE + the core endpoints.
+    asstep "GET /.well-known/oauth-authorization-server"
+    AS_META=$(curl -fsS "${STATNIVE_PROBE_HOST}/.well-known/oauth-authorization-server") \
+        || asfail "AS metadata fetch failed (is mcp.oauth_as.enabled + the proxy route live?)"
+
+    for key in '"authorization_endpoint"' '"token_endpoint"' '"jwks_uri"' '"S256"'; do
+        printf '%s' "$AS_META" | grep -q "$key" \
+            || asfail "AS metadata missing ${key} — body=${AS_META}"
+    done
+    echo "       AS metadata advertises S256 PKCE + authorize/token/jwks"
+
+    # JWKS: must serve at least one RSA signing key (the RS verifier fetches this).
+    asstep "GET /.well-known/jwks.json"
+    JWKS=$(curl -fsS "${STATNIVE_PROBE_HOST}/.well-known/jwks.json") \
+        || asfail "JWKS fetch failed"
+
+    printf '%s' "$JWKS" | grep -q '"kty":"RSA"' \
+        || asfail "JWKS missing an RSA key — body=${JWKS}"
+    echo "       JWKS serves an RSA signing key"
+
+    # RFC 9728 protected-resource metadata (served by the /mcp resource server).
+    asstep "GET /.well-known/oauth-protected-resource"
+    curl -fsS "${STATNIVE_PROBE_HOST}/.well-known/oauth-protected-resource" >/dev/null \
+        || asfail "protected-resource metadata fetch failed (is /mcp profile=chatgpt-app behind the proxy?)"
+    echo "       protected-resource metadata reachable"
+
+    printf "%s[probe MCP OK]%s OAuth AS discovery green\n" "${GREEN}" "${RESET}"
+fi
+
 printf "%s[probe OK]%s git_sha=%s site_id=%s — all 10 steps green\n" \
     "${GREEN}" "${RESET}" "${GIT_SHA}" "${STATNIVE_PROBE_SITE_ID}"
 exit 0
