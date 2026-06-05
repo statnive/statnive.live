@@ -29,7 +29,15 @@ type toolDef struct {
 	Annotations    toolAnnotations
 	MaxCallsPerMin int         // 0 ⇒ global budget; >0 ⇒ tighter per-tool cap (admin tools)
 	Widget         *widgetMeta // nil for every v2 tool — dormant ChatGPT Apps-SDK seam (PLAN.md)
-	Handler        toolHandler
+	// Reserved ⇒ the tool stays in the catalog (so the mcp-parity gate keeps
+	// tracking its Store method) but is OMITTED from the published tools/list,
+	// so the model never selects a capability the build can't answer yet. The
+	// handler still returns storage.ErrNotImplemented if called directly. Drop
+	// the flag when the backing rollup/query ships (devices → daily_devices,
+	// funnel → windowFunnel). ChatGPT discovery-precision gate: never advertise
+	// a tool whose golden prompt dead-ends.
+	Reserved bool
+	Handler  toolHandler
 }
 
 // toolAnnotations are the MCP-spec tool hints, also mandatory + the #1

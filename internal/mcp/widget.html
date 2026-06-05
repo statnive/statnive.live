@@ -16,6 +16,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- The widget is delivered as an MCP resources/read text payload (no HTTP
+     response of its own), so its CSP must live here as a meta tag. It uses only
+     inline <style> + inline <script> reading window.openai, with zero outbound
+     fetches (air-gap posture) — so allow inline style/script, nothing else. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; frame-ancestors 'none'" />
 <title>statnive-live</title>
 <style>
   :root { color-scheme: light dark; }

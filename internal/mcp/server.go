@@ -240,6 +240,13 @@ func (s *Server) toolsList(req request) *response {
 	for _, name := range s.order {
 		td := s.tools[name]
 
+		// Reserved tools (devices, funnel) stay in the catalog for the
+		// mcp-parity gate but are never published — the model must not select a
+		// capability the build can't answer yet (ChatGPT discovery-precision).
+		if td.Reserved {
+			continue
+		}
+
 		// Geo (and any future geo_enabled-gated tool) is omitted from the
 		// catalog when the deployment hasn't enabled it — cleaner for the
 		// client than advertising a tool it can't use. (No geo tool in the

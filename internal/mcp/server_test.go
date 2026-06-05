@@ -281,8 +281,8 @@ func TestToolsList(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if len(got.Tools) != len(catalog()) {
-		t.Fatalf("tools/list returned %d tools, want %d (full catalog)", len(got.Tools), len(catalog()))
+	if len(got.Tools) != publishedToolCount() {
+		t.Fatalf("tools/list returned %d tools, want %d (catalog minus reserved)", len(got.Tools), publishedToolCount())
 	}
 
 	names := map[string]bool{}
@@ -305,12 +305,35 @@ func TestToolsList(t *testing.T) {
 	for _, want := range []string{
 		"list_sites", "overview", "trend", "sources", "pages", "campaigns",
 		"seo", "realtime", "geo", "compare", "props_list", "goals_list",
-		"my_access", "event_audit", "site_config", "about", "system_health", "devices", "funnel",
+		"my_access", "event_audit", "site_config", "about", "system_health",
 	} {
 		if !names[want] {
 			t.Errorf("missing tool %q", want)
 		}
 	}
+
+	// Reserved tools (not-yet-implemented) must NOT appear in the published
+	// list — a ChatGPT discovery-precision requirement (no dead-end golden
+	// prompts). They stay in catalog() for the parity gate.
+	for _, reserved := range []string{"devices", "funnel"} {
+		if names[reserved] {
+			t.Errorf("reserved tool %q must not be published in tools/list", reserved)
+		}
+	}
+}
+
+// publishedToolCount is the number of catalog tools advertised in tools/list:
+// the full catalog minus Reserved (not-yet-implemented) tools.
+func publishedToolCount() int {
+	n := 0
+
+	for _, td := range catalog() {
+		if !td.Reserved {
+			n++
+		}
+	}
+
+	return n
 }
 
 func TestToolsList_GeoOmittedWhenDisabled(t *testing.T) {
@@ -334,8 +357,8 @@ func TestToolsList_GeoOmittedWhenDisabled(t *testing.T) {
 
 	_ = json.Unmarshal(resp.Result, &got)
 
-	if len(got.Tools) != len(catalog())-1 {
-		t.Errorf("geo-disabled tools/list = %d, want %d (catalog minus geo)", len(got.Tools), len(catalog())-1)
+	if len(got.Tools) != publishedToolCount()-1 {
+		t.Errorf("geo-disabled tools/list = %d, want %d (published minus geo)", len(got.Tools), publishedToolCount()-1)
 	}
 
 	for _, tl := range got.Tools {
