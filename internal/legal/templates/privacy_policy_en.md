@@ -34,6 +34,48 @@ When you load a page, your browser sends:
 - We do not share your data with advertising networks.
 - We do not transfer your data to data brokers.
 
+## Recipients and connected AI assistants
+
+We do not sell your data or share it with advertising networks or data
+brokers. The only third party that may receive analytics derived from
+your visits is an **AI assistant the site operator chooses to connect**
+to their own dashboard:
+
+- If the operator connects an AI assistant — for example **ChatGPT
+  (OpenAI, Inc., United States)** — to their `statnive.live` analytics,
+  that assistant can read the operator's **aggregate** analytics through
+  a read-only, operator-authorised connection. This never includes your
+  raw IP address or any raw identifier (those are never stored; see
+  above).
+- The operator initiates and authorises the connection on a consent
+  screen; no analytics are sent to any assistant until they do.
+- OpenAI is a United States recipient; any such transfer relies on the
+  EU-US Data Privacy Framework adequacy decision (GDPR Art. 45), with the
+  Art. 46 / 49 safeguards as fallback. This integration is **gated and
+  off by default**: it is not active until an operator enables it. The DPA
+  (`/legal/dpa` § 6) sets out the OpenAI sub-processor terms, and OpenAI
+  is added to our public sub-processor register (mirrored at
+  `https://statnive.live/privacy`) before the integration is offered.
+
+### Data a connected assistant can read
+
+When connected, the assistant reads only these **aggregate** categories
+(the same set enumerated in the DPA § 3), never your individual raw
+events:
+
+- Visitor and pageview counts, and repeat-vs-new visitor splits.
+- Conversions and goal completions, including operator-defined goal
+  names.
+- Revenue and revenue-per-visitor, where the operator tracks
+  e-commerce.
+- Traffic source / channel grouping and UTM campaign attribution.
+- Approximate geography (country, region, city) from the one-time IP
+  lookup described above.
+- Custom event names and custom-property **sample values**. Sample
+  values are content the operator's own site supplies; a mis-instrumented
+  site could place personal data there, so operators are advised never to
+  put personal data in event properties.
+
 ## Lawful basis
 
 GDPR Art. 6(1)(f) — legitimate interest. Our balancing test is

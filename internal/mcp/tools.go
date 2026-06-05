@@ -818,6 +818,7 @@ func devicesTool() toolDef {
 		Description: "Device / browser / OS breakdown for a site. Not yet available in this build (waiting on the daily_devices rollup).",
 		RoleClass:   auth.RoleAPI,
 		Scoped:      true,
+		Reserved:    true, // omitted from tools/list until daily_devices ships
 		InputSchema: analyticsInputSchema,
 		Annotations: readOnly(),
 		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {
@@ -839,6 +840,7 @@ func funnelTool() toolDef {
 		Description: "Conversion funnel step counts + drop-off for a site. Not yet available in this build (waiting on windowFunnel).",
 		RoleClass:   auth.RoleAPI,
 		Scoped:      true,
+		Reserved:    true, // omitted from tools/list until windowFunnel ships
 		InputSchema: analyticsInputSchema,
 		Annotations: readOnly(),
 		Handler: func(ctx context.Context, s *Server, tc *toolCtx) (any, int, error) {

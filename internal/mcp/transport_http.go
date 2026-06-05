@@ -45,6 +45,15 @@ func (s *Server) HTTPHandler(opts HTTPOptions) http.Handler {
 	allowed := opts.AllowedOrigins
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Lock down the public /mcp edge on EVERY response path (incl. the
+		// 405/403 early returns below). This is a JSON-RPC API, not a
+		// document surface, so it needs no script/style/img origins — the
+		// tightest possible policy. ChatGPT app-store submission requires a
+		// CSP on the MCP server (docs/runbook.md §6); the dashboard, consent,
+		// legal, and landing surfaces already carry one, so /mcp must too.
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+
 		// Streamable HTTP server→client GET stream is unsupported (this
 		// server is stateless request/response). 405 keeps the contract
 		// explicit and reserves GET for a future session mode.

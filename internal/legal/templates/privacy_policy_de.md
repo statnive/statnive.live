@@ -38,6 +38,54 @@ Beim Laden einer Seite sendet Ihr Browser:
 - Keine Weitergabe an Werbenetzwerke.
 - Keine Weitergabe an Datenbroker.
 
+## Empfänger und verbundene KI-Assistenten
+
+Wir verkaufen Ihre Daten nicht und geben sie nicht an Werbenetzwerke
+oder Datenbroker weiter. Der einzige Dritte, der aus Ihren Besuchen
+abgeleitete Analysedaten erhalten kann, ist ein **KI-Assistent, den der
+Seitenbetreiber mit seinem eigenen Dashboard verbindet**:
+
+- Verbindet der Betreiber einen KI-Assistenten — zum Beispiel **ChatGPT
+  (OpenAI, Inc., USA)** — mit seinen `statnive.live`-Analysedaten, kann
+  dieser Assistent die **aggregierten** Analysedaten des Betreibers über
+  eine schreibgeschützte, vom Betreiber autorisierte Verbindung lesen.
+  Ihre Roh-IP-Adresse oder eine Roh-Kennung sind dabei nie enthalten
+  (diese werden nicht gespeichert; siehe oben).
+- Der Betreiber initiiert und autorisiert die Verbindung auf einem
+  Einwilligungsbildschirm; bis dahin werden keine Analysedaten an einen
+  Assistenten gesendet.
+- OpenAI ist ein Empfänger in den USA; eine solche Übermittlung stützt
+  sich auf den Angemessenheitsbeschluss zum EU-US Data Privacy Framework
+  (Art. 45 DSGVO), mit den Garantien nach Art. 46 / 49 als Rückfallebene.
+  Diese Integration ist **standardmäßig deaktiviert und gesperrt**: Sie
+  ist erst aktiv, wenn ein Betreiber sie aktiviert. Die AVV
+  (`/legal/dpa` § 6) regelt die OpenAI-Auftragsverarbeiterbedingungen, und
+  OpenAI wird in unser öffentliches Auftragsverarbeiter-Verzeichnis
+  (gespiegelt unter `https://statnive.live/privacy`) aufgenommen, bevor
+  die Integration angeboten wird.
+
+### Welche Daten ein verbundener Assistent lesen kann
+
+Im verbundenen Zustand liest der Assistent ausschließlich diese
+**aggregierten** Kategorien (dieselben wie in AVV § 3), niemals Ihre
+einzelnen Rohereignisse:
+
+- Besucher- und Seitenaufrufzahlen sowie die Aufteilung in
+  wiederkehrende und neue Besucher.
+- Conversions und Zielabschlüsse, einschließlich der vom Betreiber
+  definierten Zielnamen.
+- Umsatz und Umsatz pro Besucher, sofern der Betreiber E-Commerce
+  erfasst.
+- Traffic-Quelle / Kanalgruppierung und UTM-Kampagnenzuordnung.
+- Ungefähre Geografie (Land, Region, Stadt) aus der einmaligen
+  IP-Abfrage (siehe oben).
+- Namen benutzerdefinierter Ereignisse und **Beispielwerte**
+  benutzerdefinierter Eigenschaften. Beispielwerte sind Inhalte, die die
+  Website des Betreibers liefert; eine fehlerhaft instrumentierte Seite
+  könnte dort personenbezogene Daten ablegen, daher wird Betreibern
+  geraten, niemals personenbezogene Daten in Ereigniseigenschaften zu
+  speichern.
+
 ## Rechtsgrundlage
 
 Art. 6 Abs. 1 lit. f DSGVO — berechtigtes Interesse. Unsere

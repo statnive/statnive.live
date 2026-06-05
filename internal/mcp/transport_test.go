@@ -68,8 +68,8 @@ func TestServeStdio_RoundTrip(t *testing.T) {
 		t.Fatalf("decode tools/list line: %v", err)
 	}
 
-	if len(listResp.Result.Tools) != len(catalog()) {
-		t.Errorf("tools/list returned %d tools, want %d", len(listResp.Result.Tools), len(catalog()))
+	if len(listResp.Result.Tools) != publishedToolCount() {
+		t.Errorf("tools/list returned %d tools, want %d (catalog minus reserved)", len(listResp.Result.Tools), publishedToolCount())
 	}
 }
 
