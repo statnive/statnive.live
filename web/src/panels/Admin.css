@@ -332,6 +332,57 @@
   border-color: var(--error);
 }
 
+/* Row action group — Disable + Delete sit side by side; the Delete trigger
+ * stays the quiet hairline ghost (red only on hover, like Disable) so the
+ * irreversible action isn't a constantly-loud button. The weight escalates
+ * only at the confirm step below. */
+#statnive-app .statnive-admin-row-actions {
+  display: flex;
+  gap: var(--s-1);
+  justify-content: flex-end;
+}
+
+/* Inline two-step confirm — replaces the row's action cell on Delete click.
+ * Not a modal, not a card: a layout wrapper around the canonical destructive
+ * callout (.statnive-admin-alert.is-error carries the red tint + leading glyph,
+ * so the warning reads at least as loud as the failure error) plus the
+ * Cancel / Delete forever actions. */
+#statnive-app .statnive-admin-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  max-width: 38ch;
+  margin-left: auto;
+}
+
+#statnive-app .statnive-admin-confirm-actions {
+  display: flex;
+  gap: var(--s-2);
+  justify-content: flex-end;
+}
+
+/* The escalated, committed destructive button. Unlike .is-destructive (red on
+ * hover only), this carries Alert Red at rest because the user has already
+ * declared intent. Hover deepens via a faint red tint background, no lift
+ * (Hover-Tone rule). */
+#statnive-app .statnive-admin-confirm button.is-destructive-confirm {
+  color: var(--error);
+  border-color: var(--error);
+  font-weight: 600;
+}
+
+#statnive-app .statnive-admin-confirm button.is-destructive-confirm:hover,
+#statnive-app .statnive-admin-confirm button.is-destructive-confirm:focus-visible {
+  color: var(--error);
+  border-color: var(--error);
+  background: color-mix(in oklch, var(--error) 8%, transparent);
+}
+
+#statnive-app .statnive-admin-confirm button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* Numeric table cells — tabular-nums + slight bump in weight and
  * size, per direct user feedback ("numbers, table header titles not
  * readable"). Applies to site_id chips, plan tier, goal-value cells. */

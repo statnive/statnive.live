@@ -306,6 +306,14 @@ export async function enableUser(id: string): Promise<void> {
   await request<void>('POST', `/api/admin/users/${id}/enable`);
 }
 
+// deleteUser HARD-deletes an account (irreversible): the server revokes the
+// user's sessions + per-site grants, erases their MCP tokens + OAuth grants
+// (GDPR Art. 17), and removes the users row. 204 on success; 403 self / 409
+// last-admin guard the caller maps to plain-sentence copy.
+export async function deleteUser(id: string): Promise<void> {
+  await request<void>('DELETE', `/api/admin/users/${id}`);
+}
+
 // ---------------- Goals ----------------
 
 export async function listGoals(siteID: number): Promise<AdminGoal[]> {
