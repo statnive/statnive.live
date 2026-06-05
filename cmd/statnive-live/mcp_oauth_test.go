@@ -85,7 +85,7 @@ func TestVerifyToken_Valid(t *testing.T) {
 	now := time.Unix(1_750_000_000, 0)
 	tok := mintRS256(t, key, testKID, goodClaims(now))
 
-	if err := verifyToken(tok, goodConfig(), seededCache(&key.PublicKey, testKID), now); err != nil {
+	if _, err := verifyToken(tok, goodConfig(), seededCache(&key.PublicKey, testKID), now); err != nil {
 		t.Fatalf("valid token rejected: %v", err)
 	}
 }
@@ -148,7 +148,7 @@ func TestVerifyToken_Rejections(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			if err := verifyToken(tc.tok(), tc.cfg, cache, now); err == nil {
+			if _, err := verifyToken(tc.tok(), tc.cfg, cache, now); err == nil {
 				t.Errorf("%s: token accepted, want rejection", tc.name)
 			}
 		})
@@ -165,8 +165,50 @@ func TestVerifyToken_ScopePresent(t *testing.T) {
 	tok := mintRS256(t, key, testKID, c)
 
 	cfg := mcpOAuthConfig{Enabled: true, Issuer: testIssuer, Audience: testAudience, RequiredScope: "analytics:read"}
-	if err := verifyToken(tok, cfg, seededCache(&key.PublicKey, testKID), now); err != nil {
+	if _, err := verifyToken(tok, cfg, seededCache(&key.PublicKey, testKID), now); err != nil {
 		t.Errorf("token with the required scope rejected: %v", err)
+	}
+}
+
+// TestGrantsForToken_M1 pins the per-token consent enforcement: a token's
+// site_ids ∩ the deployment ceiling, with the absent-claim fallback preserved.
+func TestGrantsForToken_M1(t *testing.T) {
+	t.Parallel()
+
+	ceiling := map[uint32]auth.Role{1: auth.RoleAPI, 2: auth.RoleAPI, 3: auth.RoleAPI}
+
+	sids := func(ids ...uint32) *[]uint32 { s := append([]uint32(nil), ids...); return &s }
+
+	cases := []struct {
+		name       string
+		claims     jwtClaims
+		canRead    []uint32
+		cannotRead []uint32
+	}{
+		{"consented subset clamps to its sites", jwtClaims{SiteIDs: sids(1, 3)}, []uint32{1, 3}, []uint32{2}},
+		{"absent claim falls back to ceiling", jwtClaims{}, []uint32{1, 2, 3}, []uint32{99}},
+		{"empty array grants nothing", jwtClaims{SiteIDs: sids()}, nil, []uint32{1, 2, 3}},
+		{"site outside ceiling is dropped", jwtClaims{SiteIDs: sids(1, 99)}, []uint32{1}, []uint32{99}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			u := &auth.User{UserID: oauthActorID, Role: auth.RoleAPI, Sites: grantsForToken(tc.claims, ceiling)}
+
+			for _, id := range tc.canRead {
+				if !u.ActorCanReadSite(id) {
+					t.Errorf("want can-read site %d", id)
+				}
+			}
+
+			for _, id := range tc.cannotRead {
+				if u.ActorCanReadSite(id) {
+					t.Errorf("want CANNOT-read site %d", id)
+				}
+			}
+		})
 	}
 }
 
@@ -239,6 +281,64 @@ func TestOAuthMiddleware_EndToEnd(t *testing.T) {
 
 	if code := doAuth(t, srv.URL, "Bearer "+mintRS256(t, key, testKID, expired)); code != http.StatusUnauthorized {
 		t.Errorf("expired token: status = %d, want 401", code)
+	}
+}
+
+// TestOAuthMiddleware_SiteIDsClaim is the AS→RS M1 contract through the REAL
+// middleware (JWKS fetch + verify + grant build): a token whose site_ids claim
+// is [1] reads only site 1, even though the deployment ceiling is [1,4]; a claim
+// referencing a site outside the ceiling is dropped.
+func TestOAuthMiddleware_SiteIDsClaim(t *testing.T) {
+	t.Parallel()
+
+	key := newTestKey(t)
+
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(jwksJSON(&key.PublicKey, testKID))
+	}))
+	defer jwks.Close()
+
+	cfg := mcpOAuthConfig{
+		Enabled: true, Issuer: testIssuer, Audience: testAudience,
+		JWKSURL: jwks.URL, AllowedSiteIDs: []uint32{1, 4},
+	}
+
+	mw, err := oauthMiddleware(cfg, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("oauthMiddleware: %v", err)
+	}
+
+	var canRead1, canRead4, canRead99 bool
+
+	guarded := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u := auth.UserFrom(r.Context())
+		canRead1, canRead4, canRead99 = u.ActorCanReadSite(1), u.ActorCanReadSite(4), u.ActorCanReadSite(99)
+
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	srv := httptest.NewServer(guarded)
+	defer srv.Close()
+
+	// Token consented to site 1 only (claim present) + a site (99) outside the
+	// ceiling that must be dropped.
+	claims := goodClaims(time.Now())
+	claims["site_ids"] = []int{1, 99}
+
+	if code := doAuth(t, srv.URL, "Bearer "+mintRS256(t, key, testKID, claims)); code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+
+	if !canRead1 {
+		t.Error("consented site 1 not readable")
+	}
+
+	if canRead4 {
+		t.Error("site 4 readable but was NOT in the token's site_ids (consent not enforced)")
+	}
+
+	if canRead99 {
+		t.Error("site 99 readable but is outside the deployment ceiling")
 	}
 }
 

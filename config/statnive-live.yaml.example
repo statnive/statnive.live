@@ -150,7 +150,7 @@ mcp:
       jwks_url:              ""   # explicit JWKS endpoint (else issuer/.well-known/jwks.json)
       required_scope:        ""   # optional scope the access token must carry
       resource_metadata_url: ""   # RFC 9728 URL in the 401 WWW-Authenticate
-      allowed_site_ids:      []   # site_ids a verified token may read (deployment-scoped, NOT wildcard). REQUIRED for profile=chatgpt-app. Per-token site claims are a v3 enhancement.
+      allowed_site_ids:      []   # site_ids a verified token may read — the deployment CEILING (NOT wildcard). REQUIRED for profile=chatgpt-app. A token's own `site_ids` consent claim is intersected with this ceiling (PR-E M1), so consent is enforced per token and this caps any over-broad claim.
   budget:
     calls_per_min:           60
     rows_per_min:            20000
@@ -160,6 +160,23 @@ mcp:
     wildcard_tier_factor:    0.25
   widgets:
     enabled: false                          # v3 ChatGPT-app widgets: serve the ui:// widget resource + per-tool _meta.ui. Default off (air-gap: embedded static HTML, zero outbound).
+  # OAuth 2.1 AUTHORIZATION server (PR-E) — statnive issues its own access
+  # tokens so a ChatGPT-app end-user logs in with their dashboard account
+  # (auth-code + PKCE S256 + consent). Mounted on the MAIN daemon (not `mcp
+  # serve`) so /authorize shares the dashboard origin + session. SaaS-only +
+  # behind the `chatgpt_app` build tag: the default/air-gap binary ships a
+  # no-op stub and FAILS LOUD if this is enabled. Reuses
+  # http.oauth.{issuer,audience,allowed_site_ids,required_scope} as the
+  # issuer / RFC 8707 audience / ceiling / scope (one source of truth shared
+  # with the resource-server verifier). NEVER enable inside-iran / air-gap.
+  oauth_as:
+    enabled:             false
+    signing_key_file:    ""        # RSA private-key PEM (chmod 0600); signs RS256 access tokens. REQUIRED when enabled.
+    retired_key_files:   []        # public-key PEMs still served from /jwks.json during a key-rotation grace window
+    access_ttl_seconds:  1800      # access-token lifespan (30m)
+    refresh_ttl_seconds: 2592000   # refresh-token lifespan (30d, rotating + reuse-detecting)
+    code_ttl_seconds:    60        # authorization-code lifespan (single-use)
+    login_path:          "/"       # where to bounce an unauthenticated /authorize (dashboard login)
 
 # ─── Auth (Phase 2b: sessions, RBAC, lockout) ──────────────────────────
 # First-run bootstrap reads STATNIVE_BOOTSTRAP_ADMIN_{EMAIL,PASSWORD,USERNAME}

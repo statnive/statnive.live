@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-privacy prod-probe smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks mcp-parity mcp-e2e
+.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-privacy prod-probe smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks mcp-parity mcp-e2e oauth-as-test
 
 all: lint test build
 
@@ -79,6 +79,14 @@ test:
 ## headroom on slow CI runners (happy path still finishes in <30s).
 test-integration: web-build
 	$(GO) test -mod=vendor -race -tags=integration -v -timeout 240s ./test/...
+
+## oauth-as-test: OAuth 2.1 authorization-server integration + J-red-team +
+## full-chain e2e. Needs BOTH the integration and chatgpt_app tags + live CH
+## (run `make ch-up` first, or via the CI integration job which boots CH).
+## Kept separate from test-integration because the AS lives behind the
+## chatgpt_app build tag (out of the default/air-gap binary).
+oauth-as-test:
+	$(GO) test -mod=vendor -tags='integration chatgpt_app' -run 'TestOAuthAS' -timeout 120s ./test/ ./cmd/statnive-live/
 
 ## mcp-parity: No-gap MCP<->feature parity gate. Reflects over the
 ## storage.Store interface (+ pinned off-interface reads) and asserts every

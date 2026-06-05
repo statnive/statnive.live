@@ -176,7 +176,53 @@ mcp:
 - `GET /.well-known/oauth-protected-resource` serves RFC 9728 metadata so ChatGPT/the IdP can discover the authorization server.
 - `tools/list` advertises per-tool `_meta.securitySchemes` (`noauth` + `oauth2`) so ChatGPT knows to run the auth-code + PKCE flow.
 - Responses are returned as SSE when the client sends `Accept: text/event-stream` (stateless, one event per response), or plain JSON otherwise.
-- The authenticated principal is an `api`-role actor **scoped to `allowed_site_ids`** — never a wildcard (deployment-level tenancy scoping; per-token site claims are a v3 enhancement). The same four authz gates (role floor → grant hydration → `ActorCanReadSite` → SQL choke point) + budgets + sanitizer apply exactly as on every other transport.
+- The authenticated principal is an `api`-role actor scoped to the token's consented `site_ids` **intersected with** `allowed_site_ids` (the deployment ceiling) — never a wildcard. A token issued by the statnive AS (below) carries a `site_ids` consent claim, so the actor reads only the sites the user consented to (PR-E M1); a token with no claim (a legacy/external-IdP token) falls back to the full ceiling. The same four authz gates (role floor → grant hydration → `ActorCanReadSite` → SQL choke point) + budgets + sanitizer apply exactly as on every other transport.
+
+## Authorization server — statnive issues its own tokens (PR-E, SaaS-only)
+
+The v2.5 profile above is the **resource server** (it *verifies* tokens). For a turnkey ChatGPT app, statnive is also the **authorization server** (it *issues* them) — so an end-user connects with their existing **dashboard account**, no third-party IdP. Auth-code + PKCE S256 + a consent screen; refresh-token rotation with reuse-detection. Same build-tag + posture gating as the verifier (zero AS code, zero new deps in the default/air-gap binary — the AS is hand-rolled stdlib, not a library: `make licenses`/`air-gap-validator` stay clean).
+
+**Where it runs:** the AS mounts on the **main daemon** (not `mcp serve`) so `/authorize` shares the dashboard origin + session. The reverse proxy routes `/authorize`, `/token`, `/register`, `/.well-known/oauth-authorization-server`, `/.well-known/jwks.json`, `/consent` to the daemon; `/mcp` + `/.well-known/oauth-protected-resource` to `mcp serve`. Build the daemon with `-tags chatgpt_app`.
+
+**Endpoints:** `GET /.well-known/oauth-authorization-server` (RFC 8414; advertises `code_challenge_methods_supported:["S256"]` only) · `GET /.well-known/jwks.json` (the signing key the verifier fetches) · `POST /register` (RFC 7591 DCR, **admin-authed**) · `GET /authorize` (dashboard-session login → consent) · `POST /consent` · `POST /token` (auth-code + refresh grants).
+
+```yaml
+posture: saas
+mcp:
+  http:
+    oauth:
+      issuer:   "https://app.statnive.live"        # the AS issuer
+      audience: "https://app.statnive.live/mcp"     # RFC 8707 resource / aud
+      allowed_site_ids: [1, 4]                       # the ceiling (shared with the verifier)
+  oauth_as:
+    enabled: true
+    signing_key_file: "/etc/statnive-live/oauth_signing_key.pem"   # RSA, chmod 0600
+    # access_ttl_seconds: 1800   refresh_ttl_seconds: 2592000   code_ttl_seconds: 60
+```
+
+**Provision the signing key** (operator laptop or the box; chmod 0600, never in git):
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out oauth_signing_key.pem
+chmod 0600 oauth_signing_key.pem      # the loader REFUSES a group/world-readable key
+```
+
+Rotation: generate a new key, point `signing_key_file` at it, and list the **old public** key in `retired_key_files` for a grace window (default 24h) so in-flight tokens keep verifying; remove it after the window.
+
+**Register the ChatGPT client** (after deploy, before store submission) — an admin POSTs DCR; the `client_secret` is shown **once**:
+
+```bash
+curl -sX POST https://app.statnive.live/register \
+  -H "Cookie: statnive_session=<admin session>" -H 'Content-Type: application/json' \
+  -d '{"client_name":"ChatGPT","redirect_uris":["https://chatgpt.com/connector_platform_oauth_redirect"]}'
+# → {"client_id":"…","client_secret":"… (copy now)","redirect_uris":[…]}
+```
+
+`redirect_uris` are **exact-match** (no wildcards, no fragments, https-only except loopback). Pre-flight check before submitting: `SELECT count() FROM statnive.oauth_clients WHERE revoked=0` must be ≥ 1.
+
+**End-user flow:** install the app → "Connect" → statnive `/authorize` (already logged into the dashboard) → consent screen lists the sites they may grant (their grants ∩ the ceiling) → approve → ChatGPT exchanges the code at `/token` → done. The issued JWT carries the consented `site_ids`, which the verifier enforces (M1).
+
+**Security posture** (pinned by the J red-team in `test/oauth_as_integration_test.go`): PKCE S256 mandatory (plain/none rejected); exact redirect-URI match (open-redirect/smuggle rejected); single-use short-TTL codes (replay rejected); code bound to client + verifier (cross-client/PKCE-strip rejected); refresh rotation + family-revoke on reuse; consent server-clamped to the user's real grants (escalation rejected); codes/secrets/refresh-tokens SHA-256-hashed at rest, raw never logged.
 
 ## ChatGPT-app widgets (v3)
 
@@ -209,6 +255,10 @@ When publishing the v2.5 + v3 app, the top rejection causes are pre-handled:
 | HTTP refuses to start on a public address | Non-loopback bind needs `posture: saas` + TLS cert/key. |
 | `isError: budget exhausted` | Per-actor query budget hit; back off or raise `mcp.budget.*`. |
 | `devices`/`funnel` return "not yet available" | Reserved tools; ship with the `daily_devices` rollup / `windowFunnel`. |
+| Daemon refuses to start with "mcp.oauth_as requires …" | The AS is fail-closed: needs `posture: saas`, `oauth.issuer`/`audience`, a `signing_key_file`, and a non-empty `allowed_site_ids`. |
+| "signing key … is group/world-readable" at boot | `chmod 0600` the `signing_key_file` (a leaked key forges any token). `STATNIVE_DEV=1` bypasses the check for local dev only. |
+| `/token` returns `invalid_grant` after a refresh | Refresh tokens rotate + are single-use; reusing a rotated one revokes the whole family (theft defence). Re-run the connect flow. |
+| `mcp.oauth_as.enabled=true` but AS endpoints 404 / daemon errors about the stub | The binary was built without `-tags chatgpt_app`. Rebuild the SaaS binary with the tag (never ship it inside-iran/air-gap). |
 
 ## Without MCP
 

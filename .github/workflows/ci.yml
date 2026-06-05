@@ -68,16 +68,17 @@ jobs:
       # `chatgpt_app` tag (kept out of the default + air-gap binaries). Build
       # it + run its self-contained verifier tests, and lint the tagged files
       # (golangci-lint with the default tag set skips them).
-      - name: ChatGPT-app build + OAuth verifier tests
+      - name: ChatGPT-app build + OAuth RS-verifier + AS unit tests
         run: |
           go build -tags chatgpt_app ./...
-          go test -tags chatgpt_app -run 'TestVerifyToken|TestOAuth' ./cmd/statnive-live/...
+          go test -tags chatgpt_app ./internal/oauthas/...
+          go test -tags chatgpt_app -run 'TestVerifyToken|TestOAuth|TestGrantsForToken' ./cmd/statnive-live/...
 
       - name: Lint (chatgpt_app tag)
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9  # v8
         with:
           version: v2.5.0
-          args: --timeout=5m --build-tags chatgpt_app ./cmd/statnive-live/...
+          args: --timeout=5m --build-tags chatgpt_app ./cmd/statnive-live/... ./internal/oauthas/...
 
   licenses:
     name: license check (no AGPL / strong-copyleft)
@@ -110,6 +111,16 @@ jobs:
       # our own code; the project LICENSE at the repo root applies).
       # --ignore segmentio/asm: see Makefile licenses target for rationale.
       - name: Check licenses (PLAN.md License Rules)
+        run: go-licenses check ./internal/... ./cmd/... --disallowed_types=forbidden,restricted --ignore github.com/statnive/statnive.live --ignore github.com/segmentio/asm
+
+      # The default check runs with the default tag set, so it never sees code
+      # behind `chatgpt_app` (the OAuth AS + RS verifier). Re-run WITH the tag
+      # so a forbidden/strong-copyleft transitive pulled in only by that build
+      # cannot slip in unnoticed (PR-E rejected ory/fosite for exactly this —
+      # MPL-2.0 deps the default scan would have missed).
+      - name: Check licenses (chatgpt_app build)
+        env:
+          GOFLAGS: -mod=mod -tags=chatgpt_app
         run: go-licenses check ./internal/... ./cmd/... --disallowed_types=forbidden,restricted --ignore github.com/statnive/statnive.live --ignore github.com/segmentio/asm
 
   airgap-install-matrix:
@@ -221,6 +232,11 @@ jobs:
       # Reuses the booted CH + the dist/ produced by make test-integration.
       - name: Run MCP e2e (real binary, both transports)
         run: make mcp-e2e
+
+      # OAuth 2.1 authorization-server integration + J-red-team + full-chain
+      # e2e (needs BOTH the integration and chatgpt_app tags + live CH).
+      - name: Run OAuth AS integration + e2e (chatgpt_app)
+        run: make oauth-as-test
 
       - name: Tear down ClickHouse
         if: always()
