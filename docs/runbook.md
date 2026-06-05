@@ -2838,14 +2838,24 @@ curl -sX POST https://app.statnive.live/register \
 
 ### 6 — OpenAI ChatGPT app store submission checklist
 
-- OpenAI developer account + **identity verification** complete (gating; do this early).
-- App listing: name, logo, screenshots, **non-comparative** description (no "best"/"official"), test prompts.
-- **MFA-free demo account** + a dedicated test site with sample data.
-- **Public privacy policy** aligned to the actual returned fields — disclose `props_list.sample_values` is customer UGC (may carry PII if mis-instrumented) and the OpenAI sub-processor relationship (see `docs/compliance/subprocessor-register.md`, `docs/dpa-draft.md` § 6).
-- Least-privilege scope: single `analytics:read`; tokens site-scoped (per-token `site_ids`, never wildcard).
-- Tool annotations already shipped: `readOnlyHint:true, destructiveHint:false, openWorldHint:false`.
-- The `_meta["mcp/www_authenticate"]` 401 carries the RFC 9728 `resource_metadata` hint (auto-derived, Gate 2 H2).
-- Pre-validate with the OpenAI Apps SDK dev tools / MCP inspector against the **prod** endpoint before submit.
+Submission happens in the OpenAI Platform Dashboard (`platform.openai.com/apps-manage`). Steps are ordered the way you actually do them; do the gating ones (1–2) early because they take time.
+
+1. **Verify your identity first (gates everything else).** In the Platform Dashboard, complete identity verification under the exact name we'll publish as — individual verification to publish under a person, business verification to publish under "Statnive". Nothing can be submitted until this clears.
+2. **Confirm submitter permissions.** Whoever submits needs `api.apps.write` (create/submit drafts) and `api.apps.read` (view review status) in the OpenAI org. Org owners have both by default.
+3. **Make the prod endpoint submission-ready.** The MCP server must be on a public HTTPS domain (no localhost/tunnels) and must send a Content-Security-Policy. Our `/mcp` is served by `mcp serve` behind the TLS edge (§ 3) — confirm it answers over `https://app.statnive.live/mcp` before submitting.
+4. **Keep tool definitions least-privilege.** Single `analytics:read` scope; tokens site-scoped (per-token `site_ids`, never wildcard). Tool annotations already shipped: `readOnlyHint:true, destructiveHint:false, openWorldHint:false` — these must match real behaviour (mismatched hints are a top rejection reason). The `_meta["mcp/www_authenticate"]` 401 carries the RFC 9728 `resource_metadata` hint (auto-derived, Gate 2 H2).
+5. **Return only task-relevant data.** Tool responses must carry analytics fields only — strip internal session IDs, request timestamps, and diagnostic/logging metadata. Never return payment-card, health, government-ID, or auth-secret data (we don't hold any, but the reviewer checks). Request the minimum input; never pull full chat history or precise location.
+6. **Publish a privacy policy that matches the returned fields.** It must list data categories, purpose, recipients, retention, and user controls. Disclose that `props_list.sample_values` is customer UGC (may carry PII if mis-instrumented) and the OpenAI sub-processor relationship (see `docs/compliance/subprocessor-register.md`, `docs/dpa-draft.md` § 6).
+7. **Prepare a complete demo, not a trial.** MFA-free demo account + a dedicated test site with sample data, so the reviewer can exercise the full authorize → consent → scoped-answer flow (§ 7). Demo/trial-only apps are rejected.
+8. **Test before submitting.** Run the MCP Inspector against the prod endpoint, then connect it in ChatGPT **Settings → Connectors → Developer mode** and run the golden prompt set (direct, indirect, and negative cases) on desktop + mobile. Confirm the model picks the right tool with correct args and the consent screen appears. This is our § 7 manual gate; § 8 is the automated discovery-surface smoke.
+9. **Fill the listing + submit.** App name (specific, not a generic dictionary word), logo, screenshots (accurate, correct dimensions), **non-comparative** description (no "best"/"official"), company + privacy-policy URLs, MCP server URL, OAuth credentials (the client from § 5), test prompts with expected responses, support contact, localization info. Confirm the compliance checkboxes → **Submit for review** → save the Case ID from the confirmation email.
+10. **After the verdict.** Approved → publish from the dashboard (listed; found by direct link + name search; featured placement is not requestable). Rejected → fix and resubmit, or appeal by email. **Updates** = new draft → re-scan the endpoint → resubmit; the live version stays up until the new one is approved. **Add** new tools/fields rather than removing them — breaking changes to published apps aren't supported.
+
+**Sources (OpenAI Apps SDK docs, verified 2026-06-05):**
+
+- Submit & maintain — <https://developers.openai.com/apps-sdk/deploy/submission>
+- App submission guidelines — <https://developers.openai.com/apps-sdk/app-submission-guidelines>
+- Testing before submit — <https://developers.openai.com/apps-sdk/deploy/testing>
 
 ### 7 — Real-client validation (manual acceptance gate)
 
