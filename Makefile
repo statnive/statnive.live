@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-privacy prod-probe smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks mcp-parity mcp-e2e oauth-as-test spec-build spec-check spec-lint spec-breaking spec-tools-install spec-mock spec-view docs-airgap-grep spec-proxy-validate spec-fuzz
+.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-privacy prod-probe smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks mcp-parity mcp-e2e oauth-as-test spec-build spec-check spec-lint spec-breaking spec-tools-install spec-mock spec-view spec-view-interactive docs-airgap-grep spec-proxy-validate spec-fuzz spec-docs-e2e
 
 all: lint test build
 
@@ -176,10 +176,22 @@ spec-fuzz:
 	  --exclude-path-regex '/api/privacy/' --exclude-path-regex '/api/admin/' --exclude-path-regex '/legal/' --exclude-path /metrics \
 	  --exclude-checks not_a_server_error
 
-## spec-view: serve the offline (air-gap) API reference. Serves from the repo
-## root so /api/openapi.yaml resolves; open the printed URL.
+## spec-view: serve the offline (air-gap) API reference (Redoc, read-only).
+## Serves from the repo root so /api/openapi.yaml resolves; open the printed URL.
 spec-view:
 	@echo "Open http://127.0.0.1:8088/docs/api/index.html (Ctrl-C to stop)"
+	python3 -m http.server 8088 --bind 127.0.0.1
+
+## spec-view-interactive: serve the INTERACTIVE viewer (Swagger UI "Try it out")
+## with the Prism mock as the backend. Every Execute is pinned to the loopback
+## mock (127.0.0.1:4010) — never production. Starts the mock + a static server,
+## and stops the mock on Ctrl-C. Open the printed URL.
+spec-view-interactive:
+	@command -v npx >/dev/null 2>&1 || { echo "need the api/ toolchain (cd api && npm ci)"; exit 1; }
+	@( cd api && npx --no-install prism mock openapi.yaml -p 4010 >/tmp/statnive-spec-mock.log 2>&1 & echo $$! > /tmp/statnive-spec-mock.pid )
+	@trap 'kill "$$(cat /tmp/statnive-spec-mock.pid 2>/dev/null)" 2>/dev/null || true' EXIT; \
+	echo "Prism mock on :4010 + docs on :8088"; \
+	echo "Open http://127.0.0.1:8088/docs/api/interactive.html (Ctrl-C to stop)"; \
 	python3 -m http.server 8088 --bind 127.0.0.1
 
 ## docs-airgap-grep: fail if the AUTHORED offline-viewer HTML references any

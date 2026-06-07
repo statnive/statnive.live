@@ -11,8 +11,9 @@
   },
   "devDependencies": {
     "@redocly/cli": "2.31.6",
+    "@stoplight/prism-cli": "5.15.11",
     "@stoplight/spectral-cli": "6.16.0",
     "@stoplight/spectral-owasp-ruleset": "2.0.1",
-    "@stoplight/prism-cli": "5.15.11"
+    "swagger-ui-dist": "^5.32.6"
   }
 }
