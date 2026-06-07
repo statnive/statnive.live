@@ -246,12 +246,14 @@ func TestMCPe2e_Stdio_RealBinary_CHOracle(t *testing.T) {
 		t.Fatalf("initialize failed: %v", byID[1])
 	}
 
-	// tools/list = 19
+	// tools/list = 17 (catalog 19 minus reserved devices+funnel, geo enabled).
+	// Mirrors test/mcp_integration_test.go after #199 added toolDef.Reserved;
+	// this e2e copy was missed in that fix (LEARN.md Lesson 41 class).
 	listRes, _ := byID[2]["result"].(map[string]any)
 	tools, _ := listRes["tools"].([]any)
 
-	if len(tools) != 19 {
-		t.Errorf("tools/list = %d tools, want 19", len(tools))
+	if len(tools) != 17 {
+		t.Errorf("tools/list = %d tools, want 17", len(tools))
 	}
 
 	// overview CH-oracle parity through the real binary.

@@ -29,7 +29,7 @@ var nonChiRoutes = []struct{ method, path string }{
 
 // specPath resolves api/openapi.yaml relative to this test file (repo-root/api).
 func specPath() string {
-	_, thisFile, _, _ := runtime.Caller(0) //nolint:dogsled
+	_, thisFile, _, _ := runtime.Caller(0) //nolint:dogsled // only the caller's file path is needed
 	return filepath.Join(filepath.Dir(thisFile), "..", "..", "api", "openapi.yaml")
 }
 
@@ -42,17 +42,21 @@ type openapiDoc struct {
 // gates.
 func loadSpec(t *testing.T) openapiDoc {
 	t.Helper()
+
 	b, err := os.ReadFile(specPath())
 	if err != nil {
 		t.Skipf("api/openapi.yaml not present yet (%v) — generated/merged in Phase B/C", err)
 	}
+
 	var doc openapiDoc
 	if uErr := yaml.Unmarshal(b, &doc); uErr != nil {
 		t.Fatalf("parse openapi.yaml: %v", uErr)
 	}
+
 	if len(doc.Paths) == 0 {
 		t.Fatal("openapi.yaml has no paths")
 	}
+
 	return doc
 }
 
@@ -64,12 +68,14 @@ func TestSpec_EveryRouteDocumented(t *testing.T) {
 	if err != nil {
 		t.Fatalf("specgen.Routes: %v", err)
 	}
+
 	for _, r := range routes {
 		item, ok := doc.Paths[r.Path]
 		if !ok {
 			t.Errorf("route %s %s registered but path missing from openapi.yaml", r.Method, r.Path)
 			continue
 		}
+
 		if _, ok := item[strings.ToLower(r.Method)]; !ok {
 			t.Errorf("route %s %s registered but method undocumented in openapi.yaml", r.Method, r.Path)
 		}
@@ -84,6 +90,7 @@ func TestSpec_NoOrphanSpecPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("specgen.Routes: %v", err)
 	}
+
 	live := map[string]bool{}
 	for _, r := range routes {
 		live[strings.ToLower(r.Method)+" "+r.Path] = true
@@ -98,11 +105,13 @@ func TestSpec_NoOrphanSpecPaths(t *testing.T) {
 		"get": true, "post": true, "put": true, "delete": true,
 		"patch": true, "options": true, "head": true, "trace": true,
 	}
+
 	for path, item := range doc.Paths {
 		for method := range item {
 			if !httpMethods[strings.ToLower(method)] {
 				continue // parameters, summary, $ref, etc.
 			}
+
 			key := strings.ToLower(method) + " " + path
 			if !live[key] && !nonChi[key] {
 				t.Errorf("openapi.yaml documents %s %s but no such route exists (orphan)", strings.ToUpper(method), path)
@@ -121,6 +130,7 @@ func TestSpec_NonChiSurfacesDocumented(t *testing.T) {
 			t.Errorf("non-chi surface %s %s missing from openapi.yaml (hand-authored overlay must include it)", n.method, n.path)
 			continue
 		}
+
 		if _, ok := item[strings.ToLower(n.method)]; !ok {
 			t.Errorf("non-chi surface %s %s present but method undocumented", n.method, n.path)
 		}
@@ -132,15 +142,19 @@ func TestSpec_NonChiSurfacesDocumented(t *testing.T) {
 // any committed artifact.
 func TestSpec_SkeletonDeterministic(t *testing.T) {
 	t.Parallel()
+
 	routes, err := specgen.Routes()
 	if err != nil {
 		t.Fatalf("specgen.Routes: %v", err)
 	}
+
 	a := specgen.Skeleton(routes)
+
 	b := specgen.Skeleton(routes)
 	if string(a) != string(b) {
 		t.Fatal("skeleton emission is non-deterministic")
 	}
+
 	if len(routes) < 60 {
 		t.Fatalf("expected >= 60 documented routes, got %d", len(routes))
 	}

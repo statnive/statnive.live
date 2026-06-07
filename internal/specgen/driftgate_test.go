@@ -15,12 +15,16 @@ import (
 // `make spec-build` fails here — the "go document me" signal without needing
 // the contract toolchain installed.
 func TestContractInSync(t *testing.T) {
+	t.Parallel()
+
 	dir := apiDir()
-	overlay, err := os.ReadFile(filepath.Join(dir, "overlay.yaml"))
+
+	overlay, err := os.ReadFile(filepath.Join(dir, "overlay.yaml")) //nolint:gosec // G304: fixed repo-relative contract path
 	if err != nil {
 		t.Skipf("api/overlay.yaml not present (%v)", err)
 	}
-	committed, err := os.ReadFile(filepath.Join(dir, "openapi.yaml"))
+
+	committed, err := os.ReadFile(filepath.Join(dir, "openapi.yaml")) //nolint:gosec // G304: fixed repo-relative contract path
 	if err != nil {
 		t.Skipf("api/openapi.yaml not present (%v)", err)
 	}
@@ -29,6 +33,7 @@ func TestContractInSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("specgen.Routes: %v", err)
 	}
+
 	merged, err := specgen.Merge(specgen.Skeleton(routes), overlay)
 	if err != nil {
 		t.Fatalf("merge: %v", err)
@@ -40,7 +45,7 @@ func TestContractInSync(t *testing.T) {
 	}
 
 	// Also guard the committed skeleton.
-	gen, err := os.ReadFile(filepath.Join(dir, "openapi.gen.yaml"))
+	gen, err := os.ReadFile(filepath.Join(dir, "openapi.gen.yaml")) //nolint:gosec // G304: fixed repo-relative contract path
 	if err == nil && string(gen) != string(specgen.Skeleton(routes)) {
 		t.Errorf("api/openapi.gen.yaml is stale — run `make spec-build` and commit.")
 	}

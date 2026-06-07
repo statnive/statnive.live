@@ -9,7 +9,7 @@ import (
 // (internal/specgen → ../..). Shared by the specgen_test path helpers so the
 // runtime.Caller dance lives in one place.
 func repoRoot() string {
-	_, thisFile, _, _ := runtime.Caller(0) //nolint:dogsled
+	_, thisFile, _, _ := runtime.Caller(0) //nolint:dogsled // only the caller's file path is needed
 	return filepath.Join(filepath.Dir(thisFile), "..", "..")
 }
 

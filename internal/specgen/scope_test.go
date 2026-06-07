@@ -14,11 +14,14 @@ import (
 // scope fails here.
 func TestSchemathesis_ConfigScope(t *testing.T) {
 	t.Parallel()
+
 	mkPath := filepath.Join(repoRoot(), "Makefile")
-	b, err := os.ReadFile(mkPath)
+
+	b, err := os.ReadFile(mkPath) //nolint:gosec // G304: fixed repo-relative Makefile path
 	if err != nil {
 		t.Fatalf("read Makefile: %v", err)
 	}
+
 	mk := string(b)
 
 	// Isolate the spec-fuzz recipe block (the target line at column 0, not the
@@ -27,6 +30,7 @@ func TestSchemathesis_ConfigScope(t *testing.T) {
 	if start < 0 {
 		t.Fatal("spec-fuzz target not found in Makefile")
 	}
+
 	block := mk[start:]
 	if end := strings.Index(block[len("\nspec-fuzz:\n"):], "\n## "); end >= 0 {
 		block = block[:end+len("\nspec-fuzz:\n")]

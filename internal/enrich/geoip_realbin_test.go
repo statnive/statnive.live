@@ -71,9 +71,9 @@ func TestGeoIP_RealBIN_IPv4(t *testing.T) {
 		ip          string
 		wantCountry string
 	}{
-		{"8.8.8.8", "US"},          // Google public DNS, US Mountain View
-		{"185.143.232.1", "IR"},    // Asiatech (probeDB anchor)
-		{"203.0.113.42", ""},       // RFC 5737 docs block — assert anything
+		{"8.8.8.8", "US"},       // Google public DNS, US Mountain View
+		{"185.143.232.1", "IR"}, // Asiatech (probeDB anchor)
+		{"203.0.113.42", ""},    // RFC 5737 docs block — assert anything
 	}
 
 	for _, tc := range cases {

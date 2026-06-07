@@ -24,18 +24,23 @@ type fidelityDoc struct {
 // skipping json:"-".
 func jsonFields(t reflect.Type) []string {
 	var out []string
-	for i := 0; i < t.NumField(); i++ {
+
+	for i := range t.NumField() {
 		tag := t.Field(i).Tag.Get("json")
 		if tag == "" || tag == "-" {
 			continue
 		}
+
 		name := strings.Split(tag, ",")[0]
 		if name == "" || name == "-" {
 			continue
 		}
+
 		out = append(out, name)
 	}
+
 	sort.Strings(out)
+
 	return out
 }
 
@@ -44,10 +49,13 @@ func jsonFields(t reflect.Type) []string {
 // SEORow-has-no-rpv / DailyPoint.pageviews / FunnelResult.drop_off_pct class of
 // drift between the hand-authored overlay and the server's wire types.
 func TestOverlay_SchemasMatchGoStructs(t *testing.T) {
+	t.Parallel()
+
 	b, err := os.ReadFile(specPath())
 	if err != nil {
 		t.Skipf("api/openapi.yaml not present (%v)", err)
 	}
+
 	var doc fidelityDoc
 	if uErr := yaml.Unmarshal(b, &doc); uErr != nil {
 		t.Fatalf("parse openapi.yaml: %v", uErr)
@@ -77,12 +85,16 @@ func TestOverlay_SchemasMatchGoStructs(t *testing.T) {
 			t.Errorf("schema %s missing from openapi.yaml components", name)
 			continue
 		}
+
 		want := jsonFields(typ)
+
 		got := make([]string, 0, len(sch.Properties))
 		for k := range sch.Properties {
 			got = append(got, k)
 		}
+
 		sort.Strings(got)
+
 		if strings.Join(want, ",") != strings.Join(got, ",") {
 			t.Errorf("schema %s property drift:\n  go struct: %v\n  overlay:   %v", name, want, got)
 		}

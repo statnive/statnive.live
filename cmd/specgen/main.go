@@ -38,23 +38,27 @@ func run(dir string) error {
 		return fmt.Errorf("walk routes: %w", err)
 	}
 
-	if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+	if mkErr := os.MkdirAll(dir, 0o750); mkErr != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, mkErr)
 	}
 
 	skeleton := specgen.Skeleton(routes)
 	genPath := filepath.Join(dir, "openapi.gen.yaml")
-	if wErr := os.WriteFile(genPath, skeleton, 0o644); wErr != nil {
+
+	if wErr := os.WriteFile(genPath, skeleton, 0o600); wErr != nil {
 		return fmt.Errorf("write %s: %w", genPath, wErr)
 	}
 
 	overlayPath := filepath.Join(dir, "overlay.yaml")
-	overlay, oErr := os.ReadFile(overlayPath)
+
+	overlay, oErr := os.ReadFile(overlayPath) //nolint:gosec // G304: repo-relative contract file, not user input
 	if oErr != nil {
 		if os.IsNotExist(oErr) {
 			fmt.Fprintf(os.Stderr, "specgen: wrote %s (%d operations); no overlay yet — skipping merge\n", genPath, len(routes))
+
 			return nil
 		}
+
 		return fmt.Errorf("read %s: %w", overlayPath, oErr)
 	}
 
@@ -64,10 +68,12 @@ func run(dir string) error {
 	}
 
 	outPath := filepath.Join(dir, "openapi.yaml")
-	if wErr := os.WriteFile(outPath, merged, 0o644); wErr != nil {
+
+	if wErr := os.WriteFile(outPath, merged, 0o600); wErr != nil {
 		return fmt.Errorf("write %s: %w", outPath, wErr)
 	}
 
 	fmt.Fprintf(os.Stderr, "specgen: wrote %s + %s (%d operations)\n", genPath, outPath, len(routes))
+
 	return nil
 }

@@ -25,6 +25,7 @@ func walkRoutes(t *testing.T, mux *chi.Mux) []string {
 	t.Helper()
 
 	var out []string
+
 	err := chi.Walk(mux, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		out = append(out, method+" "+route)
 		return nil
@@ -34,6 +35,7 @@ func walkRoutes(t *testing.T, mux *chi.Mux) []string {
 	}
 
 	sort.Strings(out)
+
 	return out
 }
 
@@ -44,6 +46,7 @@ func TestBuildRouter_SpecMode_NoDeps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildRouter: %v", err)
 	}
+
 	if mux == nil {
 		t.Fatal("nil mux")
 	}
@@ -66,6 +69,7 @@ func TestBuildRouter_SpecMode_NoDeps(t *testing.T) {
 		"GET /healthz",
 		"GET /metrics",
 	}
+
 	got := strings.Join(routes, "\n")
 	for _, w := range want {
 		if !strings.Contains(got, w) {
@@ -89,20 +93,24 @@ func TestBuildRouter_GoldenRouteSet(t *testing.T) {
 	golden := filepath.Join("testdata", "routes.golden")
 
 	if os.Getenv("STATNIVE_UPDATE_GOLDEN") == "1" {
-		if mkErr := os.MkdirAll("testdata", 0o755); mkErr != nil {
+		if mkErr := os.MkdirAll("testdata", 0o750); mkErr != nil {
 			t.Fatalf("mkdir testdata: %v", mkErr)
 		}
-		if wErr := os.WriteFile(golden, []byte(got), 0o644); wErr != nil {
+
+		if wErr := os.WriteFile(golden, []byte(got), 0o600); wErr != nil {
 			t.Fatalf("write golden: %v", wErr)
 		}
+
 		t.Logf("updated %s", golden)
+
 		return
 	}
 
-	want, err := os.ReadFile(golden)
+	want, err := os.ReadFile(golden) //nolint:gosec // G304: fixed repo-relative testdata path
 	if err != nil {
 		t.Fatalf("read golden (run with STATNIVE_UPDATE_GOLDEN=1 to create): %v", err)
 	}
+
 	if string(want) != got {
 		t.Errorf("route set drift vs %s:\n--- want ---\n%s\n--- got ---\n%s", golden, want, got)
 	}
@@ -116,10 +124,12 @@ func TestBuildRouter_MiddlewareOrder(t *testing.T) {
 	t.Parallel()
 
 	var order []string
+
 	rec := func(name string) httpapi.Middleware {
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				order = append(order, name)
+
 				next.ServeHTTP(w, r)
 			})
 		}
@@ -144,6 +154,7 @@ func TestBuildRouter_MiddlewareOrder(t *testing.T) {
 	order = nil
 	req := httptest.NewRequest(http.MethodPost, "/api/event", nil)
 	mux.ServeHTTP(httptest.NewRecorder(), req)
+
 	if got := strings.Join(order, ","); got != "cors,fastreject,ratelimit,backpressure" {
 		t.Errorf("ingest middleware order = %q, want cors,fastreject,ratelimit,backpressure", got)
 	}
@@ -152,6 +163,7 @@ func TestBuildRouter_MiddlewareOrder(t *testing.T) {
 	order = nil
 	req = httptest.NewRequest(http.MethodGet, "/api/user", nil)
 	mux.ServeHTTP(httptest.NewRecorder(), req)
+
 	if got := strings.Join(order, ","); got != "session,apitoken,requireauthed" {
 		t.Errorf("/api/user middleware order = %q, want session,apitoken,requireauthed", got)
 	}
@@ -183,12 +195,14 @@ func TestBuildRouter_SecurityMiddlewareWired(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/user", nil))
+
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("/api/user without auth = %d, want 401 (RequireAuthed not wired)", rr.Code)
 	}
 
 	rr = httptest.NewRecorder()
 	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/privacy/opt-out", nil))
+
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("POST /api/privacy/opt-out without CSRF = %d, want 403 (RequireCSRF not wired)", rr.Code)
 	}
@@ -220,6 +234,7 @@ func TestBuildRouter_FlagsOff_NoSpaDep(t *testing.T) {
 			t.Errorf("flags-off router should not contain %q", absent)
 		}
 	}
+
 	for _, present := range []string{"POST /api/event", "GET /healthz", "GET /api/user", "GET /api/admin/users"} {
 		if !strings.Contains(got, present) {
 			t.Errorf("flags-off router missing always-on route %q", present)

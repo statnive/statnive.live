@@ -13,11 +13,16 @@ import (
 
 // BuildRouter wires every route the daemon serves onto a fresh *chi.Mux from
 // pre-built deps. The middleware ORDER and the conditional-mount set here are
-// load-bearing and must stay byte-equivalent to the pre-extraction run() block
-// — TestBuildRouter_GoldenRouteSet pins the route set, TestBuildRouter_Middleware
-// Order pins the chain behaviour. Conditional groups mount when their flag is
-// on OR in SpecMode (so the generated contract covers the full surface); in
-// production (SpecMode=false) the mount set is identical to before.
+// load-bearing and must stay byte-equivalent to the pre-extraction run() block —
+// TestBuildRouter_GoldenRouteSet pins the route set and
+// TestBuildRouter_MiddlewareOrder pins the chain. Conditional groups mount when
+// their flag is on OR in SpecMode (so the generated contract covers the full
+// surface); in production (SpecMode=false) the mount set is identical to before.
+//
+// linear so the load-bearing registration order stays readable; splitting it
+// would obscure the order without reducing real complexity.
+//
+//nolint:gocyclo,funlen // Flat route-wiring: one block per route group, kept
 func BuildRouter(d RouterDeps) (*chi.Mux, error) {
 	router := chi.NewRouter()
 
