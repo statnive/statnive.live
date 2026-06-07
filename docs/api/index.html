@@ -1,0 +1,50 @@
+<!doctype html>
+<!--
+  statnive-live API reference — OFFLINE / air-gap clean.
+  - Redoc is vendored locally (./redoc.standalone.js), never a CDN.
+  - disableGoogleFont:true + a system font stack → no runtime font fetch.
+  - The spec loads from /api/openapi.yaml (serve from the repo root via
+    `make spec-view`, then open /docs/api/index.html).
+  Makes ZERO external network requests; verify with the offline Playwright
+  proof (web/e2e/api-docs.spec.ts) which renders this under a blocked network.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>statnive-live API reference</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      Strict CSP: same-origin only. Blocks Redoc's external logo-badge fetch and
+      any future external asset at the browser layer — zero outbound by
+      construction. worker-src blob: is needed by the Redoc search worker;
+      'unsafe-inline' covers Redoc's injected styles + the init script.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'none'"
+    />
+    <style>
+      body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div id="redoc"></div>
+    <script src="./redoc.standalone.js"></script>
+    <script>
+      Redoc.init(
+        "/api/openapi.yaml",
+        {
+          disableGoogleFont: true,
+          theme: {
+            typography: {
+              fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+              headings: { fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' },
+              code: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }
+            }
+          }
+        },
+        document.getElementById("redoc")
+      );
+    </script>
+  </body>
+</html>

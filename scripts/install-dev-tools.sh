@@ -3,10 +3,18 @@
 # so `make ci-local` is byte-equivalent to a CI run on the same SHA.
 #
 # Sources of truth (bump together):
-#   - .github/workflows/ci.yml          (golangci-lint, go-licenses, Node, Go)
+#   - .github/workflows/ci.yml          (golangci-lint, go-licenses, Node, Go,
+#                                         oasdiff + the `spec` contract job)
 #   - .github/workflows/security-gate.yml (govulncheck, semgrep)
 #
 # Idempotent: each tool checks the installed version and skips if it matches.
+#
+# NOTE: oasdiff + schemathesis are NOT yet in `make tools-check` — they are
+# installed here and exercised by the `spec` CI job / `make spec-*`. Add them to
+# tools-check only after this script has shipped and the team has run
+# `make tools` (else every pre-push breaks for anyone who hasn't). The npm-based
+# contract tools (redocly/spectral/prism) live in the api/ island and are
+# installed via `cd api && npm ci` / `make spec-tools-install`, never tools-check.
 
 set -euo pipefail
 
@@ -15,6 +23,8 @@ GOLANGCI_LINT_VERSION="v2.5.0"
 GOVULNCHECK_VERSION="v1.1.4"
 GO_LICENSES_VERSION="3e084b0caf710f7bfead967567539214f598c0a2"  # v2.0.1 SHA used in ci.yml
 SEMGREP_VERSION="1.91.0"
+OASDIFF_VERSION="v1.18.4"        # OpenAPI breaking-change gate (make spec-breaking)
+SCHEMATHESIS_VERSION="4.4.4"     # OpenAPI contract fuzzing (make spec-fuzz)
 
 GOPATH_BIN="$(go env GOPATH)/bin"
 mkdir -p "$GOPATH_BIN"
@@ -103,6 +113,44 @@ else
   ( cd web && npm ci --prefer-offline --no-audit --no-fund && npx playwright install --with-deps chromium )
   ok "playwright chromium installed"
 fi
+
+# --- oasdiff (OpenAPI breaking-change gate) ----------------------------------
+have_oasdiff=""
+if [ -x "$GOPATH_BIN/oasdiff" ]; then
+  have_oasdiff="$(go version -m "$GOPATH_BIN/oasdiff" 2>/dev/null | awk '$1=="mod" && $2=="github.com/oasdiff/oasdiff"{print $3}' | head -n1 || true)"
+fi
+if [ "$have_oasdiff" = "$OASDIFF_VERSION" ]; then
+  skip "oasdiff $OASDIFF_VERSION already installed"
+else
+  log "Installing oasdiff $OASDIFF_VERSION"
+  GOFLAGS=-mod=mod go install "github.com/oasdiff/oasdiff@${OASDIFF_VERSION}"
+  ok "oasdiff $OASDIFF_VERSION"
+fi
+
+# --- schemathesis (OpenAPI contract fuzzing) ---------------------------------
+have_schemathesis=""
+if command -v schemathesis >/dev/null 2>&1; then
+  have_schemathesis="$(schemathesis --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
+fi
+if [ "$have_schemathesis" = "$SCHEMATHESIS_VERSION" ]; then
+  skip "schemathesis $SCHEMATHESIS_VERSION already installed"
+else
+  log "Installing schemathesis $SCHEMATHESIS_VERSION"
+  if command -v pipx >/dev/null 2>&1; then
+    pipx install --force "schemathesis==${SCHEMATHESIS_VERSION}"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -m pip install --user --upgrade "schemathesis==${SCHEMATHESIS_VERSION}"
+  else
+    echo "ERROR: need pipx or python3 to install schemathesis" >&2
+    exit 1
+  fi
+  ok "schemathesis $SCHEMATHESIS_VERSION"
+fi
+
+# --- OpenAPI contract npm island (redocly/spectral/prism) --------------------
+log "Installing OpenAPI contract toolchain (api/ npm island)"
+( cd api && npm ci --prefer-offline --no-audit --no-fund )
+ok "api/ contract toolchain installed"
 
 echo
 ok "all dev tools installed at pinned versions"

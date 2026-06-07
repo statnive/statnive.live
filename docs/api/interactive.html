@@ -1,0 +1,56 @@
+<!doctype html>
+<!--
+  statnive-live — INTERACTIVE API reference (Swagger UI, self-hosted).
+  Unlike index.html (Redoc, read-only), this viewer has "Try it out": it
+  executes real requests against the selected `servers` entry. Point it at the
+  local Prism mock (http://127.0.0.1:4010 — `make spec-mock`) to exercise every
+  endpoint offline with schema-valid responses.
+
+  Air-gap: Swagger UI is vendored under ./swagger/ (no CDN). CSP allows
+  same-origin assets + loopback connect only (the Prism mock); no external host.
+  Serve from the repo root: `make spec-view` then open /docs/api/interactive.html
+  (or `make spec-view-interactive`), with `make spec-mock` running alongside.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>statnive-live API — interactive (Try it out)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:4010 http://localhost:4010; worker-src 'self' blob:; object-src 'none'; base-uri 'none'"
+    />
+    <link rel="stylesheet" href="./swagger/swagger-ui.css" />
+    <style>
+      body { margin: 0; background: #fafafa; }
+      .topbar { display: none; } /* hide the URL-explorer bar; spec is fixed */
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="./swagger/swagger-ui-bundle.js"></script>
+    <script src="./swagger/swagger-ui-standalone-preset.js"></script>
+    <script>
+      window.ui = SwaggerUIBundle({
+        url: "/api/openapi.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        tryItOutEnabled: true,
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        layout: "StandaloneLayout",
+        // SAFETY: pin every "Execute" to the local Prism mock — never the prod
+        // server in the spec's `servers` list. So Try-it-out can never hit
+        // production, only the loopback mock (CSP also blocks non-loopback).
+        requestInterceptor: function (req) {
+          try {
+            var u = new URL(req.url);
+            u.protocol = "http:";
+            u.host = "127.0.0.1:4010";
+            req.url = u.toString();
+          } catch (e) {}
+          return req;
+        },
+      });
+    </script>
+  </body>
+</html>

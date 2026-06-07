@@ -153,11 +153,40 @@ jobs:
           STATNIVE_METRICS_TOKEN:    ${{ secrets.STATNIVE_METRICS_TOKEN }}
         run: |
           # 10-step probe against the live binary on production hardware
-          # — full sequence in scripts/prod-probe.sh. Failure here fails
-          # the deploy job; existing /usr/local/bin/statnive-deploy
-          # rollback path on the box handles auto-revert.
+          # — full sequence in scripts/prod-probe.sh. Failure here fails the
+          # deploy JOB but does NOT auto-revert: the on-box statnive-deploy
+          # rollback is healthz-scoped and already ran (and passed) before this
+          # step. A red probe means: investigate, then `statnive-deploy rollback`
+          # manually (or rely on the next deploy).
           chmod +x scripts/prod-probe.sh scripts/prod-probe-ch-oracle.sh
           ./scripts/prod-probe.sh
+
+      # OpenAPI contract validation against the LIVE host — public/read endpoints
+      # only, never mutating/admin/privacy. Default OFF (set the repo var to
+      # enable); when unset this step is skipped and the deploy is unchanged.
+      - name: Spec contract proxy-validate (public/read; 0 violations)
+        if: ${{ vars.STATNIVE_SPEC_PROXY_ENABLED == 'true' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'api/package-lock.json'
+      - name: Run spec proxy-validate
+        if: ${{ vars.STATNIVE_SPEC_PROXY_ENABLED == 'true' }}
+        env:
+          HOST: ${{ vars.STATNIVE_PROBE_HOST || 'https://app.statnive.live' }}
+        run: |
+          set -euo pipefail
+          npm --prefix api ci --no-audit --no-fund
+          ( cd api && npx --no-install prism proxy openapi.yaml "$HOST" --errors -p 4011 >/tmp/prism.log 2>&1 & )
+          sleep 6
+          rc=0
+          for p in /healthz /api/about /tracker.js /legal/lia /legal/dpa; do
+            out="$(curl -s "http://127.0.0.1:4011$p" || true)"
+            if echo "$out" | grep -q "errors#VIOLATIONS"; then echo "VIOLATION on $p:"; echo "$out" | head -c 400; rc=1; else echo "ok: $p"; fi
+          done
+          pkill -f "prism proxy" 2>/dev/null || true
+          exit $rc
 
       - name: Cleanup SSH artifacts
         if: always()

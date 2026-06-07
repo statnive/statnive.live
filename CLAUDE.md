@@ -252,6 +252,7 @@ Full inventory in [`docs/tooling.md`](docs/tooling.md): 4 original skill collect
 | `Engine=` or `{{if .Cluster}}` in migrations (advisory runbook) | [`clickhouse-upgrade-playbook`](.claude/skills/clickhouse-upgrade-playbook/README.md) |
 | `test/perf/gate/**` / `test/perf/chaos/**` / `test/perf/generator/**` / `deploy/observability/**` (scheduled Phase 7e) | `load-gate-harness` (to scaffold in Phase 7e; advisory until Phase 10 P1 cutover — HARD GATE thereafter) |
 | New read surface: `internal/storage/store.go` / concrete `*ClickHouseStore` read / `internal/{dashboard,admin}/router.go` / `cmd/statnive-live/main.go` route mount / new `daily_*` rollup / `internal/mcp/**` | [`mcp-parity-enforcer`](.claude/skills/mcp-parity-enforcer/README.md) (`make mcp-parity` — every read surface needs an MCP tool or a documented exclusion) |
+| New/changed HTTP route or response schema: `internal/httpapi/router.go` / `internal/{dashboard,admin}/router.go` / `internal/storage/result.go` / `internal/ingest/event.go` / `cmd/statnive-live/mcp.go` / `api/overlay.yaml` / `web/src/api/*` | [`openapi-contract-enforcer`](.claude/skills/openapi-contract-enforcer/README.md) (`make spec-check` — every route + schema in the committed OpenAPI contract; regenerate via `make spec-build`) |
 
 ### Anti-patterns (doc 28 §Anti-patterns) — absolute bans
 

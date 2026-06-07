@@ -65,6 +65,8 @@ CUSTOM_SKILLS=(
     geoip-pipeline-review
     clickhouse-operations-review
     clickhouse-upgrade-playbook
+    mcp-parity-enforcer
+    openapi-contract-enforcer
 )
 
 for s in "${CUSTOM_SKILLS[@]}"; do

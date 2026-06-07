@@ -1,0 +1,19 @@
+{
+  "name": "statnive-live-api-contract",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev-only OpenAPI contract toolchain (lint/bundle/mock). Not shipped in the binary; build-host only. See api/README.md.",
+  "scripts": {
+    "bundle": "redocly bundle openapi.gen.yaml --output openapi.yaml",
+    "lint": "redocly lint openapi.yaml && spectral lint openapi.yaml",
+    "mock": "prism mock openapi.yaml -p 4010",
+    "proxy": "prism proxy openapi.yaml"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.31.6",
+    "@stoplight/prism-cli": "5.15.11",
+    "@stoplight/spectral-cli": "6.16.0",
+    "@stoplight/spectral-owasp-ruleset": "2.0.1",
+    "swagger-ui-dist": "^5.32.6"
+  }
+}

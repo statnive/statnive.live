@@ -1,0 +1,46 @@
+# Spectral ruleset for the statnive-live contract.
+# Extends the standard OAS ruleset + the OWASP API Security ruleset (counters
+# the "62% of specs ship no security docs" gap). The genuinely security-
+# relevant OWASP rules (insecure auth schemes, basic-auth, credentials/api-keys
+# in URLs, JWT best-practices, admin-security-unique) stay at their default
+# `error` severity. The schema-shape / inventory / completeness rules that
+# would demand hundreds of pedantic edits on a self-hosted analytics API are
+# downgraded to `warn` so the gate (--fail-severity=error) stays meaningful
+# without false hard failures, while the findings remain visible.
+extends:
+  - "spectral:oas"
+  - "@stoplight/spectral-owasp-ruleset"
+
+rules:
+  # Project rule: snake_case property names (the wire reality).
+  statnive-snake-case-props:
+    description: Schema property names must be snake_case.
+    severity: warn
+    given: "$.components.schemas..properties[*]~"
+    then:
+      function: casing
+      functionOptions:
+        type: snake
+
+  # Downgraded to warn (visible, non-blocking) — schema-shape / inventory /
+  # completeness rules. Rule ids verified against the installed ruleset.
+  owasp:api1:2023-no-numeric-ids: warn
+  owasp:api2:2023-read-restricted: warn
+  owasp:api2:2023-write-restricted: warn
+  owasp:api4:2023-array-limit: warn
+  owasp:api4:2023-integer-format: warn
+  owasp:api4:2023-integer-limit: warn
+  owasp:api4:2023-integer-limit-legacy: warn
+  owasp:api4:2023-rate-limit: warn
+  owasp:api4:2023-rate-limit-responses-429: warn
+  owasp:api4:2023-rate-limit-retry-after: warn
+  owasp:api4:2023-string-limit: warn
+  owasp:api4:2023-string-restricted: warn
+  owasp:api8:2023-define-cors-origin: warn
+  owasp:api8:2023-define-error-responses-401: warn
+  owasp:api8:2023-define-error-responses-500: warn
+  owasp:api8:2023-define-error-validation: warn
+  owasp:api8:2023-no-scheme-http: warn
+  owasp:api8:2023-no-server-http: warn
+  owasp:api9:2023-inventory-access: warn
+  owasp:api9:2023-inventory-environment: warn

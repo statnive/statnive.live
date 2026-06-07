@@ -40,6 +40,7 @@ import (
 	"github.com/statnive/statnive.live/internal/enrich"
 	"github.com/statnive/statnive.live/internal/goals"
 	"github.com/statnive/statnive.live/internal/health"
+	"github.com/statnive/statnive.live/internal/httpapi"
 	"github.com/statnive/statnive.live/internal/identity"
 	"github.com/statnive/statnive.live/internal/ingest"
 	"github.com/statnive/statnive.live/internal/landing"
@@ -513,88 +514,39 @@ func run() error {
 		return fmt.Errorf("mcp token ratelimit: %w", err)
 	}
 
-	router := chi.NewRouter()
+	// ---- HTTP route surface ------------------------------------------------
+	// Construct every handler/dep the router wires, then build the *chi.Mux via
+	// the shared httpapi.BuildRouter seam (also used by cmd/specgen to derive
+	// the OpenAPI contract). Flag-gated, error/dial-prone construction stays
+	// HERE (behind the same flags as before) so a flags-OFF boot is
+	// byte-identical and the SpecMode generator stays stub-safe. The middleware
+	// order + conditional-mount set live in httpapi.BuildRouter.
 
-	// Shared with the /api/privacy/* + /privacy mounts below; defined
-	// here so the /api/event group can use it.
-	corsMW := statnivemiddleware.CORS(originIndex.Resolver())
+	var ingestSuppression ingest.SuppressionChecker
+	if suppressionList != nil {
+		ingestSuppression = suppressionList
+	}
 
-	// corsMW MUST run before fast-reject in this group: OPTIONS
-	// preflights would otherwise 405 on fast-reject's POST-only check
-	// before they reach the route. Dashboard routes share the rate
-	// limiter but skip fast-reject (operators don't send tracker
-	// prefetches). /healthz stays unconditionally reachable for probes.
-	router.Group(func(r chi.Router) {
-		r.Use(corsMW)
-		r.Use(ingest.FastRejectMiddleware(auditLog, metricsReg))
-		r.Use(rateLimitMW)
-		// Back-pressure gate sits AFTER rate-limit (abusive clients still
-		// hit 429 first) but BEFORE the handler (so a degraded WAL
-		// doesn't burn enrichment + fsync budget on events destined for
-		// 503). wal-durability-review item #6.
-		r.Use(ingest.BackpressureMiddleware(wal, ingest.BackpressureConfig{
-			OnSample: walFillAlertEmitter(alertsSink),
-			Metrics:  metricsReg,
-		}))
-
-		var ingestSuppression ingest.SuppressionChecker
-		if suppressionList != nil {
-			ingestSuppression = suppressionList
-		}
-
-		// The OPTIONS binding is required so chi accepts the method —
-		// corsMW intercepts the preflight and returns 204 before the
-		// handler runs.
-		ingestHandler := ingest.NewHandler(ingest.HandlerConfig{
-			Pipeline:        pipeline,
-			WAL:             groupSyncer,
-			Sites:           registry,
-			MasterSecret:    masterSecret,
-			Audit:           auditLog,
-			Logger:          logger,
-			ConsentRequired: cfg.Consent.Required,
-			Metrics:         metricsReg,
-			Suppression:     ingestSuppression,
-			Mode: func(r *http.Request, siteID uint32, p sites.SitePolicy) ingest.Mode {
-				return privacy.PolicyToMode(r, siteID, p)
-			},
-		})
-		r.Method(http.MethodPost, "/api/event", ingestHandler)
-		r.Method(http.MethodOptions, "/api/event", ingestHandler)
-	})
-
-	// Login / logout / me. /api/login has its own per-IP rate-limit
-	// (10/min default) independent of the global stats limiter so that
-	// legitimate stats traffic can't starve login attempts. Logout is
-	// un-auth'd by design — a client with a stale cookie should still
-	// be able to clear it.
-	router.Group(func(r chi.Router) {
-		r.Use(loginRateLimitMW)
-		r.Method(http.MethodPost, "/api/login", http.HandlerFunc(authHandlers.Login))
-	})
-
-	router.Method(http.MethodPost, "/api/logout", http.HandlerFunc(authHandlers.Logout))
-
-	router.Group(func(r chi.Router) {
-		r.Use(sessionMW)
-		r.Use(apiTokenMW)
-		r.Use(requireAuthed)
-		r.Method(http.MethodGet, "/api/user", http.HandlerFunc(authHandlers.Me))
+	ingestHandler := ingest.NewHandler(ingest.HandlerConfig{
+		Pipeline:        pipeline,
+		WAL:             groupSyncer,
+		Sites:           registry,
+		MasterSecret:    masterSecret,
+		Audit:           auditLog,
+		Logger:          logger,
+		ConsentRequired: cfg.Consent.Required,
+		Metrics:         metricsReg,
+		Suppression:     ingestSuppression,
+		Mode: func(r *http.Request, siteID uint32, p sites.SitePolicy) ingest.Mode {
+			return privacy.PolicyToMode(r, siteID, p)
+		},
 	})
 
 	// UserSites is wired ONLY when per_site_admin is ON so that handlers'
-	// `deps.UserSites == nil` check correctly selects the legacy
-	// single-site path in flag-OFF builds. When nil, the dashboard
-	// per-site middleware falls back to the actor.SiteID invariant; admin
-	// List/Create fall back to the pre-v0.0.10 actor.SiteID paths and the
-	// smoke harness (which has no user_sites rows) keeps working.
-	//
-	// CachedSitesStore is mandatory in production: RequireDashboardSiteAccess
-	// runs on every /api/stats/* + /api/realtime/visitors request and
-	// would otherwise issue one CH FINAL query per request at full
-	// dashboard EPS. 60s TTL matches the session cache; mutations
-	// (Grant/Revoke) invalidate immediately so a revoke is observed on
-	// the next request, not after the TTL window.
+	// `deps.UserSites == nil` check correctly selects the legacy single-site
+	// path in flag-OFF builds. CachedSitesStore is mandatory in production:
+	// RequireDashboardSiteAccess runs on every /api/stats/* request and would
+	// otherwise issue one CH FINAL query per request at full dashboard EPS.
 	var userSitesStore auth.SitesStore
 	if cfg.Features.PerSiteAdmin {
 		userSitesStore = auth.NewCachedSitesStore(
@@ -612,48 +564,11 @@ func run() error {
 		GeoEnabled: cfg.Dashboard.GeoEnabled,
 	}
 
-	// Dashboard listing — session OR api-token auth, admin+viewer+api
-	// roles. /api/sites filters its response inline by actor grants;
-	// HydrateActorGrants populates actor.Sites for session users so the
-	// filter sees the right grant map (api-tokens carry their grants
-	// implicitly via SiteID + Role).
-	router.Group(func(r chi.Router) {
-		r.Use(rateLimitMW)
-		r.Use(sessionMW)
-		r.Use(apiTokenMW)
-		r.Use(requireAuthed)
-		r.Use(auth.RequireRole(auditLog, auth.RoleAdmin, auth.RoleViewer, auth.RoleAPI))
-		r.Use(auth.HydrateActorGrants(userSitesStore))
-
-		dashboard.MountSiteListing(r, dashboardDeps)
-	})
-
-	// Dashboard site-scoped reads — same auth stack PLUS
-	// RequireDashboardSiteAccess so every /api/stats/* and
-	// /api/realtime/visitors call is grant-checked against the requested
-	// ?site=N. OWASP A01:2021 — cross-tenant IDOR fix.
-	router.Group(func(r chi.Router) {
-		r.Use(rateLimitMW)
-		r.Use(sessionMW)
-		r.Use(apiTokenMW)
-		r.Use(requireAuthed)
-		r.Use(auth.RequireRole(auditLog, auth.RoleAdmin, auth.RoleViewer, auth.RoleAPI))
-		// RoleAPI is the floor — matches the role allowlist above. All three
-		// roles (admin/viewer/api) read dashboards; the per-site grant check
-		// runs independently of the role hierarchy.
-		r.Use(auth.RequireDashboardSiteAccess(auditLog, userSitesStore, auth.RoleAPI))
-
-		dashboard.MountSiteScoped(r, dashboardDeps)
-	})
-
-	// Self-serve MCP token endpoints (gap #1/#5/#6/#7/#8). Mounted only when
-	// mcp.tokens.enabled. Stack: mint limiter → session/api-token auth →
-	// require-authed → role floor (admin/viewer; api-token actors are
-	// rejected in the handler) → HydrateActorGrants (so the mint scope-clamp
-	// reads the actor's site grants). Read-only MCP — these are admin-surface
-	// writes, NOT a new MCP tool.
+	// MCP token deps — built only when mcp.tokens.enabled (mcpTokenStore is
+	// non-nil only then). Zero value otherwise; the group isn't mounted.
+	var mcpTokenDeps dashboard.MCPTokenDeps
 	if cfg.MCP.Tokens.Enabled && mcpTokenStore != nil {
-		mcpTokenDeps := dashboard.MCPTokenDeps{
+		mcpTokenDeps = dashboard.MCPTokenDeps{
 			Tokens:         mcpTokenStore,
 			Audit:          auditLog,
 			Logger:         logger,
@@ -662,24 +577,12 @@ func run() error {
 			PublicMCPURL:   cfg.MCP.PublicURL,
 			HTTPEnabled:    cfg.MCP.HTTP.Enabled,
 		}
-
-		router.Group(func(r chi.Router) {
-			r.Use(mcpTokenRateLimitMW)
-			r.Use(sessionMW)
-			r.Use(apiTokenMW)
-			r.Use(requireAuthed)
-			r.Use(auth.RequireRole(auditLog, auth.RoleAdmin, auth.RoleViewer))
-			r.Use(auth.HydrateActorGrants(userSitesStore))
-
-			dashboard.MountMCPTokens(r, mcpTokenDeps)
-		})
 	}
 
 	jurisdictionNoticeStore := auth.NewClickHouseStore(store.Conn(), cfg.ClickHouse.Database)
 
-	// Shared user-scoped eraser — admin hard-delete (EraseByUserID) + the
-	// privacy DSAR handlers below both use it. Build-agnostic: the tables exist
-	// in every build via migrations, so it is safe to construct unconditionally.
+	// Shared user-scoped eraser — admin hard-delete + the privacy DSAR
+	// handlers both use it. Tables exist in every build via migrations.
 	eraseEnum := privacy.NewEraseEnumerator(store.Conn(), cfg.ClickHouse.Database)
 
 	adminDeps := admin.Deps{
@@ -697,98 +600,30 @@ func run() error {
 		OriginIndex:        originIndex,
 	}
 
-	router.Group(func(r chi.Router) {
-		r.Use(rateLimitMW)
-		r.Use(sessionMW)
-		r.Use(apiTokenMW)
-		r.Use(requireAuthed)
-
-		if cfg.Features.PerSiteAdmin && userSitesStore != nil {
-			r.Use(auth.RequireSiteRole(auditLog, userSitesStore, auth.RoleAdmin))
-		} else {
-			r.Use(auth.RequireRole(auditLog, auth.RoleAdmin))
-		}
-
-		admin.Mount(r, adminDeps)
-	})
-
-	// OAuth 2.1 authorization server (PR-E, ChatGPT-app onboarding). No-op in
-	// the default/air-gap build (stub returns nil unless enabled). Mounted on
-	// the main router so /authorize shares the dashboard origin + session.
-	if err := mountOAuthAS(router, oauthASParams{
-		cfg:       cfg,
-		conn:      store.Conn(),
-		audit:     auditLog,
-		metrics:   metricsReg,
-		logger:    logger,
-		sessionMW: sessionMW,
-		authedMW:  requireAuthed,
-	}); err != nil {
-		return fmt.Errorf("mount oauth as: %w", err)
-	}
-
-	router.Method(http.MethodGet, "/healthz", health.Handler(health.Reporter{
-		Store:     store,
-		WAL:       wal,
-		WALSyncer: groupSyncer,
-		Start:     time.Now(),
-	}))
-
-	// /metrics — Prometheus-text counters for the /api/event funnel
-	// (received / accepted{site_id} / dropped{reason}). Bearer-auth
-	// gated by STATNIVE_METRICS_TOKEN; empty token returns 404 (default
-	// production posture). Phase 7e deploy/observability scrapes this.
-	router.Method(http.MethodGet, "/metrics", metrics.Handler(metricsReg, cfg.Metrics.Token))
-
-	// /api/about — unauthenticated build + third-party attribution
-	// surface. Required by CLAUDE.md License Rules for IP2Location LITE
-	// CC-BY-SA-4.0 §3(a)(1); paired with LICENSE-third-party.md and the
-	// dashboard footer. buildInfo is hoisted so /api/about and the
-	// landing meta strip can't drift against each other.
+	// buildInfo is hoisted so /api/about and the landing meta strip can't
+	// drift against each other.
 	buildInfo := readBuildInfo()
-	router.Method(http.MethodGet, "/api/about", about.Handler(buildInfo, about.DefaultAttributions()))
-
-	// /legal/lia — public LIA template (EN + DE). Operators rely on this
-	// surface when documenting Art. 6(1)(f) legitimate interest under
-	// the GDPR; content is embedded via go:embed so it ships air-gap
-	// clean. Read-only, no auth required, no per-visitor PII attached
-	// to the audit emission (lang only).
-	router.Method(http.MethodGet, "/legal/lia", legal.LIAHandler(auditLog))
-
-	// /legal/dpa — customer-facing Data Processing Agreement template
-	// (English). Embedded from docs/dpa-draft.md via go:embed; a
-	// test-time drift guard pins the embedded copy to the canonical
-	// doc. Phase 11a hard gate per PLAN.md.
-	router.Method(http.MethodGet, "/legal/dpa", legal.DPAHandler(auditLog))
-
-	// Stage 2 — visitor-facing GDPR surface. Three route groups,
-	// each gated by its own config flag for instant rollback:
-	//   /privacy                          (privacy.privacy_page)
-	//   /legal/privacy-policy/{lang}      (privacy.legal_routes)
-	//   /api/privacy/{opt-out,access,erase} (privacy.privacy_api)
-	// corsMW is hoisted above the /api/event group earlier in this
-	// function and reused here for the privacy surfaces.
 
 	siteValidator := func(hostname string) bool {
-		id, _, err := registry.LookupSitePolicy(rootCtx, hostname)
+		id, _, lookErr := registry.LookupSitePolicy(rootCtx, hostname)
 
-		return err == nil && id != 0
+		return lookErr == nil && id != 0
 	}
 
+	// Privacy page handler — built only when privacy.privacy_page is on.
+	var privacyPageHandler http.Handler
 	if cfg.Privacy.PrivacyPage {
-		privacyPage := legal.PrivacyHandler(auditLog, masterSecret, siteValidator)
-		router.Method(http.MethodGet, "/privacy", corsMW(privacyPage))
-		router.Method(http.MethodOptions, "/privacy", corsMW(privacyPage))
+		privacyPageHandler = legal.PrivacyHandler(auditLog, masterSecret, siteValidator)
 	}
 
-	if cfg.Privacy.LegalRoutes {
-		router.Method(http.MethodGet, "/legal/privacy-policy/{lang}", legal.PrivacyPolicyHandler(auditLog))
-	}
-
+	// Privacy DSAR handlers — built only when privacy.privacy_api is on.
+	// privacy.NewHandlers rejects nil deps, so it must NOT run under stub
+	// deps; gating its construction here keeps a flags-OFF boot byte-identical.
+	var privacyHandlers *privacy.Handlers
 	if cfg.Privacy.PrivacyAPI {
 		exporter := privacy.NewVisitorExporter(store.Conn(), cfg.ClickHouse.Database)
 
-		privacyHandlers, pErr := privacy.NewHandlers(privacy.Config{
+		privacyHandlers, err = privacy.NewHandlers(privacy.Config{
 			Sites:        registry,
 			MasterSecret: masterSecret,
 			Suppression:  suppressionList,
@@ -796,61 +631,93 @@ func run() error {
 			Export:       exporter,
 			Audit:        auditLog,
 		})
-		if pErr != nil {
-			return fmt.Errorf("privacy: build handlers: %w", pErr)
+		if err != nil {
+			return fmt.Errorf("privacy: build handlers: %w", err)
 		}
-
-		router.Group(func(r chi.Router) {
-			r.Use(corsMW)
-			r.Use(statnivemiddleware.RequireCSRF(masterSecret))
-			r.Method(http.MethodPost, "/api/privacy/opt-out", http.HandlerFunc(privacyHandlers.OptOut))
-			r.Method(http.MethodOptions, "/api/privacy/opt-out", http.HandlerFunc(privacyHandlers.OptOut))
-			r.Method(http.MethodGet, "/api/privacy/access", http.HandlerFunc(privacyHandlers.Access))
-			r.Method(http.MethodOptions, "/api/privacy/access", http.HandlerFunc(privacyHandlers.Access))
-			r.Method(http.MethodPost, "/api/privacy/erase", http.HandlerFunc(privacyHandlers.Erase))
-			r.Method(http.MethodOptions, "/api/privacy/erase", http.HandlerFunc(privacyHandlers.Erase))
-			r.Method(http.MethodPost, "/api/privacy/consent", http.HandlerFunc(privacyHandlers.Consent))
-			r.Method(http.MethodOptions, "/api/privacy/consent", http.HandlerFunc(privacyHandlers.Consent))
-		})
 	}
 
-	// First-party tracker — bytes embedded via go:embed in internal/tracker.
-	// Sits outside the dashboard auth + rate-limit groups; serves a static
-	// blob that's safe to hand back unauthenticated under any traffic.
-	router.Method(http.MethodGet, "/tracker.js", tracker.Handler())
-
-	// Public coming-soon page at GET /. Independent of cfg.Dashboard.SPAEnabled
-	// so the marketing surface is reachable even when the operator-facing
-	// dashboard is gated off in prod. The Iranian-DC air-gap binary does not
-	// register either route — no public marketing surface (Architecture C).
-	// Build version is template-injected so the meta strip tracks the actual
-	// shipped binary instead of drifting against a hardcoded literal.
-	landingHandler := landing.Handler(landing.Config{Version: buildInfo.Version})
-	router.Method(http.MethodGet, "/", landingHandler)
-	router.Method(http.MethodHead, "/", landingHandler)
-
-	faviconHandler := landing.FaviconHandler()
-	router.Method(http.MethodGet, "/favicon.ico", faviconHandler)
-	router.Method(http.MethodHead, "/favicon.ico", faviconHandler)
-
-	// Embedded Preact dashboard SPA at /app/*. Auth is enforced at
-	// /api/* by session + api-token middleware (see auth.CompositeAuth);
-	// the SPA shell is safe to serve unauthenticated because it can't
-	// reach stats without a valid session cookie.
-	//
-	// TODO(phase-10): /app/* must be on the bypass list for the
-	// IR-country 302 redirect (research doc 26 §5.3) so the dashboard
-	// is reachable from outside Iran without geo-rerouting.
+	// SPA shell — built only when dashboard.spa_enabled is on (spa.Handler
+	// errors on an unbuilt embed; gate it so a flags-OFF boot is unaffected).
+	var spaHandler http.Handler
 	if cfg.Dashboard.SPAEnabled {
-		spaHandler, spaErr := spa.Handler(spa.Config{BearerToken: cfg.Dashboard.BearerToken})
-		if spaErr != nil {
-			return fmt.Errorf("spa: %w", spaErr)
+		spaHandler, err = spa.Handler(spa.Config{BearerToken: cfg.Dashboard.BearerToken})
+		if err != nil {
+			return fmt.Errorf("spa: %w", err)
 		}
 
-		router.Method(http.MethodGet, "/app", http.RedirectHandler("/app/", http.StatusFound))
-		router.Mount("/app/", http.StripPrefix("/app", spaHandler))
-
 		logger.Info("spa enabled", "mount", "/app/", "bearer_set", cfg.Dashboard.BearerToken != "")
+	}
+
+	routerDeps := httpapi.RouterDeps{
+		AuditLog:          auditLog,
+		CORS:              statnivemiddleware.CORS(originIndex.Resolver()),
+		RateLimit:         rateLimitMW,
+		LoginRateLimit:    loginRateLimitMW,
+		McpTokenRateLimit: mcpTokenRateLimitMW,
+		Session:           sessionMW,
+		APIToken:          apiTokenMW,
+		RequireAuthed:     requireAuthed,
+		RequireCSRF:       statnivemiddleware.RequireCSRF(masterSecret),
+		FastReject:        ingest.FastRejectMiddleware(auditLog, metricsReg),
+		Backpressure: ingest.BackpressureMiddleware(wal, ingest.BackpressureConfig{
+			OnSample: walFillAlertEmitter(alertsSink),
+			Metrics:  metricsReg,
+		}),
+		Ingest:        ingestHandler,
+		AuthLogin:     http.HandlerFunc(authHandlers.Login),
+		AuthLogout:    http.HandlerFunc(authHandlers.Logout),
+		AuthMe:        http.HandlerFunc(authHandlers.Me),
+		UserSites:     userSitesStore,
+		DashboardDeps: dashboardDeps,
+		AdminDeps:     adminDeps,
+		MCPTokenDeps:  mcpTokenDeps,
+		Health: health.Handler(health.Reporter{
+			Store:     store,
+			WAL:       wal,
+			WALSyncer: groupSyncer,
+			Start:     time.Now(),
+		}),
+		Metrics:       metrics.Handler(metricsReg, cfg.Metrics.Token),
+		About:         about.Handler(buildInfo, about.DefaultAttributions()),
+		LIA:           legal.LIAHandler(auditLog),
+		DPA:           legal.DPAHandler(auditLog),
+		Tracker:       tracker.Handler(),
+		Landing:       landing.Handler(landing.Config{Version: buildInfo.Version}),
+		Favicon:       landing.FaviconHandler(),
+		PrivacyPolicy: legal.PrivacyPolicyHandler(auditLog),
+		PrivacyPage:   privacyPageHandler,
+		Spa:           spaHandler,
+		MountOAuthAS: func(r chi.Router) error {
+			return mountOAuthAS(r, oauthASParams{
+				cfg:       cfg,
+				conn:      store.Conn(),
+				audit:     auditLog,
+				metrics:   metricsReg,
+				logger:    logger,
+				sessionMW: sessionMW,
+				authedMW:  requireAuthed,
+			})
+		},
+		Flags: httpapi.RouterFlags{
+			McpTokensEnabled: cfg.MCP.Tokens.Enabled && mcpTokenStore != nil,
+			PerSiteAdmin:     cfg.Features.PerSiteAdmin,
+			PrivacyPage:      cfg.Privacy.PrivacyPage,
+			LegalRoutes:      cfg.Privacy.LegalRoutes,
+			PrivacyAPI:       cfg.Privacy.PrivacyAPI,
+			SPAEnabled:       cfg.Dashboard.SPAEnabled,
+		},
+	}
+
+	if privacyHandlers != nil {
+		routerDeps.PrivacyOptOut = http.HandlerFunc(privacyHandlers.OptOut)
+		routerDeps.PrivacyAccess = http.HandlerFunc(privacyHandlers.Access)
+		routerDeps.PrivacyErase = http.HandlerFunc(privacyHandlers.Erase)
+		routerDeps.PrivacyConsent = http.HandlerFunc(privacyHandlers.Consent)
+	}
+
+	router, err := httpapi.BuildRouter(routerDeps)
+	if err != nil {
+		return err
 	}
 
 	tlsLoader, err := newTLSLoader(cfg, auditLog, logger)

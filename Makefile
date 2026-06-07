@@ -17,7 +17,7 @@ GOLANGCI_LINT ?= $(if $(wildcard $(GOPATH_BIN)/golangci-lint),$(GOPATH_BIN)/gola
 GO_LICENSES   ?= $(if $(wildcard $(GOPATH_BIN)/go-licenses),$(GOPATH_BIN)/go-licenses,go-licenses)
 GOVULNCHECK   ?= $(if $(wildcard $(GOPATH_BIN)/govulncheck),$(GOPATH_BIN)/govulncheck,govulncheck)
 
-.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-privacy prod-probe smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks mcp-parity mcp-e2e oauth-as-test
+.PHONY: all build build-linux statnive-license test test-integration lint vendor-check clean fmt licenses bench airgap-bundle airgap-bundle-verify airgap-install-test release release-fresh release-iran-vps release-customer oracle-scan load-gate load-gate-crosscheck load-gate-breakpoint load-gate-soak load-gate-full capacity-probe chaos-matrix perf-generator help dev-secret refresh-bot-patterns tls-test-keys tenancy-grep identity-gate privacy-gate privacy-gate-selftest legacy-site-id-grep skill-sanitizer skill-sanitizer-selftest load-test crash-test ch-outage-test disk-full-test perf-tests audit airgap-test blackout-sim tracker tracker-test tracker-size tracker-install wal-killtest wal-killtest-full web-install web-build web-test web-lint web-e2e bundle-gate brand-grep web-airgap-grep smoke smoke-privacy prod-probe smoke-metrics systemd-verify seed-backup-drill backup-drill-local tools tools-check govulncheck ch-up ch-down ch-reset ci-local ci-local-fast hooks mcp-parity mcp-e2e oauth-as-test spec-build spec-check spec-lint spec-breaking spec-tools-install spec-mock spec-view spec-view-interactive docs-airgap-grep spec-proxy-validate spec-fuzz spec-docs-e2e
 
 all: lint test build
 
@@ -96,6 +96,116 @@ oauth-as-test:
 ## this target is the standalone gate for CI + `make release`.
 mcp-parity:
 	$(GO) test -mod=vendor -run '^TestParity' ./internal/mcp/...
+
+## spec-build: regenerate the OpenAPI contract from the chi router — walks the
+## SpecMode router → api/openapi.gen.yaml skeleton, deep-merges api/overlay.yaml
+## → api/openapi.yaml. Pure Go (no Node/redocly). Run after a route/overlay change.
+spec-build:
+	$(GO) run ./cmd/specgen
+
+## spec-check: drift gate — regenerate the contract and fail if it differs from
+## what's committed (router or overlay changed without a rebuild). Go-only, so it
+## is safe for the fast pre-push path. The route-coverage Go test rides inside
+## `make test`; this guards the committed artifacts byte-for-byte.
+spec-check: spec-build
+	git diff --ignore-cr-at-eol --exit-code api/openapi.gen.yaml api/openapi.yaml
+
+## spec-lint: redocly + spectral (incl. OWASP ruleset) lint of the merged
+## contract. Node-based (api/ npm island); NOT in the fast path. Requires
+## `cd api && npm ci` (or `make spec-tools-install`) first.
+spec-lint:
+	cd api && npx --no-install redocly lint openapi.yaml
+	cd api && npx --no-install spectral lint openapi.yaml --ruleset .spectral.yaml --fail-severity error
+
+## spec-breaking: fail on backward-incompatible contract changes vs origin/main
+## (oasdiff, breaking-only). Skips gracefully when oasdiff or the base is absent.
+spec-breaking:
+	@set -e; \
+	if ! command -v oasdiff >/dev/null 2>&1; then echo "spec-breaking: oasdiff not installed (go install github.com/oasdiff/oasdiff@latest) — skipping"; exit 0; fi; \
+	if ! git show origin/main:api/openapi.yaml > /tmp/statnive-openapi-base.yaml 2>/dev/null; then echo "spec-breaking: no base api/openapi.yaml on origin/main — skipping"; exit 0; fi; \
+	oasdiff breaking --fail-on ERR /tmp/statnive-openapi-base.yaml api/openapi.yaml
+
+## spec-tools-install: install the dev-only spec npm toolchain (redocly/spectral/
+## prism) into api/node_modules. Build-host only — never shipped in the binary.
+spec-tools-install:
+	cd api && npm ci
+
+## spec-mock: Prism mock server on :4010 (offline frontend dev).
+spec-mock:
+	cd api && npx --no-install prism mock openapi.yaml -p 4010
+
+## spec-docs-e2e: air-gap proof — render the offline API reference under a
+## network blocked except loopback; fail on any external request (Playwright).
+spec-docs-e2e:
+	cd web && npx --no-install playwright test --config playwright.docs.config.ts
+
+## spec-proxy-validate: funnel a read/public request set through a Prism
+## validation proxy and fail on any RFC-7807 contract VIOLATION. LOOPBACK-PINNED
+## and fail-closed: refuses any non-loopback target so a per-PR run can never hit
+## production (the live, deploy-gated variant lives in scripts/prod-probe.sh).
+## Requires a running instance at STATNIVE_SPEC_TARGET (default 127.0.0.1:8080).
+spec-proxy-validate:
+	@set -e; \
+	TARGET="$${STATNIVE_SPEC_TARGET:-http://127.0.0.1:8080}"; \
+	case "$$TARGET" in http://127.0.0.1:*|http://localhost:*) ;; *) echo "spec-proxy-validate: REFUSING non-loopback target $$TARGET"; exit 1;; esac; \
+	echo "spec-proxy-validate: Prism proxy → $$TARGET (read/public only)"; \
+	( cd api && npx --no-install prism proxy openapi.yaml "$$TARGET" --errors -p 4011 >/tmp/statnive-prism-proxy.log 2>&1 & echo $$! > /tmp/statnive-prism.pid ); \
+	sleep 4; rc=0; \
+	for p in /healthz /api/about /tracker.js; do \
+	  out=$$(curl -s "http://127.0.0.1:4011$$p" 2>/dev/null || true); \
+	  if echo "$$out" | grep -q "errors#VIOLATIONS"; then echo "  VIOLATION: $$p"; echo "$$out" | head -c 400; rc=1; else echo "  ok: $$p"; fi; \
+	done; \
+	kill "$$(cat /tmp/statnive-prism.pid 2>/dev/null)" 2>/dev/null || true; pkill -f "prism proxy" 2>/dev/null || true; \
+	if [ "$$rc" = "0" ]; then echo "spec-proxy-validate: 0 violations"; fi; exit $$rc
+
+## spec-fuzz: Schemathesis property-fuzz the READ/PUBLIC surface only. LOOPBACK-
+## PINNED + fail-closed. Excludes every mutating/ingest/privacy path (incl. the
+## GET /api/privacy/access export + audit-emitting /legal/* GETs) so fuzzing
+## never writes or exports customer-shaped data. Bearer auth via STATNIVE_SPEC_
+## TOKEN (the SiteID:0 wildcard). Requires a seeded instance with rolled-up data.
+spec-fuzz:
+	@set -e; \
+	TARGET="$${STATNIVE_SPEC_TARGET:-http://127.0.0.1:8080}"; \
+	case "$$TARGET" in http://127.0.0.1:*|http://localhost:*) ;; *) echo "spec-fuzz: REFUSING non-loopback target $$TARGET"; exit 1;; esac; \
+	command -v schemathesis >/dev/null 2>&1 || { echo "spec-fuzz: schemathesis not installed (pip install --user schemathesis) — skipping"; exit 0; }; \
+	echo "spec-fuzz: schemathesis → $$TARGET (read/public; mutating+privacy+admin excluded)"; \
+	schemathesis run api/openapi.yaml --url "$$TARGET" \
+	  $${STATNIVE_SPEC_TOKEN:+--header "Authorization: Bearer $$STATNIVE_SPEC_TOKEN"} \
+	  --include-path-regex '^/(healthz|api/about|api/stats/|api/realtime/|api/props/|api/goals/|api/sites)' \
+	  --exclude-method POST --exclude-method PATCH --exclude-method DELETE --exclude-method PUT --exclude-method OPTIONS \
+	  --exclude-path-regex '/api/privacy/' --exclude-path-regex '/api/admin/' --exclude-path-regex '/legal/' --exclude-path /metrics \
+	  --exclude-checks not_a_server_error
+
+## spec-view: serve the offline (air-gap) API reference (Redoc, read-only).
+## Serves from the repo root so /api/openapi.yaml resolves; open the printed URL.
+spec-view:
+	@echo "Open http://127.0.0.1:8088/docs/api/index.html (Ctrl-C to stop)"
+	python3 -m http.server 8088 --bind 127.0.0.1
+
+## spec-view-interactive: serve the INTERACTIVE viewer (Swagger UI "Try it out")
+## with the Prism mock as the backend. Every Execute is pinned to the loopback
+## mock (127.0.0.1:4010) — never production. Starts the mock + a static server,
+## and stops the mock on Ctrl-C. Open the printed URL.
+spec-view-interactive:
+	@command -v npx >/dev/null 2>&1 || { echo "need the api/ toolchain (cd api && npm ci)"; exit 1; }
+	@( cd api && npx --no-install prism mock openapi.yaml -p 4010 >/tmp/statnive-spec-mock.log 2>&1 & echo $$! > /tmp/statnive-spec-mock.pid )
+	@trap 'kill "$$(cat /tmp/statnive-spec-mock.pid 2>/dev/null)" 2>/dev/null || true' EXIT; \
+	echo "Prism mock on :4010 + docs on :8088"; \
+	echo "Open http://127.0.0.1:8088/docs/api/interactive.html (Ctrl-C to stop)"; \
+	python3 -m http.server 8088 --bind 127.0.0.1
+
+## docs-airgap-grep: fail if the AUTHORED offline-viewer HTML references any
+## external CDN / proxy / font host (air-gap invariant; complements
+## web-airgap-grep which only scans the built SPA). The vendored
+## redoc.standalone.js is excluded — it contains font-host strings internally
+## but never fetches them (disableGoogleFont:true); the runtime offline proof
+## (web/e2e/api-docs.spec.ts) is the authoritative no-outbound guard.
+docs-airgap-grep:
+	@if ls docs/api/*.html >/dev/null 2>&1; then \
+		BAD=$$(grep -rEn 'fonts\.googleapis\.com|fonts\.gstatic\.com|cdn\.|unpkg\.|jsdelivr\.|cdnjs\.|proxy\.scalar\.com' docs/api/*.html 2>/dev/null || true); \
+		if [ -n "$$BAD" ]; then echo "docs-airgap-grep: external host in authored docs/api HTML:"; echo "$$BAD"; exit 1; fi; \
+		echo "docs-airgap-grep: docs/api HTML is air-gap clean"; \
+	else echo "docs-airgap-grep: docs/api HTML absent — skipping"; fi
 
 ## mcp-e2e: End-to-end MCP test — drives the REAL compiled binary
 ## (`statnive-live mcp serve`) as a subprocess over BOTH transports (stdio +
@@ -831,6 +941,8 @@ ci-local-fast:
 	$(MAKE) tracker-test
 	$(MAKE) web-test web-lint web-build bundle-gate
 	$(MAKE) brand-grep web-airgap-grep
+	$(MAKE) spec-check
+	$(MAKE) docs-airgap-grep
 	@echo "==> ci-local-fast PASSED"
 
 ## ci-local: Full local CI mirror — every job from ci.yml + security-gate.yml
@@ -848,6 +960,10 @@ ci-local:
 	$(MAKE) tracker-test
 	$(MAKE) web-test web-lint web-build bundle-gate
 	$(MAKE) brand-grep web-airgap-grep
+	$(MAKE) spec-check
+	$(MAKE) docs-airgap-grep
+	$(MAKE) spec-lint
+	$(MAKE) spec-breaking
 	$(MAKE) airgap-install-test
 	$(MAKE) ch-up
 	@set -e; \

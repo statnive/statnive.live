@@ -42,5 +42,11 @@ coverage.out
 coverage.html
 *.prof
 
-# vendor/ is INTENTIONALLY tracked (offline build invariant — PLAN.md verification 18)
+# vendor/ is INTENTIONALLY tracked (offline build invariant — PLAN.md verification 18).
+# Re-include the whole tree so the runtime-data patterns above (wal/, data/,
+# tmp/, .env) can't silently drop vendored deps that happen to share those names
+# — e.g. github.com/tidwall/wal, medama-io/go-useragent/data, subosito/gotenv.
+# Without this, `go run`/`make build` under -mod=vendor fail on a fresh checkout
+# ("cannot find module providing package ...: import lookup disabled by -mod=vendor").
+!vendor/**
 releases/load-gate/*-k6.log
