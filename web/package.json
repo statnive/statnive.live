@@ -10,7 +10,9 @@
     "lint": "eslint src --ext .js,.mjs --no-error-on-unmatched-pattern && tsc --noEmit",
     "bundle-gate": "size-limit",
     "e2e": "playwright test",
-    "e2e:ui": "playwright test --ui"
+    "e2e:ui": "playwright test --ui",
+    "types:gen": "openapi-typescript ../api/openapi.yaml -o src/api/generated.ts",
+    "types:check": "openapi-typescript ../api/openapi.yaml -o src/api/generated.ts && git diff --exit-code src/api/generated.ts"
   },
   "devDependencies": {
     "@fontsource/dm-sans": "^5.2.8",
@@ -25,6 +27,7 @@
     "@types/node": "^25.6.0",
     "eslint": "^8.57.0",
     "jsdom": "^25.0.1",
+    "openapi-typescript": "7.13.0",
     "preact": "^10.25.0",
     "size-limit": "^11.1.6",
     "typescript": "^5.7.0",

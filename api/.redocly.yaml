@@ -1,0 +1,22 @@
+# Redocly CLI v2 config for the statnive-live contract.
+# Extends `recommended`; overrides tuned to the documented reality:
+# many public/ops endpoints are legitimately 2xx-only (no 4xx), and this is
+# an internal self-hosted API (no license object required).
+extends:
+  - recommended
+
+rules:
+  # Critical structural gates (the AI-broken-$ref + security classes).
+  no-unresolved-refs: error
+  security-defined: error
+  operation-operationId-unique: error
+  operation-operationId: warn
+  # Examples must validate against their schemas.
+  no-invalid-media-type-examples: error
+  no-invalid-schema-examples: error
+  no-invalid-parameter-examples: error
+  # Reality tolerances.
+  operation-4xx-response: off # /healthz, /metrics, /tracker.js, /, /favicon.ico, /api/event(202/204) are 2xx-only by design
+  info-license: off # internal self-hosted API
+  no-unused-components: warn
+  operation-tag-defined: error

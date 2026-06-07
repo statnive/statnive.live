@@ -1,0 +1,1516 @@
+# Hand-authored OpenAPI semantics for statnive-live.
+#
+# This is the ONLY hand-edited contract file. It is a partial OpenAPI 3.1
+# document that cmd/specgen deep-merges over the generated route skeleton
+# (openapi.gen.yaml) to produce the committed api/openapi.yaml. The skeleton
+# supplies every path/method/operationId/tag from the live chi router; this
+# file supplies info/servers/tags/security/components and per-operation
+# summaries, parameters, request bodies, responses, and real examples.
+#
+# Reality is documented, not idealised (CLAUDE.md): snake_case JSON; a
+# {"error": "..."} envelope (NOT RFC 9457); text/plain on some http.Error
+# paths; bare 202/204 on /api/event; Prometheus text on /metrics; HTML on
+# /privacy + /legal/*. Internal-only ops are tagged x-internal for a future
+# public-docs split.
+info:
+  title: statnive-live API
+  version: "1.0.0"
+  description: >-
+    Privacy-aware analytics backend. snake_case JSON; errors use a
+    `{"error": "..."}` envelope (some endpoints emit text/plain). Dashboard
+    stats read hourly/daily rollups with a ~1h delay (Architecture Rule 3),
+    so a freshly ingested event does not appear in /api/stats/* immediately.
+  contact:
+    name: statnive-live
+    url: https://app.statnive.live
+
+servers:
+  - url: https://app.statnive.live
+    description: SaaS
+  - url: http://127.0.0.1:8080
+    description: Local / self-hosted
+  - url: http://127.0.0.1:4010
+    description: Prism mock
+
+tags:
+  - name: Ingestion
+    description: First-party tracker event intake.
+  - name: Auth
+    description: Dashboard session login/logout + current user.
+  - name: Stats
+    description: Read-only analytics (rollup-backed; ~1h delay).
+  - name: Admin
+    description: Operator CRUD (users, goals, sites, options). x-internal.
+  - name: McpTokens
+    description: Self-serve MCP API-token management.
+  - name: Privacy
+    description: GDPR DSAR surfaces (opt-out, access, erase, consent).
+  - name: Legal
+    description: Public legal templates + privacy page.
+  - name: Ops
+    description: Health, Prometheus metrics, build/attribution.
+  - name: Public
+    description: Tracker script, landing, favicon.
+  - name: OAuth
+    description: OAuth 2.1 authorization server (chatgpt_app build). x-internal.
+  - name: McpHttp
+    description: MCP-over-HTTP transport (separate listener). x-internal.
+
+# Global default: session cookie OR bearer token. Public ops override with
+# `security: []`.
+security:
+  - SessionCookie: []
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: statnive_session
+      description: Dashboard session cookie (name configurable via auth.session.cookie_name).
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: 'API token; `Authorization: Bearer <token>`.'
+
+  responses:
+    Unauthorized:
+      description: 'Missing or invalid session/token. Dashboard middleware emits text/plain `unauthorized` with a WWW-Authenticate header; login emits JSON `{"error":"invalid credentials"}`.'
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    Forbidden:
+      description: 'Authenticated but not permitted (role or cross-tenant). Body is the uniform `{"error":"forbidden"}`.'
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    BadRequest:
+      description: Invalid request (validation / malformed filter).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    RateLimited:
+      description: Rate limit exceeded.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    NotImplemented:
+      description: Endpoint reserved but not built in this deployment (feature-flagged or v1.1/v2). Maps to storage.ErrNotImplemented / errFeatureDisabled.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  parameters:
+    SiteParam:
+      name: site
+      in: query
+      required: true
+      description: Target site_id.
+      schema: { type: integer, format: int64, minimum: 1 }
+    FromParam:
+      name: from
+      in: query
+      required: false
+      description: Inclusive start date YYYY-MM-DD (site TZ, default Europe/Berlin). Defaults to last 7 days.
+      schema: { type: string, format: date }
+    ToParam:
+      name: to
+      in: query
+      required: false
+      description: Exclusive end date YYYY-MM-DD (site TZ).
+      schema: { type: string, format: date }
+    ChannelParam:
+      name: channel
+      in: query
+      required: false
+      description: Filter to a single channel (e.g. organic_search, direct).
+      schema: { type: string }
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, format: int64, minimum: 1, maximum: 200 }
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      description: Standard non-2xx JSON body. 403 bodies are flattened to `"forbidden"`.
+      additionalProperties: false
+      required: [error]
+      properties:
+        error: { type: string, example: "internal error" }
+
+    OverviewResult:
+      type: object
+      required: [pageviews, visitors, goals, revenue, rpv]
+      properties:
+        pageviews: { type: integer, format: int64, minimum: 0 }
+        visitors: { type: integer, format: int64, minimum: 0 }
+        goals: { type: integer, format: int64, minimum: 0 }
+        revenue: { type: integer, format: int64, minimum: 0, description: Currency-neutral integer; SPA formats via site currency. }
+        rpv: { type: number, format: double, description: Revenue per visitor. }
+      example: { pageviews: 15230, visitors: 3450, goals: 120, revenue: 4500, rpv: 1.3043 }
+
+    SourceRow:
+      type: object
+      required: [referrer_name, channel, views, visitors, goals, revenue, rpv]
+      properties:
+        referrer_name: { type: string }
+        channel: { type: string }
+        views: { type: integer, format: int64, minimum: 0 }
+        visitors: { type: integer, format: int64, minimum: 0 }
+        goals: { type: integer, format: int64, minimum: 0 }
+        revenue: { type: integer, format: int64, minimum: 0 }
+        rpv: { type: number, format: double }
+
+    SourceChannelRow:
+      type: object
+      required: [channel, views, visitors, goals, revenue, rpv]
+      properties:
+        channel: { type: string }
+        views: { type: integer, format: int64, minimum: 0 }
+        visitors: { type: integer, format: int64, minimum: 0 }
+        goals: { type: integer, format: int64, minimum: 0 }
+        revenue: { type: integer, format: int64, minimum: 0 }
+        rpv: { type: number, format: double }
+
+    SourcesResponse:
+      type: object
+      required: [rows, by_channel]
+      properties:
+        rows: { type: array, items: { $ref: "#/components/schemas/SourceRow" } }
+        by_channel: { type: array, items: { $ref: "#/components/schemas/SourceChannelRow" } }
+
+    PageRow:
+      type: object
+      required: [pathname, views, visitors, goals, revenue, rpv]
+      properties:
+        pathname: { type: string }
+        views: { type: integer, format: int64, minimum: 0 }
+        visitors: { type: integer, format: int64, minimum: 0 }
+        goals: { type: integer, format: int64, minimum: 0 }
+        revenue: { type: integer, format: int64, minimum: 0 }
+        rpv: { type: number, format: double }
+
+    SEORow:
+      type: object
+      required: [day, views, visitors, goals, revenue]
+      properties:
+        day: { type: string, format: date-time }
+        views: { type: integer, format: int64, minimum: 0 }
+        visitors: { type: integer, format: int64, minimum: 0 }
+        goals: { type: integer, format: int64, minimum: 0 }
+        revenue: { type: integer, format: int64, minimum: 0 }
+
+    CampaignRow:
+      type: object
+      required: [utm_campaign, utm_source, utm_medium, utm_content, utm_term, channel, views, visitors, goals, revenue, rpv]
+      properties:
+        utm_campaign: { type: string }
+        utm_source: { type: string }
+        utm_medium: { type: string }
+        utm_content: { type: string }
+        utm_term: { type: string }
+        channel: { type: string }
+        views: { type: integer, format: int64, minimum: 0 }
+        visitors: { type: integer, format: int64, minimum: 0 }
+        goals: { type: integer, format: int64, minimum: 0 }
+        revenue: { type: integer, format: int64, minimum: 0 }
+        rpv: { type: number, format: double }
+
+    DailyPoint:
+      type: object
+      required: [day, visitors, pageviews, goals, revenue]
+      properties:
+        day: { type: string, format: date-time }
+        visitors: { type: integer, format: int64, minimum: 0 }
+        pageviews: { type: integer, format: int64, minimum: 0 }
+        goals: { type: integer, format: int64, minimum: 0 }
+        revenue: { type: integer, format: int64, minimum: 0 }
+
+    RealtimeResult:
+      type: object
+      required: [hour_utc, active_visitors, pageviews_last_hr]
+      properties:
+        hour_utc: { type: string, format: date-time }
+        active_visitors: { type: integer, format: int64, minimum: 0 }
+        pageviews_last_hr: { type: integer, format: int64, minimum: 0 }
+
+    GeoRow:
+      type: object
+      required: [country_code, province, city, views, visitors, goals, revenue, rpv]
+      properties:
+        country_code: { type: string }
+        province: { type: string }
+        city: { type: string }
+        views: { type: integer, format: int64, minimum: 0 }
+        visitors: { type: integer, format: int64, minimum: 0 }
+        goals: { type: integer, format: int64, minimum: 0 }
+        revenue: { type: integer, format: int64, minimum: 0 }
+        rpv: { type: number, format: double }
+
+    GeoTopRow:
+      type: object
+      required: [country_code, views, visitors, goals, revenue, rpv]
+      properties:
+        country_code: { type: string }
+        views: { type: integer, format: int64, minimum: 0 }
+        visitors: { type: integer, format: int64, minimum: 0 }
+        goals: { type: integer, format: int64, minimum: 0 }
+        revenue: { type: integer, format: int64, minimum: 0 }
+        rpv: { type: number, format: double }
+
+    GeoResponse:
+      type: object
+      required: [top, rows]
+      properties:
+        top: { type: array, items: { $ref: "#/components/schemas/GeoTopRow" } }
+        rows: { type: array, items: { $ref: "#/components/schemas/GeoRow" } }
+
+    DeviceRow:
+      type: object
+      required: [device, browser, os, visitors]
+      properties:
+        device: { type: string }
+        browser: { type: string }
+        os: { type: string }
+        visitors: { type: integer, format: int64, minimum: 0 }
+
+    FunnelResult:
+      type: object
+      required: [steps, counts, drop_off_pct]
+      properties:
+        steps: { type: array, items: { type: string } }
+        counts: { type: array, items: { type: integer, format: int64, minimum: 0 } }
+        drop_off_pct: { type: array, items: { type: number, format: double } }
+
+    PropNameRow:
+      type: object
+      required: [name, sample_values, last_seen]
+      properties:
+        name: { type: string }
+        sample_values: { type: array, items: { type: string } }
+        last_seen: { type: string, format: date-time }
+
+    VariantRow:
+      type: object
+      required: [value, visitors, goal_completions, conversion_rate]
+      properties:
+        value: { type: string }
+        visitors: { type: integer, format: int64, minimum: 0 }
+        goal_completions: { type: integer, format: int64, minimum: 0 }
+        conversion_rate: { type: number, format: double }
+        delta_pp: { type: [number, "null"], format: double }
+        delta_rel: { type: [number, "null"], format: double }
+        p_value: { type: [number, "null"], format: double }
+        significant: { type: [boolean, "null"] }
+        ci_low: { type: [number, "null"], format: double }
+        ci_high: { type: [number, "null"], format: double }
+
+    CompareResult:
+      type: object
+      required: [dimension, goal, control, variants]
+      properties:
+        dimension: { type: string }
+        goal: { type: string }
+        control: { type: string }
+        variants: { type: array, items: { $ref: "#/components/schemas/VariantRow" } }
+
+    GoalSummary:
+      type: object
+      required: [name, pattern]
+      properties:
+        name: { type: string }
+        pattern: { type: string }
+
+    Site:
+      type: object
+      required: [id, hostname, enabled, tz, currency]
+      properties:
+        id: { type: integer, format: int64 }
+        hostname: { type: string }
+        enabled: { type: boolean }
+        tz: { type: string }
+        currency: { type: string }
+
+    SitesResponse:
+      type: object
+      required: [sites]
+      properties:
+        sites: { type: array, items: { $ref: "#/components/schemas/Site" } }
+
+    Role:
+      type: string
+      enum: [admin, viewer, api]
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+      example: { email: "admin@example.com", password: "correct horse battery staple" }
+
+    LoginResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          type: object
+          required: [user_id, email, role, site_id]
+          properties:
+            user_id: { type: string }
+            email: { type: string }
+            role: { $ref: "#/components/schemas/Role" }
+            site_id: { type: integer, format: int64 }
+
+    MeResponse:
+      type: object
+      required: [user_id, email, username, role, site_id, sites]
+      properties:
+        user_id: { type: string }
+        email: { type: string }
+        username: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        site_id: { type: integer, format: int64 }
+        sites:
+          type: object
+          additionalProperties: { type: string }
+          description: site_id (string) → role.
+        demo_banner: { type: string }
+
+    Attribution:
+      type: object
+      required: [name, license, url, text]
+      properties:
+        name: { type: string }
+        license: { type: string }
+        url: { type: string }
+        text: { type: string }
+
+    AboutResponse:
+      type: object
+      required: [version, git_sha, go_version, attributions]
+      properties:
+        version: { type: string }
+        git_sha: { type: string }
+        go_version: { type: string }
+        attributions: { type: array, items: { $ref: "#/components/schemas/Attribution" } }
+
+    RawEvent:
+      type: object
+      description: >-
+        Tracker payload. Accepted as a single object or an array of objects;
+        Content-Type is sniffed, so text/plain (sendBeacon) and
+        application/json are both accepted. Server-set fields are never read
+        from the client.
+      required: [hostname, event_type]
+      properties:
+        hostname: { type: string }
+        pathname: { type: string }
+        title: { type: string }
+        referrer: { type: string }
+        utm_source: { type: string }
+        utm_medium: { type: string }
+        utm_campaign: { type: string }
+        utm_content: { type: string }
+        utm_term: { type: string }
+        viewport_width: { type: integer, minimum: 0, maximum: 65535 }
+        event_type: { type: string, enum: [pageview, custom] }
+        event_name: { type: string }
+        event_value: { type: number, format: double }
+        is_goal: { type: boolean }
+        user_segment: { type: string }
+        props:
+          type: object
+          additionalProperties: { type: string }
+          deprecated: true
+          description: Legacy alias merged into hit_props.
+        hit_props: { type: object, additionalProperties: { type: string } }
+        session_props: { type: object, additionalProperties: { type: string } }
+        user_props: { type: object, additionalProperties: { type: string } }
+        user_id: { type: string, description: "Customer-supplied; hashed server-side, never stored raw." }
+      example:
+        hostname: example.com
+        pathname: /features
+        title: Features
+        referrer: https://google.com/search
+        utm_source: google
+        utm_medium: cpc
+        event_type: pageview
+        event_name: pageview
+        event_value: 0
+
+    MCPToken:
+      type: object
+      required: [id, name, role, site_ids, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        site_ids: { type: array, items: { type: integer, format: int64 } }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: integer, format: int64, description: Unix seconds; 0 = never. }
+        last_used_at: { type: integer, format: int64, description: Unix seconds; 0 = never. }
+        token: { type: string, description: "Raw secret, returned once at mint only." }
+
+    MCPTokensResponse:
+      type: object
+      required: [tokens]
+      properties:
+        tokens: { type: array, items: { $ref: "#/components/schemas/MCPToken" } }
+
+    MintTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string }
+        site_ids: { type: array, items: { type: integer, format: int64 } }
+        role: { $ref: "#/components/schemas/Role" }
+        ttl_days: { type: integer, format: int64, minimum: 1 }
+
+    MCPConnection:
+      type: object
+      required: [enabled, transport]
+      properties:
+        enabled: { type: boolean }
+        transport: { type: string }
+        url: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        sites: { type: array, items: { type: integer, format: int64 } }
+        add_command_template: { type: string }
+
+    AdminUser:
+      type: object
+      required: [user_id, email, username, role]
+      properties:
+        user_id: { type: string }
+        email: { type: string }
+        username: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        site_id: { type: integer, format: int64 }
+        disabled: { type: boolean }
+
+    AdminUsersResponse:
+      type: object
+      required: [users]
+      properties:
+        users: { type: array, items: { $ref: "#/components/schemas/AdminUser" } }
+
+    AdminGoal:
+      type: object
+      required: [id, name, match_type, pattern]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        match_type: { type: string }
+        pattern: { type: string }
+        value: { type: integer, format: int64 }
+        enabled: { type: boolean }
+
+    AdminGoalsResponse:
+      type: object
+      required: [goals]
+      properties:
+        goals: { type: array, items: { $ref: "#/components/schemas/AdminGoal" } }
+
+    AdminSite:
+      type: object
+      required: [id, hostname, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        hostname: { type: string }
+        slug: { type: string }
+        enabled: { type: boolean }
+        tz: { type: string }
+        currency: { type: string }
+        jurisdiction: { type: string }
+        consent_mode: { type: string }
+
+    AdminSitesResponse:
+      type: object
+      required: [sites]
+      properties:
+        sites: { type: array, items: { $ref: "#/components/schemas/AdminSite" } }
+
+    OptionsResponse:
+      type: object
+      description: Currencies / timezones option lists for admin forms.
+      additionalProperties: true
+
+paths:
+  /api/event:
+    post:
+      summary: Ingest one or more tracker events.
+      description: Accepts a single RawEvent or an array. Returns a bare 202 (no body) on accept, 204 for silent drops (prefetch, unknown host, consent-gated).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - { $ref: "#/components/schemas/RawEvent" }
+                - { type: array, items: { $ref: "#/components/schemas/RawEvent" } }
+          text/plain:
+            schema:
+              oneOf:
+                - { $ref: "#/components/schemas/RawEvent" }
+                - { type: array, items: { $ref: "#/components/schemas/RawEvent" } }
+      responses:
+        "202": { description: Accepted (no body). }
+        "204": { description: Silently dropped (prefetch / unknown host / consent). }
+        "400": { description: Malformed body or oversized payload (text/plain). }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { description: WAL sync failure (text/plain). }
+    options:
+      summary: CORS preflight for /api/event.
+      security: []
+      responses:
+        "204": { description: CORS preflight. }
+
+  /api/login:
+    post:
+      tags: [Auth]
+      summary: Log in; sets the session cookie.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Logged in.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401":
+          description: 'Invalid credentials (`{"error":"invalid credentials"}`).'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /api/logout:
+    post:
+      tags: [Auth]
+      summary: Clear the session cookie.
+      security: []
+      responses:
+        "204": { description: Logged out. }
+
+  /api/user:
+    get:
+      tags: [Auth]
+      summary: Current authenticated user.
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/sites:
+    get:
+      tags: [Stats]
+      summary: Sites the actor may view.
+      responses:
+        "200":
+          description: Site list (filtered to actor grants).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SitesResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/stats/overview:
+    get:
+      tags: [Stats]
+      summary: Headline KPIs (rollup-backed, ~1h delay).
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { $ref: "#/components/parameters/FromParam" }
+        - { $ref: "#/components/parameters/ToParam" }
+        - { $ref: "#/components/parameters/ChannelParam" }
+      responses:
+        "200":
+          description: Overview metrics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OverviewResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/stats/sources:
+    get:
+      tags: [Stats]
+      summary: Referrer + per-channel breakdown.
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { $ref: "#/components/parameters/FromParam" }
+        - { $ref: "#/components/parameters/ToParam" }
+        - { $ref: "#/components/parameters/ChannelParam" }
+      responses:
+        "200":
+          description: Sources.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/stats/pages:
+    get:
+      tags: [Stats]
+      summary: Top pages by pathname.
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { $ref: "#/components/parameters/FromParam" }
+        - { $ref: "#/components/parameters/ToParam" }
+        - { $ref: "#/components/parameters/ChannelParam" }
+      responses:
+        "200":
+          description: Pages.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/PageRow" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/stats/seo:
+    get:
+      tags: [Stats]
+      summary: Organic-search daily trend.
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { $ref: "#/components/parameters/FromParam" }
+        - { $ref: "#/components/parameters/ToParam" }
+      responses:
+        "200":
+          description: SEO trend.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/SEORow" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/stats/trend:
+    get:
+      tags: [Stats]
+      summary: All-traffic daily trend.
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { $ref: "#/components/parameters/FromParam" }
+        - { $ref: "#/components/parameters/ToParam" }
+        - { $ref: "#/components/parameters/ChannelParam" }
+      responses:
+        "200":
+          description: Trend.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/DailyPoint" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/stats/campaigns:
+    get:
+      tags: [Stats]
+      summary: UTM campaign breakdown.
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { $ref: "#/components/parameters/FromParam" }
+        - { $ref: "#/components/parameters/ToParam" }
+        - { $ref: "#/components/parameters/ChannelParam" }
+      responses:
+        "200":
+          description: Campaigns.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/CampaignRow" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/stats/compare:
+    get:
+      tags: [Stats]
+      summary: A/B variant comparison with significance.
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { $ref: "#/components/parameters/FromParam" }
+        - { $ref: "#/components/parameters/ToParam" }
+        - { name: dimension, in: query, required: true, schema: { type: string }, description: "scope:name to compare." }
+        - { name: goal, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Comparison.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompareResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/stats/geo:
+    get:
+      tags: [Stats]
+      summary: Geographic breakdown (feature-flagged).
+      x-statnive-feature-flag: dashboard.geo_enabled
+      x-stability-level: beta
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { $ref: "#/components/parameters/FromParam" }
+        - { $ref: "#/components/parameters/ToParam" }
+      responses:
+        "200":
+          description: Geo (when enabled).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeoResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "501": { $ref: "#/components/responses/NotImplemented" }
+
+  /api/stats/devices:
+    get:
+      tags: [Stats]
+      summary: Device/browser/OS breakdown (v1.1).
+      x-stability-level: draft
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { $ref: "#/components/parameters/FromParam" }
+        - { $ref: "#/components/parameters/ToParam" }
+      responses:
+        "200":
+          description: Devices (when implemented).
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/DeviceRow" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "501": { $ref: "#/components/responses/NotImplemented" }
+
+  /api/stats/funnel:
+    get:
+      tags: [Stats]
+      summary: Conversion funnel (v2 windowFunnel).
+      x-stability-level: draft
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { $ref: "#/components/parameters/FromParam" }
+        - { $ref: "#/components/parameters/ToParam" }
+        - { name: steps, in: query, required: false, schema: { type: array, items: { type: string } } }
+      responses:
+        "200":
+          description: Funnel (when implemented).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FunnelResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "501": { $ref: "#/components/responses/NotImplemented" }
+
+  /api/realtime/visitors:
+    get:
+      tags: [Stats]
+      summary: Active visitors (last hour).
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+      responses:
+        "200":
+          description: Realtime.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RealtimeResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/props/list:
+    get:
+      tags: [Stats]
+      summary: Distinct custom-property names (last 7 days).
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+        - { name: scope, in: query, required: false, schema: { type: string, enum: [hit, session, user] } }
+        - { $ref: "#/components/parameters/LimitParam" }
+      responses:
+        "200":
+          description: Prop names.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/PropNameRow" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/goals/list:
+    get:
+      tags: [Stats]
+      summary: Enabled goals for autocomplete.
+      parameters:
+        - { $ref: "#/components/parameters/SiteParam" }
+      responses:
+        "200":
+          description: Goals.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/GoalSummary" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/mcp/tokens:
+    post:
+      tags: [McpTokens]
+      summary: Mint an MCP API token (session actors only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MintTokenRequest" }
+      responses:
+        "201":
+          description: Minted (raw token returned once).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPToken" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Per-user token cap reached. }
+    get:
+      tags: [McpTokens]
+      summary: List active MCP tokens (no secrets).
+      responses:
+        "200":
+          description: Tokens.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPTokensResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/mcp/tokens/{id}:
+    delete:
+      tags: [McpTokens]
+      summary: Revoke an MCP token (own tokens only).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204": { description: Revoked. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Not found / not owned. }
+
+  /api/mcp/connection:
+    get:
+      tags: [McpTokens]
+      summary: MCP connection info (transport + scope).
+      responses:
+        "200":
+          description: Connection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPConnection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/users:
+    get:
+      tags: [Admin]
+      x-internal: true
+      summary: List users.
+      responses:
+        "200": { description: Users., content: { application/json: { schema: { $ref: "#/components/schemas/AdminUsersResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Admin]
+      x-internal: true
+      summary: Create a user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, username, password, role]
+              properties:
+                email: { type: string, format: email }
+                username: { type: string }
+                password: { type: string }
+                role: { $ref: "#/components/schemas/Role" }
+                sites: { type: array, items: { type: integer, format: int64 } }
+      responses:
+        "201": { description: Created., content: { application/json: { schema: { $ref: "#/components/schemas/AdminUser" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Email already exists. }
+
+  /api/admin/users/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Admin]
+      x-internal: true
+      summary: Update a user's username/role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                username: { type: string }
+                role: { $ref: "#/components/schemas/Role" }
+      responses:
+        "200": { description: Updated., content: { application/json: { schema: { $ref: "#/components/schemas/AdminUser" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: Not found. }
+    delete:
+      tags: [Admin]
+      x-internal: true
+      summary: Hard-delete a user (erase + remove).
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: Not found. }
+        "409": { description: Last admin. }
+
+  /api/admin/users/{id}/sites:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Admin]
+      x-internal: true
+      summary: Set a user's per-site grants (per_site_admin only).
+      x-statnive-feature-flag: features.per_site_admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                sites: { type: array, items: { type: integer, format: int64 } }
+      responses:
+        "204": { description: Updated. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: Not found. }
+        "501": { $ref: "#/components/responses/NotImplemented" }
+
+  /api/admin/users/{id}/password:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Admin]
+      x-internal: true
+      summary: Reset a user's password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [password], properties: { password: { type: string } } }
+      responses:
+        "204": { description: Reset. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: Not found. }
+
+  /api/admin/users/{id}/disable:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Admin]
+      x-internal: true
+      summary: Disable a user.
+      responses:
+        "204": { description: Disabled. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: Not found. }
+
+  /api/admin/users/{id}/enable:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Admin]
+      x-internal: true
+      summary: Enable a user.
+      responses:
+        "204": { description: Enabled. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: Not found. }
+
+  /api/admin/goals:
+    get:
+      tags: [Admin]
+      x-internal: true
+      summary: List goals.
+      responses:
+        "200": { description: Goals., content: { application/json: { schema: { $ref: "#/components/schemas/AdminGoalsResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Admin]
+      x-internal: true
+      summary: Create a goal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, match_type, pattern]
+              properties:
+                name: { type: string }
+                match_type: { type: string }
+                pattern: { type: string }
+                value: { type: integer, format: int64 }
+                enabled: { type: boolean }
+      responses:
+        "201": { description: Created., content: { application/json: { schema: { $ref: "#/components/schemas/AdminGoal" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/goals/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Admin]
+      x-internal: true
+      summary: Update a goal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, properties: { name: { type: string }, match_type: { type: string }, pattern: { type: string }, value: { type: integer, format: int64 }, enabled: { type: boolean } } }
+      responses:
+        "200": { description: Updated., content: { application/json: { schema: { $ref: "#/components/schemas/AdminGoal" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Not found. }
+
+  /api/admin/goals/{id}/disable:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Admin]
+      x-internal: true
+      summary: Disable (soft-delete) a goal.
+      responses:
+        "204": { description: Disabled. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Not found. }
+
+  /api/admin/sites:
+    get:
+      tags: [Admin]
+      x-internal: true
+      summary: List sites (admin view).
+      responses:
+        "200": { description: Sites., content: { application/json: { schema: { $ref: "#/components/schemas/AdminSitesResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Admin]
+      x-internal: true
+      summary: Create a site.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [hostname, slug, tz, currency]
+              properties:
+                hostname: { type: string }
+                slug: { type: string }
+                tz: { type: string }
+                currency: { type: string }
+                jurisdiction: { type: string }
+                consent_mode: { type: string }
+                event_allowlist: { type: array, items: { type: string } }
+                allowed_origins: { type: array, items: { type: string } }
+      responses:
+        "201": { description: Created., content: { application/json: { schema: { $ref: "#/components/schemas/AdminSite" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: Hostname/slug/origin collision. }
+
+  /api/admin/sites/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    patch:
+      tags: [Admin]
+      x-internal: true
+      summary: Update a site's policy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Updated., content: { application/json: { schema: { $ref: "#/components/schemas/AdminSite" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Not found. }
+        "409": { description: Origin collision. }
+
+  /api/admin/currencies:
+    get:
+      tags: [Admin]
+      x-internal: true
+      summary: Supported currency options.
+      responses:
+        "200": { description: Currencies., content: { application/json: { schema: { $ref: "#/components/schemas/OptionsResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/timezones:
+    get:
+      tags: [Admin]
+      x-internal: true
+      summary: Supported timezone options.
+      responses:
+        "200": { description: Timezones., content: { application/json: { schema: { $ref: "#/components/schemas/OptionsResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/event-audit:
+    get:
+      tags: [Admin]
+      x-internal: true
+      summary: Consent-free event-name cap status.
+      parameters:
+        - { name: site_id, in: query, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { description: Audit., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { description: Event audit not available. }
+
+  /api/admin/jurisdiction-notice:
+    get:
+      tags: [Admin]
+      x-internal: true
+      summary: Whether the jurisdiction notice is dismissed.
+      responses:
+        "200": { description: Notice., content: { application/json: { schema: { type: object, properties: { dismissed: { type: boolean } }, required: [dismissed] } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/admin/jurisdiction-notice/dismiss:
+    post:
+      tags: [Admin]
+      x-internal: true
+      summary: Dismiss the jurisdiction notice (idempotent).
+      responses:
+        "204": { description: Dismissed. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { description: Store unavailable. }
+
+  /privacy:
+    get:
+      tags: [Legal]
+      summary: Visitor-facing privacy page (HTML).
+      security: []
+      parameters:
+        - { name: site, in: query, required: true, schema: { type: string }, description: Hostname. }
+      responses:
+        "200": { description: HTML page., content: { text/html: { schema: { type: string } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+    options:
+      tags: [Legal]
+      summary: CORS preflight for /privacy.
+      security: []
+      responses:
+        "204": { description: Preflight. }
+
+  /legal/privacy-policy/{lang}:
+    get:
+      tags: [Legal]
+      summary: Privacy policy template (markdown) by language.
+      security: []
+      parameters:
+        - { name: lang, in: path, required: true, schema: { type: string, enum: [en, de] } }
+      responses:
+        "200": { description: Markdown., content: { text/markdown: { schema: { type: string } } } }
+        "404": { description: Unknown language. }
+
+  /legal/lia:
+    get:
+      tags: [Legal]
+      summary: Legitimate Interest Assessment template (markdown).
+      security: []
+      parameters:
+        - { name: lang, in: query, required: false, schema: { type: string, enum: [en, de] } }
+      responses:
+        "200": { description: Markdown., content: { text/markdown: { schema: { type: string } } } }
+
+  /legal/dpa:
+    get:
+      tags: [Legal]
+      summary: Data Processing Agreement template (markdown).
+      security: []
+      responses:
+        "200": { description: Markdown., content: { text/markdown: { schema: { type: string } } } }
+
+  /api/privacy/opt-out:
+    post:
+      tags: [Privacy]
+      summary: Opt out of tracking (GDPR Art. 21). CSRF-protected.
+      security: []
+      responses:
+        "204": { description: Opted out (idempotent). }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { description: CSRF/CORS rejected. }
+    options:
+      tags: [Privacy]
+      summary: CORS preflight.
+      security: []
+      responses:
+        "204": { description: Preflight. }
+
+  /api/privacy/access:
+    get:
+      tags: [Privacy]
+      summary: Subject access export (GDPR Art. 15).
+      security: []
+      responses:
+        "200": { description: Visitor rows., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Unknown host. }
+        "503": { description: Export not configured. }
+    options:
+      tags: [Privacy]
+      summary: CORS preflight.
+      security: []
+      responses:
+        "204": { description: Preflight. }
+
+  /api/privacy/erase:
+    post:
+      tags: [Privacy]
+      summary: Erasure request (GDPR Art. 17). CSRF-protected.
+      security: []
+      responses:
+        "202": { description: Accepted., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: CSRF rejected. }
+        "503": { description: Erase not configured. }
+    options:
+      tags: [Privacy]
+      summary: CORS preflight.
+      security: []
+      responses:
+        "204": { description: Preflight. }
+
+  /api/privacy/consent:
+    post:
+      tags: [Privacy]
+      summary: Give or withdraw consent. CSRF-protected.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [action], properties: { action: { type: string, enum: [give, withdraw] } } }
+      responses:
+        "204": { description: Applied. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { description: Withdraw without cookie. }
+        "403": { description: CSRF rejected. }
+    options:
+      tags: [Privacy]
+      summary: CORS preflight.
+      security: []
+      responses:
+        "204": { description: Preflight. }
+
+  /healthz:
+    get:
+      tags: [Ops]
+      summary: Liveness + CH/WAL health.
+      security: []
+      responses:
+        "200": { description: Healthy., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "503": { description: Degraded (CH down / WAL high)., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+
+  /metrics:
+    get:
+      tags: [Ops]
+      summary: Prometheus metrics (bearer-gated; 404 when token unset).
+      responses:
+        "200": { description: Prometheus exposition., content: { text/plain: { schema: { type: string } } } }
+        "401": { description: Bad/missing token (text/plain). }
+        "404": { description: Metrics disabled (no token configured). }
+
+  /api/about:
+    get:
+      tags: [Ops]
+      summary: Build info + third-party attributions.
+      security: []
+      responses:
+        "200": { description: About., content: { application/json: { schema: { $ref: "#/components/schemas/AboutResponse" } } } }
+
+  /tracker.js:
+    get:
+      tags: [Public]
+      summary: First-party tracker script.
+      security: []
+      responses:
+        "200": { description: JavaScript., content: { application/javascript: { schema: { type: string } } } }
+
+  /:
+    get:
+      tags: [Public]
+      summary: Landing page.
+      security: []
+      responses:
+        "200": { description: HTML., content: { text/html: { schema: { type: string } } } }
+        "405": { description: Method not allowed. }
+    head:
+      tags: [Public]
+      summary: Landing page headers.
+      security: []
+      responses:
+        "200": { description: Headers only. }
+
+  /favicon.ico:
+    get:
+      tags: [Public]
+      summary: Favicon.
+      security: []
+      responses:
+        "200": { description: SVG icon., content: { image/svg+xml: { schema: { type: string } } } }
+    head:
+      tags: [Public]
+      summary: Favicon headers.
+      security: []
+      responses:
+        "200": { description: Headers only. }
+
+  # ---- Non-chi surfaces (hand-authored; not on the main chi router) --------
+  /.well-known/oauth-authorization-server:
+    get:
+      tags: [OAuth]
+      x-internal: true
+      x-statnive-surface: non-chi
+      operationId: getWellKnownOauthAuthorizationServer
+      summary: OAuth 2.1 AS metadata (RFC 8414). chatgpt_app build only.
+      security: []
+      responses:
+        "200": { description: AS metadata., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+
+  /.well-known/jwks.json:
+    get:
+      tags: [OAuth]
+      x-internal: true
+      x-statnive-surface: non-chi
+      operationId: getWellKnownJwksJson
+      summary: JWKS for the OAuth AS. chatgpt_app build only.
+      security: []
+      responses:
+        "200": { description: JWKS., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+
+  /token:
+    post:
+      tags: [OAuth]
+      x-internal: true
+      x-statnive-surface: non-chi
+      operationId: postToken
+      summary: OAuth token endpoint (RFC 6749). chatgpt_app build only.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Token., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "400": { description: Invalid grant. }
+
+  /authorize:
+    get:
+      tags: [OAuth]
+      x-internal: true
+      x-statnive-surface: non-chi
+      operationId: getAuthorize
+      summary: OAuth authorize (consent screen). chatgpt_app build only.
+      responses:
+        "200": { description: Consent HTML., content: { text/html: { schema: { type: string } } } }
+        "302": { description: Redirect to client. }
+        "400": { description: Invalid request. }
+
+  /consent:
+    post:
+      tags: [OAuth]
+      x-internal: true
+      x-statnive-surface: non-chi
+      operationId: postConsent
+      summary: OAuth consent decision. chatgpt_app build only.
+      responses:
+        "302": { description: Redirect to client with code/error. }
+
+  /register:
+    post:
+      tags: [OAuth]
+      x-internal: true
+      x-statnive-surface: non-chi
+      operationId: postRegister
+      summary: Dynamic client registration (RFC 7591; admin-gated). chatgpt_app build only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "201": { description: Registered client., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /mcp:
+    post:
+      tags: [McpHttp]
+      x-internal: true
+      x-statnive-surface: non-chi
+      operationId: postMcp
+      summary: MCP JSON-RPC 2.0 endpoint (separate listener; mcp.http.enabled).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: JSON-RPC result (or text/event-stream when requested)., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "202": { description: Notification accepted (no body). }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "405": { description: Non-POST. }
+
+  /.well-known/oauth-protected-resource:
+    get:
+      tags: [McpHttp]
+      x-internal: true
+      x-statnive-surface: non-chi
+      x-statnive-profile: chatgpt-app
+      operationId: getWellKnownOauthProtectedResource
+      summary: RFC 9728 protected-resource metadata (MCP listener; chatgpt-app profile only).
+      security: []
+      responses:
+        "200": { description: Metadata., content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "405": { description: Non-GET. }

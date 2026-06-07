@@ -310,6 +310,57 @@ jobs:
       - name: web-airgap-grep
         run: make web-airgap-grep
 
+  # OpenAPI contract gate. The Go route-coverage / drift / fidelity tests run in
+  # build-test-lint's `make test`; this job adds the Node + oasdiff gates
+  # (lint, breaking-change, SPA types drift, offline-viewer air-gap). Keep this
+  # job NON-REQUIRED in branch protection until it has been green on main once.
+  spec:
+    name: OpenAPI contract (lint + breaking + types + docs air-gap)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0  # oasdiff needs origin/main:api/openapi.yaml as the base
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'api/package-lock.json'
+
+      - name: Install contract toolchain (redocly/spectral/prism)
+        run: npm --prefix api ci
+
+      - name: Install SPA devDeps (for types:check)
+        run: npm --prefix web ci
+
+      - name: Install oasdiff
+        run: GOFLAGS=-mod=mod go install github.com/oasdiff/oasdiff@v1.18.4
+
+      - name: Spec drift gate (regenerate + git diff)
+        run: make spec-check
+
+      - name: Spec lint (redocly + spectral OWASP; examples validate)
+        run: make spec-lint
+
+      - name: Breaking-change gate (oasdiff vs origin/main)
+        run: make spec-breaking
+
+      - name: SPA types drift gate
+        run: npm --prefix web run types:check
+
+      - name: Offline viewer air-gap grep
+        run: make docs-airgap-grep
+
   smoke-test:
     name: End-to-end boot smoke (real main.go)
     runs-on: ubuntu-latest
